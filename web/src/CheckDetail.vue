@@ -5,6 +5,7 @@ import { activityCheckHints, activityKindLabels } from './activity'
 import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } from './workflow'
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
 import Icon from './Icon.vue'
+import TemplateCriteria from './TemplateCriteria.vue'
 
 const props = defineProps<{ workspace: Workspace; checkId: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -103,7 +104,7 @@ onBeforeUnmount(() => active.abort())
       <header class="page-header">
         <div>
           <p class="eyebrow">检查记录 <span class="mono">#{{ record.id }}</span></p>
-          <h1>{{ record.requirement.title }}</h1>
+          <h1>{{ record.template?.item.title || record.requirement.title }}</h1>
           <p>{{ record.assetName }} · {{ record.ownerTeam }}</p>
         </div>
         <div class="page-actions">
@@ -150,6 +151,14 @@ onBeforeUnmount(() => active.abort())
             <dd class="text-block">核对指定协作者的文档直接授权。链接、继承和群组授权等访问路径需单独核验。</dd>
           </div>
           <div class="detail-wide"><dt>检查范围与标准</dt><dd class="text-block">{{ record.note }}</dd></div>
+          <div v-if="record.template" class="detail-wide">
+            <dt>检查模板</dt>
+            <dd>
+              <a class="table-link" :href="home + '/templates/' + record.template.revisionId">{{ record.template.title }}</a>
+              <span class="table-secondary">版本 {{ record.template.version }} · {{ record.template.item.title }}</span>
+              <TemplateCriteria :item="record.template.item" />
+            </dd>
+          </div>
         </dl>
       </section>
 

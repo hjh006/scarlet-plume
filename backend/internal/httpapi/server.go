@@ -41,6 +41,8 @@ func New(st *store.Store, origin string, secure bool) http.Handler {
 	mux.HandleFunc("POST /api/v1/workspaces/{slug}/imports", s.workspace(true, s.importAssets))
 	s.checkRoutes(mux)
 	s.activityRoutes(mux)
+	s.templateRoutes(mux)
+	s.reportRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})

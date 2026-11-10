@@ -26,6 +26,10 @@ defineProps<{ name: string }>()
     <template v-else-if="name === 'checks'">
       <rect x="5" y="5" width="14" height="16" rx="2" /><path d="M9 5V3h6v2m-6 8 2 2 4-4" />
     </template>
+    <template v-else-if="name === 'templates'">
+      <rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9h16m-10 0v11m4-7h3m-3 3h3" />
+    </template>
+    <path v-else-if="name === 'reports'" d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6" />
     <path v-else-if="name === 'back'" d="M20 12H5m6-6-6 6 6 6" />
     <path v-else-if="name === 'download'" d="M12 4v11m-5-5 5 5 5-5M4 16v4h16v-4" />
     <path v-else-if="name === 'plus'" d="M12 5v14M5 12h14" />

@@ -10,17 +10,22 @@ import CheckDetail from './CheckDetail.vue'
 import ActivitiesView from './ActivitiesView.vue'
 import ActivityCreate from './ActivityCreate.vue'
 import ActivityDetail from './ActivityDetail.vue'
+import TemplatesView from './TemplatesView.vue'
+import TemplateForm from './TemplateForm.vue'
+import ComplianceReportView from './ComplianceReportView.vue'
 
 const pages = [
   { id: 'overview', label: '概览' },
   { id: 'assets', label: '数据资产' },
   { id: 'activities', label: '处理活动' },
   { id: 'checks', label: '监管检查' },
+  { id: 'templates', label: '检查模板' },
+  { id: 'reports', label: '合规报告' },
   { id: 'integrations', label: '集成与导入' },
 ] as const
 
 function readRoute() {
-  const [, rawSlug, requestedPage, recordId = '', activityContext = ''] = window.location.hash.split('/')
+  const [, rawSlug, requestedPage, recordId = '', contextId = ''] = window.location.hash.split('/')
   let slug = ''
   try {
     slug = decodeURIComponent(rawSlug || '')
@@ -28,7 +33,7 @@ function readRoute() {
     slug = ''
   }
   const page = pages.find(page => page.id === requestedPage)?.id || 'overview'
-  return { slug, page, recordId, activityContext: page === 'checks' && recordId === 'new' ? activityContext : '' }
+  return { slug, page, recordId, contextId }
 }
 
 const route = ref(readRoute())
@@ -175,13 +180,22 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <ActivitiesView v-else :key="workspace.slug" :workspace="workspace" @session-expired="sessionExpired" />
         </template>
         <template v-else-if="route.page === 'checks'">
-          <CheckCreate v-if="route.recordId === 'new'" :key="`${workspace.slug}/${route.activityContext}`"
-                       :workspace="workspace" :activity-context="route.activityContext"
+          <CheckCreate v-if="route.recordId === 'new'" :key="`${workspace.slug}/${route.contextId}`"
+                       :workspace="workspace" :activity-context="route.contextId"
                        @session-expired="sessionExpired" />
           <CheckDetail v-else-if="route.recordId" :key="`${workspace.slug}/${route.recordId}`"
                        :workspace="workspace" :check-id="route.recordId" @session-expired="sessionExpired" />
           <ChecksView v-else :key="workspace.slug" :workspace="workspace" @session-expired="sessionExpired" />
         </template>
+        <template v-else-if="route.page === 'templates'">
+          <TemplateForm v-if="route.recordId === 'new' || route.recordId === 'revise'"
+                        :key="`${workspace.slug}/${route.recordId}/${route.contextId}`" :workspace="workspace"
+                        :source-id="route.contextId" :revise="route.recordId === 'revise'" @session-expired="sessionExpired" />
+          <TemplatesView v-else :key="`${workspace.slug}/${route.recordId}`" :workspace="workspace"
+                         :revision-id="route.recordId" @session-expired="sessionExpired" />
+        </template>
+        <ComplianceReportView v-else-if="route.page === 'reports'" :key="`${workspace.slug}/${route.recordId}`"
+                              :workspace="workspace" :activity-context="route.recordId" @session-expired="sessionExpired" />
         <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
                        @session-expired="sessionExpired" />
       </main>

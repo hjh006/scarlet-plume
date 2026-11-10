@@ -47,9 +47,12 @@ onBeforeUnmount(() => active.abort())
         <h1>{{ activity.name }}</h1>
         <p>{{ activityKindLabels[activity.kind] }} · {{ activity.assetName }}</p>
       </div>
-      <a v-if="canManageChecks(workspace.role)" class="button button-primary" :href="home + '/checks/new/' + activity.id">
-        <Icon name="plus" />发起关联检查
-      </a>
+      <div class="page-actions">
+        <a v-if="canManageChecks(workspace.role)" class="button button-primary" :href="home + '/checks/new/' + activity.id">
+          <Icon name="plus" />发起关联检查
+        </a>
+        <a class="button button-secondary" :href="home + '/reports/' + activity.id"><Icon name="reports" />查看活动报告</a>
+      </div>
     </header>
     <section class="panel activity-record" aria-labelledby="activity-record-title">
       <div class="panel-heading">
