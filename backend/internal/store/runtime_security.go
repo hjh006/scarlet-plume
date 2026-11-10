@@ -139,9 +139,11 @@ func (s *Store) RevokeRuntimeSource(ctx context.Context, workspaceID, actorID, s
 			return err
 		}
 		result, err := tx.Exec(ctx, `
-			UPDATE plume.runtime_security_sources SET revoked_at = COALESCE(revoked_at, clock_timestamp()), receipt_count = 0
+			UPDATE plume.runtime_security_sources
+			SET revoked_by = CASE WHEN revoked_at IS NULL THEN $3 ELSE revoked_by END,
+			    revoked_at = COALESCE(revoked_at, clock_timestamp()), receipt_count = 0
 			WHERE workspace_id = $1 AND id = $2
-		`, workspaceID, sourceID)
+		`, workspaceID, sourceID, actorID)
 		if err != nil {
 			return err
 		}
@@ -195,11 +197,11 @@ func (s *Store) DeliverRuntimeBatch(ctx context.Context, kind, tokenDigest, batc
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		var sourceID, workspaceID, actorID int64
 		var service, sourceName string
-		var retained int
+		var retained, auditCount int
 		err := tx.QueryRow(ctx, `
-			SELECT id, workspace_id, actor_id, service, name, receipt_count FROM plume.runtime_security_sources
+			SELECT id, workspace_id, actor_id, service, name, receipt_count, audit_count FROM plume.runtime_security_sources
 			WHERE token_digest = $1 AND kind = $2 AND revoked_at IS NULL FOR NO KEY UPDATE
-		`, tokenDigest, kind).Scan(&sourceID, &workspaceID, &actorID, &service, &sourceName, &retained)
+		`, tokenDigest, kind).Scan(&sourceID, &workspaceID, &actorID, &service, &sourceName, &retained, &auditCount)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrAutomationUnauthorized
 		}
@@ -253,10 +255,15 @@ func (s *Store) DeliverRuntimeBatch(ctx context.Context, kind, tokenDigest, batc
 		`, sourceID, batchID, digest, receipt.Accepted, lastSeen); err != nil {
 			return err
 		}
+		auditCount, err = persistRuntimeMonitor(ctx, tx, sourceID, auditCount, observations)
+		if err != nil {
+			return err
+		}
 		_, err = tx.Exec(ctx, `
-			UPDATE plume.runtime_security_sources SET last_seen = GREATEST(last_seen, $2), receipt_count = $3
+			UPDATE plume.runtime_security_sources
+			SET last_seen = GREATEST(last_seen, $2), receipt_count = $3, audit_count = $4
 			WHERE id = $1
-		`, sourceID, lastSeen, retained+1)
+		`, sourceID, lastSeen, retained+1, auditCount)
 		if err != nil {
 			return err
 		}

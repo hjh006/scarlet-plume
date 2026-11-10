@@ -30,6 +30,10 @@ defineProps<{ name: string }>()
       <rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9h16m-10 0v11m4-7h3m-3 3h3" />
     </template>
     <path v-else-if="name === 'reports'" d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6" />
+    <path v-else-if="name === 'classification'" d="M3 4h8l10 10-7 7L4 11zM8 8h.01" />
+    <template v-else-if="name === 'audit'">
+      <circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" />
+    </template>
     <path v-else-if="name === 'api-security'" d="M12 3c2.4 1.6 5 2.6 8 3v5.5c0 4-3.3 7.4-8 9.5-4.7-2.1-8-5.5-8-9.5V6c3-.4 5.6-1.4 8-3Zm-2 6-2 2.5 2 2.5m4-5 2 2.5-2 2.5" />
     <path v-else-if="name === 'menu'" d="M4 6h16M4 12h16M4 18h16" />
     <path v-else-if="name === 'close'" d="m6 6 12 12M18 6 6 18" />

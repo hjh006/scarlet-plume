@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
 import Icon from './Icon.vue'
 import RuntimeFindingsPanel from './RuntimeFindingsPanel.vue'
+import RuntimeMonitor from './RuntimeMonitor.vue'
 import type { RuntimeFinding } from './runtime-findings'
 import './api-security-view.css'
 
@@ -58,6 +59,7 @@ const routes = ref<RuntimeRoute[]>([])
 const findings = ref<RuntimeFinding[]>([])
 const findingsLoaded = ref(false)
 const findingsError = ref('')
+const monitorRefresh = ref(0)
 const loading = ref(false)
 const loaded = ref(false)
 const loadError = ref('')
@@ -118,6 +120,7 @@ async function load() {
       findingsLoaded.value = true
     }
     loaded.value = true
+    monitorRefresh.value++
   } catch (error) {
     loadError.value = errorText(error)
   } finally {
@@ -325,7 +328,10 @@ onBeforeUnmount(() => {
         <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--coral"><Icon name="checks" /></span>未闭环发现</dt><dd>{{ findingsLoaded ? openFindings : '—' }}</dd></div>
       </dl>
 
-      <RuntimeFindingsPanel :findings="findings" :home="home" :loading="loading" :error="findingsError" />
+      <RuntimeMonitor :api-path="runtimePath" :audit-href="home + '/audit'" :sources="sources" :refresh="monitorRefresh"
+                      @session-expired="emit('sessionExpired')" />
+      <RuntimeFindingsPanel :workspace="workspace" :findings="findings" :home="home" :loading="loading" :error="findingsError"
+                            @session-expired="emit('sessionExpired')" />
 
       <section class="panel api-panel" aria-labelledby="runtime-routes-title" :aria-busy="loading">
         <div class="api-panel-heading">

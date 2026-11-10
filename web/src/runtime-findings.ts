@@ -23,4 +23,22 @@ export interface RuntimeFinding extends RuntimeFindingContext {
   checkId: number
   checkStatus: Check['status']
   previousCheckId?: number
+  risk?: RuntimeRisk
+}
+
+export const runtimeRiskSeverityLabels = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  critical: '严重',
+}
+
+export interface RuntimeRisk {
+  revision: number
+  severity: keyof typeof runtimeRiskSeverityLabels
+  ownerTeam: string
+  dueDate?: string
+  reason: string
+  updatedBy: string
+  updatedAt: string
 }

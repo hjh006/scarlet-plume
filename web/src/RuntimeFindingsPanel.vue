@@ -1,17 +1,33 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { formatDate } from './api'
-import { runtimeRuleLabels, type RuntimeFinding } from './runtime-findings'
+import { formatDate, type Workspace } from './api'
+import { runtimeRuleLabels, runtimeRiskSeverityLabels, type RuntimeFinding, type RuntimeRisk } from './runtime-findings'
 import { checkStatusLabels } from './workflow'
 import Icon from './Icon.vue'
+import RuntimeRiskEditor from './RuntimeRiskEditor.vue'
 
-const props = defineProps<{ findings: RuntimeFinding[]; home: string; loading: boolean; error: string }>()
+const props = defineProps<{ findings: RuntimeFinding[]; home: string; loading: boolean; error: string; workspace: Workspace }>()
+const emit = defineEmits<{ sessionExpired: [] }>()
+const localRisk = ref<Record<number, RuntimeRisk>>({})
+const severity = ref<RuntimeRisk['severity'] | 'pending' | ''>('')
+const overdueOnly = ref(false)
+const today = new Intl.DateTimeFormat('sv-SE').format(new Date())
+function riskFor(finding: RuntimeFinding) {
+  const saved = localRisk.value[finding.id]
+  return saved && saved.revision > (finding.risk?.revision ?? 0) ? saved : finding.risk
+}
+function isOverdue(finding: RuntimeFinding) {
+  const due = riskFor(finding)?.dueDate
+  return Boolean(due && due < today && finding.checkStatus !== 'verified')
+}
 const rule = ref<RuntimeFinding['rule'] | ''>('')
 const status = ref<RuntimeFinding['checkStatus'] | 'open' | ''>('')
 const limit = ref(25)
 const filtered = computed(() => props.findings.filter(finding =>
   (!rule.value || finding.rule === rule.value) &&
-  (!status.value || (status.value === 'open' ? finding.checkStatus !== 'verified' : finding.checkStatus === status.value)),
+  (!status.value || (status.value === 'open' ? finding.checkStatus !== 'verified' : finding.checkStatus === status.value)) &&
+  (!severity.value || (severity.value === 'pending' ? !riskFor(finding) : riskFor(finding)?.severity === severity.value)) &&
+  (!overdueOnly.value || isOverdue(finding)),
 ))
 </script>
 
@@ -19,7 +35,7 @@ const filtered = computed(() => props.findings.filter(finding =>
   <section class="panel api-panel runtime-findings" aria-labelledby="runtime-findings-title" :aria-busy="loading">
     <div class="api-panel-heading">
       <div>
-        <h2 id="runtime-findings-title">运行时发现</h2>
+        <h2 id="runtime-findings-title">运行时发现与风险管理</h2>
         <p>自动记录成功响应与契约的差异，并登记证据到 G03 监管检查。</p>
       </div>
       <span v-if="findings.length" class="api-secondary">已登记 {{ findings.length }} 项</span>
@@ -36,6 +52,13 @@ const filtered = computed(() => props.findings.filter(finding =>
         <option value="open">未闭环</option>
         <option v-for="(label, value) in checkStatusLabels" :key="value" :value="value">{{ label }}</option>
       </select>
+      <label for="runtime-risk-filter">风险等级</label>
+      <select id="runtime-risk-filter" v-model="severity" @change="limit = 25">
+        <option value="">全部等级</option>
+        <option value="pending">待研判</option>
+        <option v-for="(label, value) in runtimeRiskSeverityLabels" :key="value" :value="value">{{ label }}</option>
+      </select>
+      <label class="runtime-overdue-filter"><input v-model="overdueOnly" type="checkbox" @change="limit = 25">仅逾期</label>
     </div>
     <details class="runtime-findings-help">
       <summary>触发规则与取证范围</summary>
@@ -48,7 +71,7 @@ const filtered = computed(() => props.findings.filter(finding =>
       <table class="api-table runtime-findings-table" role="table">
         <thead role="rowgroup"><tr role="row">
           <th scope="col" role="columnheader">接口与服务</th><th scope="col" role="columnheader">触发与依据</th>
-          <th scope="col" role="columnheader">触发时间</th><th scope="col" role="columnheader">复测与复核</th>
+          <th scope="col" role="columnheader">触发时间</th><th scope="col" role="columnheader">风险研判</th><th scope="col" role="columnheader">复测与复核</th>
           <th scope="col" role="columnheader">关联检查</th>
         </tr></thead>
         <tbody role="rowgroup">
@@ -70,6 +93,11 @@ const filtered = computed(() => props.findings.filter(finding =>
               <span class="api-cell-label" aria-hidden="true">触发时间</span>
               最近 <time :datetime="finding.lastSeen">{{ formatDate(finding.lastSeen) }}</time>
               <span class="api-secondary">首次 <time :datetime="finding.firstSeen">{{ formatDate(finding.firstSeen) }}</time></span>
+            </td>
+            <td role="cell">
+              <span class="api-cell-label" aria-hidden="true">风险研判</span>
+              <RuntimeRiskEditor :workspace="workspace" :finding="finding" :risk="riskFor(finding)" :overdue="isOverdue(finding)"
+                                 @updated="localRisk[finding.id] = $event" @session-expired="emit('sessionExpired')" />
             </td>
             <td role="cell">
               <span class="api-cell-label" aria-hidden="true">复测与复核</span>
@@ -100,6 +128,7 @@ const filtered = computed(() => props.findings.filter(finding =>
 <style scoped>
 .runtime-findings-filters { padding: 0 0 .65rem; border: 0; }
 .runtime-findings-filters select { min-width: 0; }
+.runtime-overdue-filter { display: inline-flex; align-items: center; gap: .35rem; }
 .runtime-findings-help { margin: .25rem 0 .75rem; padding: .55rem .75rem; border-radius: .4rem; background: var(--surface-subtle); }
 .runtime-findings-help summary { min-height: 1.8rem; color: var(--api-blue-deep); cursor: pointer; font-weight: 700; }
 .runtime-findings-help p { margin-top: .45rem; color: var(--api-quiet); font-size: .875rem; }

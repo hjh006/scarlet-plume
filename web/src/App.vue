@@ -18,11 +18,14 @@ import ReportArchiveView from './ReportArchiveView.vue'
 import AutomationView from './AutomationView.vue'
 import ApiSecurityView from './ApiSecurityView.vue'
 import ApiRuntimeView from './ApiRuntimeView.vue'
+import AuditView from './AuditView.vue'
+import ClassificationView from './ClassificationView.vue'
 
 const pageGroups = [
   { label: '治理', items: [
     { id: 'overview', label: '概览' },
     { id: 'assets', label: '数据资产' },
+    { id: 'classification', label: '分类分级' },
     { id: 'activities', label: '处理活动' },
     { id: 'checks', label: '监管检查' },
     { id: 'templates', label: '检查模板' },
@@ -30,6 +33,7 @@ const pageGroups = [
   ] },
   { label: '安全与集成', items: [
     { id: 'api-security', label: 'API 安全' },
+    { id: 'audit', label: '审计中心' },
     { id: 'automation', label: '自动采集' },
     { id: 'integrations', label: '集成与导入' },
   ] },
@@ -246,6 +250,10 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <ApiSecurityView v-else :key="`${workspace.slug}/api-security/${route.recordId}`"
                            :workspace="workspace" :scan-id="route.recordId" @session-expired="sessionExpired" />
         </template>
+        <ClassificationView v-else-if="route.page === 'classification'" :key="`${workspace.slug}/classification/${route.recordId}`"
+                            :workspace="workspace" :asset-id="route.recordId" @session-expired="sessionExpired" />
+        <AuditView v-else-if="route.page === 'audit'" :key="`${workspace.slug}/audit/${route.recordId}`" :workspace="workspace"
+                   :tab="route.recordId === 'actions' ? 'actions' : 'runtime'" @session-expired="sessionExpired" />
         <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
                        @session-expired="sessionExpired" />
       </main>
