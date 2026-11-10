@@ -180,11 +180,11 @@ func postgresURL(c Connection, password, sslMode string) string {
 	return u.String()
 }
 
-func (m *Manager) collect(ctx context.Context, c Connection, password string) ([]collector.Asset, error) {
+func (m *Manager) inspect(ctx context.Context, c Connection, password string) ([]collector.PostgreSQLTable, error) {
 	if m.dockerSample(c) {
-		return collector.PostgreSQLDockerSample(ctx, postgresURL(c, password, "disable"), c.Schemas)
+		return collector.InspectPostgreSQLDockerSample(ctx, postgresURL(c, password, "disable"), c.Schemas)
 	}
-	return collector.PostgreSQL(ctx, postgresURL(c, password, "verify-full"), c.Schemas, false)
+	return collector.InspectPostgreSQL(ctx, postgresURL(c, password, "verify-full"), c.Schemas, false)
 }
 
 // Test checks the same read-only catalog operation used by recurring jobs.
@@ -207,11 +207,11 @@ func (m *Manager) test(ctx context.Context, c Connection, password string) (int,
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	assets, err := m.collect(ctx, c, password)
+	tables, err := m.inspect(ctx, c, password)
 	if err != nil {
 		return 0, ErrConnection
 	}
-	return len(assets), nil
+	return len(tables), nil
 }
 
 func (m *Manager) TestSaved(ctx context.Context, c Connection, ciphertext []byte) (int, error) {

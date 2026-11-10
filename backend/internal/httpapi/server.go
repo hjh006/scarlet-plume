@@ -51,6 +51,7 @@ func NewWithManaged(st *store.Store, origin string, secure bool, manager *manage
 	s.reportRoutes(mux)
 	s.automationRoutes(mux)
 	s.managedRoutes(mux)
+	s.postgresInspectionRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})

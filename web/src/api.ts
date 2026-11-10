@@ -16,6 +16,7 @@ export interface Asset {
   system: string
   source: string
   sourceRef: string
+  sourceProvider?: string
   ownerTeam: string
   category?: string
   businessLevel?: string

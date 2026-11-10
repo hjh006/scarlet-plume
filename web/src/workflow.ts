@@ -1,5 +1,6 @@
 import type { ActivityLink } from './activity'
 import type { TemplateBinding } from './template'
+import type { PostgresEvidence } from './postgresql'
 
 export const checkStatusLabels = {
   draft: '待取证',
@@ -17,6 +18,7 @@ export const evidenceKindLabels = {
 export const eventLabels = {
   created: '创建检查',
   evidence: '登记证据',
+  postgres_binding: '关联 PostgreSQL 采集任务',
   submitted: '提交复核',
   changes: '要求整改',
   verified: '复核通过',
@@ -61,6 +63,7 @@ export interface Evidence {
   recordedBy: string
   automationJobId?: number
   automationRunId?: string
+  postgres?: PostgresEvidence
   feishu?: {
     memberPresent: boolean
     permission?: string
@@ -85,6 +88,8 @@ export interface CheckDetail extends Check {
   canReview: boolean
   canVerify: boolean
   feishuTargetDigest?: string
+  postgresJobId?: number
+  availablePostgresJobId?: number
   reviewRevision?: number
 }
 

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, documentationUrl, formatDate, request, workspacePath, type Workspace } from './api'
 import { activityCheckHints, activityKindLabels } from './activity'
+import { postgresPermissionScope, postgresPublicSelect, postgresSensitivityLabel } from './postgresql'
 import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } from './workflow'
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
 import Icon from './Icon.vue'
@@ -71,6 +72,27 @@ async function saveAction(action: 'submit' | 'review') {
     notice.value = action === 'submit' ? '已提交，等待独立复核。' : '已记录复核结论。'
     decision.value = ''
     reviewNote.value = ''
+    await load()
+  } catch (error) {
+    actionConflict.value = error instanceof ApiError && error.status === 409
+    actionError.value = errorText(error)
+  } finally {
+    actionPending.value = false
+  }
+}
+
+async function bindPostgres() {
+  const jobId = record.value?.availablePostgresJobId
+  if (!jobId || loading.value || actionPending.value) return
+  actionPending.value = true
+  notice.value = ''
+  actionError.value = ''
+  try {
+    await request(apiUrl + '/postgresql', {
+      method: 'POST', body: JSON.stringify({ jobId }), signal: active.signal,
+    })
+    if (active.signal.aborted) return
+    notice.value = '已关联 PostgreSQL 采集任务。下次采集成功后可查看证据。'
     await load()
   } catch (error) {
     actionConflict.value = error instanceof ApiError && error.status === 409
@@ -168,8 +190,20 @@ onBeforeUnmount(() => active.abort())
         <section class="panel" aria-labelledby="check-evidence-title">
           <div class="panel-heading">
             <div><h2 id="check-evidence-title">证据记录</h2><p>按来源标识和观察时间追溯核验依据。</p></div>
-            <button v-if="record.feishuTargetDigest" type="button" class="button button-secondary"
+            <button v-if="record.feishuTargetDigest || record.postgresJobId" type="button" class="button button-secondary"
                     :disabled="loading || actionPending" @click="load">刷新证据</button>
+          </div>
+          <div v-if="record.postgresJobId || record.availablePostgresJobId" class="postgres-binding">
+            <strong>PostgreSQL 自动取证</strong>
+            <p v-if="record.postgresJobId" class="field-hint">
+              已关联任务 #{{ record.postgresJobId }}。检查待取证或待整改时，后续快照可自动登记证据。
+            </p>
+            <p v-else class="field-hint">关联此资产的 PostgreSQL 任务后，可在后续采集中自动登记目录证据。</p>
+            <button v-if="record.availablePostgresJobId" type="button" class="button button-secondary"
+                    :disabled="loading || actionPending || actionConflict || Boolean(loadError)" @click="bindPostgres">
+              {{ record.postgresJobId ? '更新 PostgreSQL 采集任务' : '关联 PostgreSQL 采集任务' }}
+            </button>
+            <a class="table-link" :href="home + '/assets/' + record.assetId">查看字段与权限</a>
           </div>
           <div v-if="activityHint" class="activity-guidance">
             <strong>建议核对的证据</strong>
@@ -185,6 +219,11 @@ onBeforeUnmount(() => active.abort())
               <li>手工登记「整改记录」，关联变更记录。</li>
               <li>复测权限。已启用的采集任务会在下次运行时登记符合本轮条件的权限证据。</li>
               <li>提交独立复核。</li>
+            </ol>
+            <ol v-else-if="record.postgresJobId" class="remediation-steps">
+              <li>完成源端整改后登记「整改记录」。</li>
+              <li>等待下一轮 PostgreSQL 采集或从「自动采集」发起立即采集。</li>
+              <li>刷新证据，核对复测结果后提交独立复核。</li>
             </ol>
             <p v-else-if="record.canAddEvidence && !record.canSubmit">登记整改后新取得的复测证据，再提交独立复核。</p>
           </div>
@@ -204,6 +243,41 @@ onBeforeUnmount(() => active.abort())
             </p>
             <p v-if="entry.feishu" class="field-hint">{{ entry.feishu.memberPresent ? '检出目标协作者的直接授权' : '未检出目标协作者的直接授权' }}</p>
             <p class="text-block">{{ entry.summary }}</p>
+            <div v-if="entry.postgres" class="postgres-evidence-meta">
+              <p class="field-hint">
+                <span v-if="entry.postgres.database" class="mono">{{ entry.postgres.database }} · </span>
+                <span class="mono">{{ entry.postgres.sourceRef }}</span>
+                · {{ entry.postgres.columnCount }} 个字段 · {{ entry.postgres.sensitiveCandidateCount }} 个疑似敏感 · {{ entry.postgres.grantCount }} 条直接授权
+              </p>
+              <p class="field-hint">
+                {{ postgresPublicSelect(entry.postgres.publicSelect, entry.postgres.publicSelectColumnCount) }}
+                · {{ entry.postgres.publicSchemaUsage ? 'PUBLIC 具备 schema USAGE' : 'PUBLIC 未获 schema USAGE' }}
+              </p>
+              <p class="field-hint">{{ postgresPermissionScope }}</p>
+              <details v-if="entry.postgres.sensitiveFields?.length || entry.postgres.selectGrants?.length"
+                       class="asset-metadata postgres-evidence-details">
+                <summary>查看疑似字段和 SELECT 授权</summary>
+                <div v-if="entry.postgres.sensitiveFields?.length">
+                  <strong>疑似敏感字段</strong>
+                  <ul>
+                    <li v-for="field in entry.postgres.sensitiveFields" :key="field.name">
+                      <span class="mono">{{ field.name }}</span> · {{ postgresSensitivityLabel(field.sensitivity) }}
+                    </li>
+                  </ul>
+                  <p v-if="entry.postgres.sensitiveFieldsOmitted" class="field-hint">另有 {{ entry.postgres.sensitiveFieldsOmitted }} 个字段，可在资产详情查看。</p>
+                </div>
+                <div v-if="entry.postgres.selectGrants?.length">
+                  <strong>表所有者之外的直接 SELECT 授权</strong>
+                  <ul>
+                    <li v-for="(grant, index) in entry.postgres.selectGrants" :key="index">
+                      <span class="mono">{{ grant.public ? 'PUBLIC' : grant.grantee }}</span> ·
+                      {{ grant.column || '整表' }} · {{ grant.schemaUsage ? '有 schema USAGE' : '未检出 schema USAGE' }}
+                    </li>
+                  </ul>
+                  <p v-if="entry.postgres.selectGrantsOmitted" class="field-hint">另有 {{ entry.postgres.selectGrantsOmitted }} 条授权，可在资产详情查看。</p>
+                </div>
+              </details>
+            </div>
             <div class="evidence-meta">
               <span>观察于 <time :datetime="entry.observedAt">{{ formatDate(entry.observedAt) }}</time></span>
               <span>{{ entry.automationJobId ? entry.recordedBy + ' 授权的任务登记于' : entry.recordedBy + ' 登记于' }}

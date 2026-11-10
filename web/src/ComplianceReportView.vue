@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { activityKindLabels, type Activity, type ActivityPage } from './activity'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
 import { checkStatusLabels, eventLabels, type Check, type CheckEvent, type Evidence } from './workflow'
+import { postgresPublicSelect } from './postgresql'
 import Icon from './Icon.vue'
 
 interface ComplianceReport {
@@ -41,6 +42,9 @@ const counts = [
 
 const reportQuery = computed(() => activityId.value ? '?activityId=' + encodeURIComponent(activityId.value) : '')
 const activityMissing = computed(() => activityId.value && !activities.value.some(item => String(item.id) === activityId.value))
+const reportChecks = computed(() => report.value?.checks.map(entry => ({
+  ...entry, postgresEvidence: entry.evidence.find(evidence => evidence.postgres)?.postgres,
+})) ?? [])
 
 function errorText(error: unknown) {
   if (active.signal.aborted) return ''
@@ -188,14 +192,21 @@ onBeforeUnmount(() => active.abort())
           <tr><th scope="col">检查与资产</th><th scope="col">状态</th><th scope="col">证据数</th><th scope="col">最近复核</th></tr>
         </thead>
         <tbody>
-          <tr v-for="entry in report.checks" :key="entry.check.id">
+          <tr v-for="entry in reportChecks" :key="entry.check.id">
             <th scope="row">
               <a class="table-link" :href="home + '/checks/' + entry.check.id">{{ entry.check.template?.item.title || entry.check.requirement.title }}</a>
               <span class="table-secondary">{{ entry.check.requirement.code }} · {{ entry.check.assetName }}</span>
               <span v-if="entry.check.template" class="table-secondary">{{ entry.check.template.title }} · 版本 {{ entry.check.template.version }}</span>
             </th>
             <td><span class="badge status" :class="'status-' + entry.check.status">{{ checkStatusLabels[entry.check.status] }}</span></td>
-            <td>{{ entry.evidence.length }}</td>
+            <td>
+              {{ entry.evidence.length }}
+              <template v-if="entry.postgresEvidence">
+                <span class="table-secondary">PostgreSQL 自动采集</span>
+                <span class="table-secondary">{{ entry.postgresEvidence.columnCount }} 个字段 · {{ entry.postgresEvidence.sensitiveCandidateCount }} 个疑似敏感</span>
+                <span class="table-secondary">{{ postgresPublicSelect(entry.postgresEvidence.publicSelect, entry.postgresEvidence.publicSelectColumnCount) }}</span>
+              </template>
+            </td>
             <td>
               <template v-if="latestDecision(entry.events)">
                 {{ eventLabels[latestDecision(entry.events)!.action] }}

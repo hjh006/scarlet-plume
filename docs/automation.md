@@ -4,7 +4,7 @@
 
 | 连接器 | 自动获得的内容 | 写入位置 |
 | --- | --- | --- |
-| PostgreSQL | 指定 schema 内的表名和源端标识 | 资产台账和导入记录 |
+| PostgreSQL | 指定 schema 内的表目录。平台托管任务同时采集字段结构和直接 ACL | 资产台账、导入记录和已关联的 G02/G03 证据 |
 | OpenMetadata | 指定服务内的数据库、表目录及源端标识 | 资产台账和导入记录 |
 | 飞书云文档 | 指定文档内一个直接协作者的权限状态 | 关联的 G03 检查证据和运行记录 |
 
@@ -34,6 +34,16 @@ scarlet up -d --wait app
 ```
 
 新建任务时，主机填写 `sample-db`，数据库填写 `scarlet_sample`，用户填写 `sample_reader`，schema 填写 `inventory`。密码使用本机 `.env.scarlet-local` 中的 `SCARLET_SAMPLE_READER_PASSWORD`。样例采集账号具备 schema 访问权限，可以采集三张合成表的目录。样例库与平台库使用独立卷，两个数据库端口均留在 Docker 内。
+
+## PostgreSQL 字段、权限与自动证据
+
+平台托管的 PostgreSQL 任务从系统目录采集字段名、类型、顺序、可空性、表所有者，以及表级和列级直接 ACL。字段名和类型用于标记疑似邮箱、电话号码、身份标识、金融账号、凭据、个人姓名、地址或 IP 地址。管理员可在「数据资产」的「字段与权限」核对最近观测和所属采集批次。采集器不读业务行，也不采集字段默认值或注释。
+
+权限视图分别显示表级或列级 `PUBLIC SELECT`、schema 的 `PUBLIC USAGE`、指定被授权角色的 schema `USAGE`。实际有效访问还涉及角色成员关系、行级安全策略和连接资格，需要结合源端核验。疑似敏感标签供人工确认。 [PostgreSQL 权限](https://www.postgresql.org/docs/18/ddl-priv.html) · [目录权限查询函数](https://www.postgresql.org/docs/18/functions-info.html#FUNCTIONS-ACLITEM)
+
+工作区负责人或经办人可打开关联资产的 G02 或 G03 检查，选择「关联 PostgreSQL 采集任务」。下次采集成功时，平台将目录观测登记为证据，带上观测时间、任务和批次。整改后先登记整改，采集器随后登记晚于整改的复测观测。同一轮的相同事实会去重。提交和独立复核沿用检查工作流。导出 JSON 和 HTML 会包含已登记证据的观测摘要。每条证据最多列出 20 个疑似字段和 20 条非所有者 SELECT 授权，超过时标明余量，资产详情可查看最近完整观测。
+
+单次采集上限为 1,000 张表、10,000 个字段、20,000 条 ACL。超限时运行记录显示失败，已有资产和证据保留。样例库的 `inventory.customers` 含 `customer_email`、`mobile_phone` 和 `national_id`，以及 `sample_analyst` 对 `customer_email` 的列级 SELECT。样例采集账号只具备采集所需的 schema 访问权限。
 
 ## 配置客户侧采集器
 

@@ -10,6 +10,8 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/hjh006/scarlet-plume/backend/internal/collector"
 )
 
 var ErrAutomationUnauthorized = errors.New("invalid or revoked collection token")
@@ -54,14 +56,15 @@ type AutomationRun struct {
 }
 
 type AutomationDelivery struct {
-	RunID       string
-	Digest      string
-	Provider    string
-	Source      string
-	FailureCode string
-	ObservedAt  time.Time
-	Assets      []CollectedAsset
-	Evidence    *EvidenceInput
+	RunID          string
+	Digest         string
+	Provider       string
+	Source         string
+	FailureCode    string
+	ObservedAt     time.Time
+	Assets         []CollectedAsset
+	Evidence       *EvidenceInput
+	PostgresTables []collector.PostgreSQLTable
 }
 
 const automationJobColumns = "j.id, j.workspace_id, j.actor_id, j.provider, COALESCE(j.source, ''), j.check_id, j.created_at, j.revoked_at"
@@ -356,7 +359,7 @@ func collectFeishuEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, in
 		if err != nil {
 			return err
 		}
-		remediatedAt, err = feishuRemediationAt(ctx, tx, check.ID, change)
+		remediatedAt, err = checkRemediationAt(ctx, tx, check.ID, change)
 		if err != nil {
 			return err
 		}

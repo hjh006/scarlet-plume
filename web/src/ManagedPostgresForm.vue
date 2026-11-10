@@ -148,7 +148,7 @@ onBeforeUnmount(() => {
           <label for="managed-pg-schemas">采集 schema</label>
           <input id="managed-pg-schemas" v-model="schemaText" required aria-describedby="managed-pg-schemas-hint"
                  spellcheck="false" autocapitalize="none">
-          <p id="managed-pg-schemas-hint" class="field-hint">多个 schema 用逗号分隔。采集范围限于表名和源标识。</p>
+          <p id="managed-pg-schemas-hint" class="field-hint">多个 schema 用逗号分隔。采集表目录、字段结构和直接授权。</p>
         </div>
         <div class="managed-pg-pair managed-pg-schedule">
           <div class="field">

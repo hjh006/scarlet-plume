@@ -262,7 +262,8 @@ func (s *Store) FinishManagedPostgresJob(ctx context.Context, claim ManagedPostg
 	if claim.JobID < 1 || claim.claimedAt.IsZero() || !automationRunID.MatchString(claim.RunID) ||
 		!digestPattern.MatchString(input.Digest) || input.ObservedAt.IsZero() || input.ObservedAt.After(time.Now().Add(5*time.Minute)) ||
 		input.Evidence != nil || (input.FailureCode == "" && (input.Assets == nil || len(input.Assets) > 1000)) ||
-		(input.FailureCode != "" && (!validCollectionFailure(input.FailureCode) || input.Assets != nil)) {
+		(input.FailureCode != "" && (!validCollectionFailure(input.FailureCode) || input.Assets != nil || input.PostgresTables != nil)) ||
+		(input.PostgresTables != nil && !validPostgresTables(input.PostgresTables, input.Assets)) {
 		return AutomationRun{}, ErrInvalid
 	}
 	var run AutomationRun
@@ -319,6 +320,9 @@ func (s *Store) FinishManagedPostgresJob(ctx context.Context, claim ManagedPostg
 			return err
 		}
 		if err := recordAutomationRun(ctx, tx, input.Digest, &run); err != nil {
+			return err
+		}
+		if err := persistPostgresInspections(ctx, tx, job, claim.Config, run, input.PostgresTables); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `

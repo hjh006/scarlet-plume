@@ -10,7 +10,7 @@ type integration struct {
 }
 
 var integrations = []integration{
-	{"postgresql", "PostgreSQL", "资产发现", "客户侧定期只读采集指定 schema 的表标识及名称，自动登记资产。", "available", "https://www.postgresql.org/docs/18/catalog-pg-class.html"},
+	{"postgresql", "PostgreSQL", "资产发现", "定期读取指定 schema 的表目录。平台托管任务还采集字段和直接 ACL，并向关联检查登记证据。", "available", "https://www.postgresql.org/docs/18/catalog-pg-class.html"},
 	{"openmetadata", "OpenMetadata", "数据目录", "按指定服务定期采集数据库及表目录，自动登记资产并保留源端引用。接口已通过模拟验证。", "available", "https://docs.open-metadata.org/v2.0.x/api-reference/data-assets/databases/list"},
 	{"aliyun-dsc", "阿里云 DSC", "分类分级", "读取扫描范围及分类发现，提交人工复核。", "planned", "https://help.aliyun.com/zh/dsc/data-security-center/developer-reference/api-sddp-2019-01-03-overview"},
 	{"tencent-dsgc", "腾讯云 DSGC", "风险评估", "读取风险项及扫描范围，关联资产和控制。", "planned", "https://cloud.tencent.com/document/api/1087/97236"},

@@ -170,3 +170,13 @@
 @media (max-width: 43.99rem) {
   .managed-pg-pair { grid-template-columns: minmax(0, 1fr); gap: .95rem; }
 }
+
+.postgres-inspection-link { display: block; margin-top: .2rem; padding-block: .35rem; font-size: .83rem; }
+.postgres-panel + .postgres-panel { margin-top: 1.15rem; }
+.postgres-record .detail-list dd, .postgres-source-ref, .postgres-table th, .postgres-table td { overflow-wrap: anywhere; }
+.postgres-table { min-width: 29rem; }
+.postgres-grants { min-width: 40rem; }
+.postgres-evidence-meta { margin-block: .45rem; }
+.postgres-evidence-details > div + div { margin-top: .55rem; }
+.postgres-evidence-details ul { margin: .18rem 0; padding-inline-start: 1.25rem; }
+.postgres-binding { display: grid; gap: .4rem; justify-items: start; padding: .75rem 1.1rem; border-bottom: 1px solid var(--line); }

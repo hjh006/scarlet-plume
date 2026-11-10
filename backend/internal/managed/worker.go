@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -71,19 +72,26 @@ func (m *Manager) collectClaim(ctx context.Context, claim store.ManagedPostgresC
 	collectionCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
-	var assets []collector.Asset
+	var tables []collector.PostgreSQLTable
 	err := m.Validate(c)
 	if err == nil {
 		var password string
 		password, err = m.decryptPassword(c, claim.Config.EncryptedPassword)
 		if err == nil {
-			assets, err = m.collect(collectionCtx, c, password)
+			tables, err = m.inspect(collectionCtx, c, password)
 		}
 	}
 
 	var encoded []byte
+	assets := make([]collector.Asset, 0, len(tables))
 	if err == nil {
-		encoded, err = collector.EncodeSnapshot("postgresql", claim.Source, assets)
+		for _, table := range tables {
+			assets = append(assets, table.Asset)
+		}
+		_, err = collector.EncodeSnapshot("postgresql", claim.Source, assets)
+	}
+	if err == nil {
+		encoded, err = json.Marshal(tables)
 	}
 	if err != nil {
 		delivery.FailureCode = "collection_failed"
@@ -92,6 +100,7 @@ func (m *Manager) collectClaim(ctx context.Context, claim store.ManagedPostgresC
 		}
 		encoded = []byte(delivery.FailureCode)
 	} else {
+		delivery.PostgresTables = tables
 		delivery.Assets = make([]store.CollectedAsset, len(assets))
 		for i, asset := range assets {
 			delivery.Assets[i] = store.CollectedAsset{SourceRef: asset.SourceRef, Name: asset.Name}

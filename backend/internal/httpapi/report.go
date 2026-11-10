@@ -75,6 +75,9 @@ var reportLabels = map[string]string{
 	"draft": "待取证", "in_review": "待复核", "needs_work": "待整改", "verified": "已验证",
 	"observation": "初次取证", "remediation": "整改", "retest": "复测",
 	"created": "创建检查", "evidence": "登记证据", "submitted": "提交复核", "changes": "要求整改",
+	"postgres_binding": "关联 PostgreSQL 自动证据",
+	"email":            "邮箱", "phone": "电话号码", "national_id": "身份标识", "financial_account": "金融账号",
+	"credential": "凭据", "personal_name": "个人姓名", "address": "地址", "ip_address": "IP 地址",
 	"sharing": "对外共享或委托", "cross_border": "数据出境", "ai": "AI 使用", "internal": "内部处理",
 }
 
@@ -176,7 +179,15 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 引用 <span class="wrap">{{.SourceRecord}}</span> · 观察 {{date .ObservedAt}} · {{.RecordedBy}} 于 {{date .CreatedAt}} 登记
 <div class="wrap">{{.Summary}}</div>
 {{if .AutomationJobID}}<div class="wrap">自动采集 · 任务 #{{.AutomationJobID}} · 运行 {{.AutomationRunID}}</div>{{end}}
-{{with .Feishu}}<div class="wrap">飞书目标摘要 {{.TargetDigest}} · 快照摘要 {{.SnapshotDigest}} · {{if .MemberPresent}}存在直接授权 {{.Permission}}{{else}}未观察到指定直接授权{{end}}</div>{{end}}</li>
+{{with .Feishu}}<div class="wrap">飞书目标摘要 {{.TargetDigest}} · 快照摘要 {{.SnapshotDigest}} · {{if .MemberPresent}}存在直接授权 {{.Permission}}{{else}}未观察到指定直接授权{{end}}</div>{{end}}
+{{with .Postgres}}
+<div class="wrap">PostgreSQL 目录观测 · {{.Database}} · {{.SourceRef}}</div>
+<div class="wrap">{{.Scope}}</div>
+<div>字段 {{.ColumnCount}} 个 · 疑似敏感 {{.SensitiveCandidateCount}} 个 · 直接 ACL {{.GrantCount}} 项</div>
+<div>PUBLIC 表级 SELECT {{if .PublicSelect}}已观察到{{else}}未观察到{{end}} · PUBLIC 列级 SELECT {{.PublicSelectColumnCount}} 列 · PUBLIC schema USAGE {{if .PublicSchemaUsage}}已观察到{{else}}未观察到{{end}}</div>
+{{if .SensitiveFields}}<div>候选字段 {{range $index, $field := .SensitiveFields}}{{if $index}}、{{end}}<span class="wrap">{{$field.Name}}（{{label $field.Sensitivity}}）</span>{{end}}{{if .SensitiveFieldsOmitted}}，另有 {{.SensitiveFieldsOmitted}} 项{{end}}</div>{{end}}
+{{if .SelectGrants}}<div>非所有者 SELECT {{range $index, $grant := .SelectGrants}}{{if $index}}、{{end}}<span class="wrap">{{$grant.Grantee}}{{if $grant.Column}} / {{$grant.Column}}{{else}} / 整表{{end}}（schema USAGE {{if $grant.SchemaUsage}}已观察到{{else}}未观察到{{end}}）</span>{{end}}{{if .SelectGrantsOmitted}}，另有 {{.SelectGrantsOmitted}} 项{{end}}</div>{{end}}
+{{end}}</li>
 {{end}}</ul>{{else}}<p class="muted">暂无证据记录</p>{{end}}
 <h3>操作和独立复核</h3>
 {{if .Events}}<ul class="records">{{range .Events}}

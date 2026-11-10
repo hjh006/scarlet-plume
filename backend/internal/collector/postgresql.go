@@ -44,29 +44,59 @@ func ValidatePostgreSQLSchemas(schemas []string) error {
 	return nil
 }
 
+var errReadPostgreSQLCatalog = errors.New("无法读取 PostgreSQL 表目录，请检查连接、TLS 和 schema 权限")
+
 func collectPostgreSQL(ctx context.Context, dsn string, schemas []string, allowInsecureLoopback, dockerSample bool) ([]Asset, error) {
-	if err := ValidatePostgreSQLSchemas(schemas); err != nil {
+	assets := make([]Asset, 0)
+	err := withPostgreSQLCatalog(ctx, dsn, schemas, allowInsecureLoopback, dockerSample, func(ctx context.Context, tx pgx.Tx, schemas []string) error {
+		rows, err := tx.Query(ctx, postgresCatalogQuery, schemas, maxAssets+1)
+		if err != nil {
+			return errReadPostgreSQLCatalog
+		}
+		defer rows.Close()
+		for rows.Next() {
+			if len(assets) == maxAssets {
+				return errors.New("PostgreSQL 表超过单批 1000 项上限，请缩小 schema 范围")
+			}
+			var asset Asset
+			if err := rows.Scan(&asset.SourceRef, &asset.Name); err != nil {
+				return errReadPostgreSQLCatalog
+			}
+			assets = append(assets, asset)
+		}
+		if rows.Err() != nil {
+			return errReadPostgreSQLCatalog
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
+	}
+	return assets, nil
+}
+
+func withPostgreSQLCatalog(ctx context.Context, dsn string, schemas []string, allowInsecureLoopback, dockerSample bool, read func(context.Context, pgx.Tx, []string) error) error {
+	if err := ValidatePostgreSQLSchemas(schemas); err != nil {
+		return err
 	}
 	schemas = slices.Clone(schemas)
 	slices.Sort(schemas)
 	schemas = slices.Compact(schemas)
 	config, err := parsePostgresConfig(dsn, allowInsecureLoopback, dockerSample)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	readError := errors.New("无法读取 PostgreSQL 表目录，请检查连接、TLS 和 schema 权限")
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
-		return nil, readError
+		return errReadPostgreSQLCatalog
 	}
 	defer conn.Close(ctx)
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return nil, readError
+		return errReadPostgreSQLCatalog
 	}
 	defer tx.Rollback(ctx)
 
@@ -76,32 +106,19 @@ SELECT pg_catalog.count(*) FROM pg_catalog.pg_namespace
 WHERE nspname::text = ANY ($1::text[])
   AND pg_catalog.has_schema_privilege(oid, 'USAGE')`, schemas).Scan(&authorized)
 	if err != nil {
-		return nil, readError
+		return errReadPostgreSQLCatalog
 	}
 	if authorized != len(schemas) {
-		return nil, errors.New("至少一个指定的 schema 不存在或当前账号无权访问")
+		return errors.New("至少一个指定的 schema 不存在或当前账号无权访问")
 	}
 
-	rows, err := tx.Query(ctx, postgresCatalogQuery, schemas, maxAssets+1)
-	if err != nil {
-		return nil, readError
+	if err := read(ctx, tx, schemas); err != nil {
+		return err
 	}
-	defer rows.Close()
-	assets := make([]Asset, 0)
-	for rows.Next() {
-		if len(assets) == maxAssets {
-			return nil, errors.New("PostgreSQL 表超过单批 1000 项上限，请缩小 schema 范围")
-		}
-		var asset Asset
-		if err := rows.Scan(&asset.SourceRef, &asset.Name); err != nil {
-			return nil, readError
-		}
-		assets = append(assets, asset)
+	if err := tx.Commit(ctx); err != nil {
+		return errReadPostgreSQLCatalog
 	}
-	if rows.Err() != nil || tx.Commit(ctx) != nil {
-		return nil, readError
-	}
-	return assets, nil
+	return nil
 }
 
 func postgresConfig(dsn string, allowInsecureLoopback bool) (*pgx.ConnConfig, error) {

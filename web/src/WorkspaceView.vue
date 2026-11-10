@@ -244,6 +244,9 @@ onBeforeUnmount(() => active?.abort())
             <tr v-for="asset in assets" :key="asset.id">
               <th scope="row">
                 {{ asset.name }}
+                <a v-if="asset.sourceProvider === 'postgresql'"
+                   class="table-link postgres-inspection-link" :href="home + '/assets/' + asset.id"
+                   :aria-label="'查看 ' + asset.name + ' 的字段与权限'">字段与权限</a>
                 <details v-if="hasAssetMetadata(asset)" class="asset-metadata">
                   <summary>分类与说明</summary>
                   <dl>
