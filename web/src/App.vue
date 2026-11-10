@@ -17,6 +17,7 @@ import ComplianceReportView from './ComplianceReportView.vue'
 import ReportArchiveView from './ReportArchiveView.vue'
 import AutomationView from './AutomationView.vue'
 import ApiSecurityView from './ApiSecurityView.vue'
+import ApiRuntimeView from './ApiRuntimeView.vue'
 
 const pageGroups = [
   { label: '治理', items: [
@@ -239,8 +240,12 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
         <AutomationView v-else-if="route.page === 'automation'" :key="`${workspace.slug}/${route.recordId}/${route.contextId}`"
                         :workspace="workspace" :check-context="route.recordId === 'new' ? route.contextId : undefined"
                         @session-expired="sessionExpired" />
-        <ApiSecurityView v-else-if="route.page === 'api-security'" :key="`${workspace.slug}/api-security/${route.recordId}`"
-                         :workspace="workspace" :scan-id="route.recordId" @session-expired="sessionExpired" />
+        <template v-else-if="route.page === 'api-security'">
+          <ApiRuntimeView v-if="route.recordId === 'runtime'" :key="workspace.slug"
+                          :workspace="workspace" @session-expired="sessionExpired" />
+          <ApiSecurityView v-else :key="`${workspace.slug}/api-security/${route.recordId}`"
+                           :workspace="workspace" :scan-id="route.recordId" @session-expired="sessionExpired" />
+        </template>
         <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
                        @session-expired="sessionExpired" />
       </main>

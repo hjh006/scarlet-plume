@@ -1,0 +1,13 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title":"Scarlet synthetic Python runtime baseline","version":"1.0"},
+  "paths": {
+    "/runtime/python/orders/{orderId}": {
+      "parameters": [{"name":"orderId","in":"path","required":true,"schema":{"type":"string"}}],
+      "get": {"responses":{"200":{"description":"Synthetic order result"}}}
+    },
+    "/runtime/python/legacy": {
+      "get": {"deprecated":true,"responses":{"410":{"description":"Synthetic retired route"}}}
+    }
+  }
+}
