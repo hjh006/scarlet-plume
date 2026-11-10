@@ -4,22 +4,27 @@ import { ApiError, describeError, request, roleLabels, sessionPath, type Session
 import Brand from './Brand.vue'
 import Icon from './Icon.vue'
 import WorkspaceView from './WorkspaceView.vue'
+import ChecksView from './ChecksView.vue'
+import CheckCreate from './CheckCreate.vue'
+import CheckDetail from './CheckDetail.vue'
 
 const pages = [
   { id: 'overview', label: '概览' },
   { id: 'assets', label: '数据资产' },
+  { id: 'checks', label: '监管检查' },
   { id: 'integrations', label: '集成与导入' },
 ] as const
 
 function readRoute() {
-  const [, rawSlug, requestedPage] = window.location.hash.split('/')
+  const [, rawSlug, requestedPage, checkId = ''] = window.location.hash.split('/')
   let slug = ''
   try {
     slug = decodeURIComponent(rawSlug || '')
   } catch {
     slug = ''
   }
-  return { slug, page: pages.find(page => page.id === requestedPage)?.id || 'overview' }
+  const page = pages.find(page => page.id === requestedPage)?.id || 'overview'
+  return { slug, page, checkId: page === 'checks' ? checkId : '' }
 }
 
 const route = ref(readRoute())
@@ -158,7 +163,14 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
       </header>
       <main id="main-content" ref="mainContent" class="main-content" tabindex="-1">
         <p v-if="actionError" class="message message-error page-feedback" role="alert">{{ actionError }}</p>
-        <WorkspaceView :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
+        <template v-if="route.page === 'checks'">
+          <CheckCreate v-if="route.checkId === 'new'" :key="workspace.slug" :workspace="workspace"
+                       @session-expired="sessionExpired" />
+          <CheckDetail v-else-if="route.checkId" :key="`${workspace.slug}/${route.checkId}`"
+                       :workspace="workspace" :check-id="route.checkId" @session-expired="sessionExpired" />
+          <ChecksView v-else :key="workspace.slug" :workspace="workspace" @session-expired="sessionExpired" />
+        </template>
+        <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
                        @session-expired="sessionExpired" />
       </main>
     </div>

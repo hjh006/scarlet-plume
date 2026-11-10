@@ -45,15 +45,15 @@ func loopback(host string) bool {
 }
 
 func run() error {
-	mode := flag.String("mode", "serve", "serve, migrate, or bootstrap")
+	mode := flag.String("mode", "serve", "serve, migrate, bootstrap, or add-reviewer")
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	web := flag.String("web", "", "path to built Vue dist (optional)")
 	allowLoopback := flag.Bool("allow-insecure-loopback", false, "allow plaintext PostgreSQL on literal loopback only")
 	flag.Parse()
 	switch *mode {
-	case "serve", "migrate", "bootstrap":
+	case "serve", "migrate", "bootstrap", "add-reviewer":
 	default:
-		return errors.New("mode must be serve, migrate, or bootstrap")
+		return errors.New("mode must be serve, migrate, bootstrap, or add-reviewer")
 	}
 
 	dsn := os.Getenv("SCARLET_DB_DSN")
@@ -102,6 +102,8 @@ func run() error {
 		return nil
 	case "bootstrap":
 		return bootstrap(ctx, st)
+	case "add-reviewer":
+		return addReviewer(ctx, st)
 	default:
 		return serve(st, *addr, *web)
 	}
@@ -127,6 +129,31 @@ func bootstrap(ctx context.Context, st *store.Store) error {
 		return errors.New("could not initialize the workspace; apply migrations first")
 	}
 	slog.Info("workspace owner initialized", "workspace", slug)
+	return nil
+}
+
+func addReviewer(ctx context.Context, st *store.Store) error {
+	username := strings.TrimSpace(os.Getenv("SCARLET_REVIEWER_USER"))
+	slug := os.Getenv("SCARLET_BOOTSTRAP_WORKSPACE")
+	if username == "" || utf8.RuneCountInString(username) > 80 || strings.IndexFunc(username, unicode.IsControl) >= 0 ||
+		!slugPattern.MatchString(slug) {
+		return errors.New("provide a valid SCARLET_REVIEWER_USER and SCARLET_BOOTSTRAP_WORKSPACE")
+	}
+	hash, err := httpapi.HashPassword(os.Getenv("SCARLET_REVIEWER_PASSWORD"))
+	if err != nil {
+		return err
+	}
+	if err := st.ProvisionReviewer(ctx, slug, username, hash); err != nil {
+		switch {
+		case errors.Is(err, store.ErrConflict):
+			return errors.New("choose a separate username for the reviewer")
+		case errors.Is(err, store.ErrNotFound):
+			return errors.New("workspace not found; bootstrap it first")
+		default:
+			return errors.New("could not provision reviewer")
+		}
+	}
+	slog.Info("workspace reviewer provisioned", "workspace", slug)
 	return nil
 }
 
