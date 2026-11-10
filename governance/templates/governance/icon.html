@@ -1,0 +1,22 @@
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+  {% if name == "mark" %}<path d="m4 20 5-11 6-5 6-1-1 6-4 4-4 1-2 4-6 2Z" fill="currentColor" stroke="none"/><path d="M3 21 16 8" stroke="currentColor" stroke-width="1.5"/><path d="m9 15 3-3 1-4m-1 4 5-1" class="mark-cut" stroke-width="1.2"/>
+  {% elif name == "dashboard" %}<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+  {% elif name == "assets" %}<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/>
+  {% elif name == "activities" %}<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v6a3 3 0 0 0 3 3h6M12 6h6a2 2 0 0 1 2 2v3m-3-2 3 3 3-3"/>
+  {% elif name == "checks" or name == "in_review" %}<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6m-6 4 2 2 4-4"/>
+  {% elif name == "needs_work" %}<path d="M10.3 4.9a2 2 0 0 1 3.4 0l7.1 12.2A2 2 0 0 1 19.1 20H4.9a2 2 0 0 1-1.7-2.9l7.1-12.2Z"/><path d="M12 9v4m0 3h.01"/>
+  {% elif name == "verified" %}<path d="m12 2 8 4v7c0 4-4 7-8 9-4-2-8-5-8-9V6l8-4Z"/><path d="m8 12 3 3 5-6"/>
+  {% elif name == "book" %}<path d="M12 6c-3-2.5-6-3-10-2v15c4-1 7-.5 10 2 3-2.5 6-3 10-2V4c-4-1-7-.5-10 2Zm0 0v15"/>
+  {% elif name == "evidence" %}<path d="M5 6h3l2-2h4l2 2h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3.25"/>
+  {% elif name == "retest" %}<path d="M20 10a8 8 0 0 0-13.7-4.7L4 8m0-4v4h4m-4 6a8 8 0 0 0 13.7 4.7L20 16m-4 0h4v4"/>
+  {% elif name == "chevron" %}<path d="m9 6 6 6-6 6"/>
+  {% elif name == "plus" %}<path d="M12 5v14M5 12h14"/>
+  {% elif name == "arrow" %}<path d="M4 12h15m-6-6 6 6-6 6"/>
+  {% elif name == "back" %}<path d="M20 12H5m6-6-6 6 6 6"/>
+  {% elif name == "external" %}<path d="M14 4h6v6m0-6-9 9m6-1v7H5V7h7"/>
+  {% elif name == "logout" %}<path d="M11 4H5v16h6m3-12 4 4-4 4m-4-4h11"/>
+  {% elif name == "download" %}<path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/>
+  {% elif name == "workspace" %}<rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3h8v3M3 12h18m-11 0v2h4v-2"/>
+  {% elif name == "user" %}<circle cx="12" cy="8" r="3.5"/><path d="M5 20v-2a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v2"/>
+  {% endif %}
+</svg>

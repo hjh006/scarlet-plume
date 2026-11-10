@@ -1,0 +1,37 @@
+{% extends "governance/base.html" %}
+{% block title %}数据资产 · {{ workspace.name }} · 赤翎{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">治理工作区 / 数据资产</p>
+      <h1>数据资产</h1>
+      <p>登记资产的所属系统、类别与责任团队，作为处理活动和核验的关联对象。</p>
+    </div>
+    {% if can_edit %}<a class="button button-primary" href="{% url 'asset_new' workspace=workspace.slug %}">{% include "governance/icon.html" with name="plus" only %}登记资产</a>{% endif %}
+  </header>
+  <section class="panel" aria-labelledby="assets-title">
+    <div class="panel-heading"><h2 id="assets-title">资产台账</h2></div>
+    {% if assets %}
+      <div class="table-scroll" role="region" tabindex="0" aria-labelledby="assets-title">
+        <table class="data-table">
+          <thead><tr><th scope="col">资产名称</th><th scope="col">所属系统</th><th scope="col">数据属性</th><th scope="col">内部敏感级别</th><th scope="col">法定数据类别</th><th scope="col">责任团队</th><th scope="col">说明</th></tr></thead>
+          <tbody>
+            {% for asset in assets %}
+              <tr>
+                <th scope="row">{{ asset.name }}</th>
+                <td>{{ asset.system|default:"—" }}</td>
+                <td>{{ asset.get_category_display|default:"—" }}</td>
+                <td>{{ asset.get_business_level_display|default:"—" }}</td>
+                <td>{{ asset.get_statutory_category_display|default:"—" }}{% if asset.classification_basis %}<span class="table-secondary">{{ asset.classification_basis }}</span>{% endif %}</td>
+                <td>{{ asset.owner_team|default:"—" }}</td>
+                <td class="table-description">{{ asset.description|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state"><strong>尚未登记数据资产</strong><p>登记业务系统中的数据资产，便于关联后续处理活动和核验。</p></div>
+    {% endif %}
+  </section>
+{% endblock %}

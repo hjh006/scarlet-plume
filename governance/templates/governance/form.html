@@ -1,0 +1,21 @@
+{% extends "governance/base.html" %}
+{% block title %}{{ title }} · {{ workspace.name }} · 赤翎{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">治理工作区</p>
+      <h1>{{ title }}</h1>
+      {% if description %}<p>{{ description }}</p>{% endif %}
+    </div>
+  </header>
+  <section class="panel form-panel" aria-label="{{ title }}">
+    <form method="post">
+      {% csrf_token %}
+      {% include "governance/form_fields.html" %}
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">{{ submit_label|default:"保存" }}</button>
+        {% if cancel_url %}<a href="{{ cancel_url }}" class="button button-secondary">取消</a>{% endif %}
+      </div>
+    </form>
+  </section>
+{% endblock %}

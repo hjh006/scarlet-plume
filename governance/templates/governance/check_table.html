@@ -1,0 +1,27 @@
+{% if checks %}
+  <div class="table-scroll" role="region" tabindex="0" aria-label="控制核验记录">
+    <table class="data-table">
+      <thead><tr><th scope="col">核验要求</th><th scope="col">关联资产</th><th scope="col">状态</th><th class="wide-date" scope="col">更新时间</th></tr></thead>
+      <tbody>
+        {% for item in checks %}
+          <tr>
+            <th scope="row">
+              <a class="table-link" href="{% url 'check_detail' workspace=workspace.slug pk=item.pk %}">{{ item.requirement.title }}</a>
+              <span class="table-secondary mono">{{ item.requirement.code }} · #{{ item.pk }}</span>
+              <time class="table-secondary compact-date" datetime="{{ item.updated_at|date:'c' }}">{{ item.updated_at|date:"Y-m-d H:i" }}</time>
+            </th>
+            <td>{{ item.asset.name }}{% if item.owner_team %}<span class="table-secondary">{{ item.owner_team }}</span>{% endif %}</td>
+            <td>{% include "governance/check_status.html" with item=item only %}</td>
+            <td class="date-text wide-date"><time datetime="{{ item.updated_at|date:'c' }}">{{ item.updated_at|date:"Y-m-d H:i" }}</time></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="empty-state">
+    <strong>{% if selected_status %}此状态下暂无核验{% else %}暂无核验记录{% endif %}</strong>
+    <p>{% if selected_status %}选择其他状态或清除筛选后重试。{% elif can_edit %}选择一项要求和对应的数据资产，开始核验。{% else %}工作区内的核验记录将显示在此处。{% endif %}</p>
+    {% if can_edit and not selected_status %}<a class="button button-secondary" href="{% url 'check_new' workspace=workspace.slug %}">新建核验</a>{% endif %}
+  </div>
+{% endif %}

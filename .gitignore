@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+.serena/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+.env
+.env.*
+/staticfiles/
+.coverage
+.coverage.*
+/htmlcov/

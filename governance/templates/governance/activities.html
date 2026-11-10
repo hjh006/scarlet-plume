@@ -1,0 +1,35 @@
+{% extends "governance/base.html" %}
+{% block title %}处理活动 · {{ workspace.name }} · 赤翎{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">治理工作区 / 处理活动</p>
+      <h1>处理活动</h1>
+      <p>记录数据处理目的、接收方、处理地区与留存安排。</p>
+    </div>
+    {% if can_edit %}<a class="button button-primary" href="{% url 'activity_new' workspace=workspace.slug %}">{% include "governance/icon.html" with name="plus" only %}登记活动</a>{% endif %}
+  </header>
+  <section class="panel" aria-labelledby="activities-title">
+    <div class="panel-heading"><h2 id="activities-title">处理活动台账</h2></div>
+    {% if activities %}
+      <div class="table-scroll" role="region" tabindex="0" aria-labelledby="activities-title">
+        <table class="data-table">
+          <thead><tr><th scope="col">活动与资产</th><th scope="col">处理目的</th><th scope="col">接收方</th><th scope="col">处理地区</th><th scope="col">留存安排</th></tr></thead>
+          <tbody>
+            {% for activity in activities %}
+              <tr>
+                <th scope="row">{{ activity.name }}<span class="table-secondary">{{ activity.get_kind_display }}{% if activity.asset %} · {{ activity.asset.name }}{% endif %}</span></th>
+                <td class="table-description">{{ activity.purpose|default:"—" }}</td>
+                <td>{{ activity.recipient|default:"—" }}</td>
+                <td>{{ activity.region|default:"—" }}</td>
+                <td class="table-description">{{ activity.retention_policy|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state"><strong>尚未登记处理活动</strong><p>登记一项涉及数据收集、使用或共享的业务活动，并关联对应资产。</p></div>
+    {% endif %}
+  </section>
+{% endblock %}

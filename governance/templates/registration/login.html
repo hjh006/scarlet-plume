@@ -1,0 +1,22 @@
+{% extends "governance/base.html" %}
+{% block title %}登录 · 赤翎{% endblock %}
+{% block public_content %}
+  <div class="login-layout">
+    <section class="login-intro" aria-labelledby="login-intro-title">
+      <span class="brand-mark">{% include "governance/icon.html" with name="mark" only %}</span>
+      <p class="eyebrow">企业治理工作台</p>
+      <h1 id="login-intro-title">让数据安全措施可核验</h1>
+      <p>统一记录数据资产、处理活动和控制证据，形成可追溯的独立复核记录。</p>
+    </section>
+    <section class="panel login-panel" aria-labelledby="login-title">
+      <h2 id="login-title">登录赤翎</h2>
+      <p class="login-description">使用管理员分配的工作区账号。</p>
+      <form method="post" action="{% url 'login' %}">
+        {% csrf_token %}
+        {% include "governance/form_fields.html" %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+        <button type="submit" class="button button-primary">登录 {% include "governance/icon.html" with name="arrow" only %}</button>
+      </form>
+    </section>
+  </div>
+{% endblock %}

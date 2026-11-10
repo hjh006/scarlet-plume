@@ -1,0 +1,74 @@
+{% extends "governance/base.html" %}
+{% block title %}概览 · {{ workspace.name }} · 赤翎{% endblock %}
+{% block content %}
+  <header class="page-header dashboard-header">
+    {% include "governance/masthead_art.html" %}
+    <div class="masthead-copy">
+      <div class="masthead-heading">
+        <h1>治理概览</h1>
+        <p>跟踪数据资产、控制核验与整改证据。</p>
+      </div>
+      {% if can_edit %}
+        <a class="button button-primary" href="{% url 'check_new' workspace=workspace.slug %}">{% include "governance/icon.html" with name="plus" only %}新建核验</a>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if metrics %}
+    {% url 'assets' workspace=workspace.slug as assets_url %}
+    {% url 'checks' workspace=workspace.slug as checks_url %}
+    <ul class="metrics" aria-label="治理指标">
+      {% for metric in metrics %}
+        {% include "governance/metric.html" with metric=metric kind=metric.kind assets_url=assets_url checks_url=checks_url only %}
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <div class="dashboard-grid">
+    <section class="panel" aria-labelledby="recent-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="recent-title">近期控制核验</h2>
+          <p>按最近更新时间查看核验进度。</p>
+        </div>
+        <a class="quiet-link" href="{% url 'checks' workspace=workspace.slug %}">全部核验 {% include "governance/icon.html" with name="arrow" only %}</a>
+      </div>
+      {% include "governance/check_table.html" with checks=recent_checks %}
+    </section>
+
+    <section class="panel requirements-panel" aria-labelledby="requirements-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="requirements-title">核验依据</h2>
+          <p>查看核验要求和法规原文。</p>
+        </div>
+      </div>
+      <div class="requirement-list">
+        {% for requirement in requirements|slice:":3" %}
+          {% include "governance/requirement.html" with requirement=requirement only %}
+        {% empty %}
+          <div class="empty-state"><strong>暂无核验依据</strong><p>可用的要求将显示在此处。</p></div>
+        {% endfor %}
+        {% with remaining=requirements|slice:"3:" %}
+          {% if remaining %}
+            <details class="more-requirements">
+              <summary>查看其余 {{ remaining|length }} 项核验依据</summary>
+              {% for requirement in remaining %}
+                {% include "governance/requirement.html" with requirement=requirement only %}
+              {% endfor %}
+            </details>
+          {% endif %}
+        {% endwith %}
+      </div>
+      <section class="stages" aria-labelledby="stages-title">
+        <h3 id="stages-title">证据与整改流程</h3>
+        <ol class="stage-strip">
+          <li>{% include "governance/icon.html" with name="evidence" only %}<strong>取证</strong><small>登记来源</small></li>
+          <li>{% include "governance/icon.html" with name="in_review" only %}<strong>复核</strong><small>独立核对</small></li>
+          <li>{% include "governance/icon.html" with name="retest" only %}<strong>整改</strong><small>按需复测</small></li>
+          <li>{% include "governance/icon.html" with name="verified" only %}<strong>验证</strong><small>记录结论</small></li>
+        </ol>
+      </section>
+    </section>
+  </div>
+{% endblock %}

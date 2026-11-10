@@ -1,0 +1,11 @@
+<li class="metric metric-{{ kind }}">
+  <a class="metric-link" href="{% if kind == 'assets' %}{{ assets_url }}{% else %}{{ checks_url }}?status={{ kind|urlencode }}{% endif %}">
+    {% include "governance/icon.html" with name=kind only %}
+    <span class="metric-copy">
+      <span class="metric-label">{{ metric.label }}</span>
+      <strong class="metric-value">{{ metric.value }}</strong>
+      {% if metric.detail %}<small class="sr-only">{{ metric.detail }}</small>{% endif %}
+    </span>
+    {% include "governance/icon.html" with name="chevron" only %}
+  </a>
+</li>
