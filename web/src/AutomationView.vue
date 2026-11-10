@@ -6,11 +6,14 @@ import {
   type AutomationJob, type AutomationProvider, type AutomationRun, type IssuedAutomationJob,
 } from './automation'
 import Icon from './Icon.vue'
+import ManagedPostgresForm from './ManagedPostgresForm.vue'
 
 const props = defineProps<{ workspace: Workspace; checkContext?: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
-const jobsPath = workspacePath(props.workspace.slug) + '/automation/jobs'
+const automationPath = workspacePath(props.workspace.slug) + '/automation'
+const jobsPath = automationPath + '/jobs'
+const managedPath = automationPath + '/managed'
 const owner = computed(() => props.workspace.role === 'owner')
 const pageOrigin = window.location.origin
 const lifecycle = new AbortController()
@@ -21,6 +24,12 @@ const loadError = ref('')
 const notice = ref('')
 const formError = ref('')
 const showForm = ref(Boolean(props.checkContext))
+const managedAvailable = ref(false)
+const managedHosts = ref<string[]>([])
+const managedDraft = ref<{ job?: AutomationJob } | null>(null)
+const queueing = ref<number | null>(null)
+const runError = ref('')
+const awaitingRun = ref<{ jobId: number; previousRunId?: number; startedAt: number } | null>(null)
 const provider = ref<AutomationProvider>(props.checkContext ? 'feishu' : 'postgresql')
 const source = ref('')
 const checkId = ref(props.checkContext || '')
@@ -40,6 +49,7 @@ const revokeHeading = ref<HTMLElement | null>(null)
 const revoking = ref(false)
 const revokeError = ref('')
 let refreshTimer: number
+let runRefreshTimer: number | undefined
 let listRequest: AbortController | undefined
 let historyRequest: AbortController | undefined
 
@@ -76,6 +86,24 @@ function jobLabel(job: AutomationJob) {
   return job.source || `检查 #${job.checkId}`
 }
 
+function jobState(job: AutomationJob) {
+  if (job.revokedAt) return '已撤销'
+  if (job.managed?.running) return '采集中'
+  if (job.managed?.queued) return '已排队'
+  if (job.managed && !job.managed.enabled) return '已暂停'
+  return '已启用'
+}
+
+async function loadManagedAvailability() {
+  try {
+    const result = await request<{ enabled: boolean; allowedHosts: string[] }>(managedPath, { signal: lifecycle.signal })
+    managedAvailable.value = result.enabled
+    managedHosts.value = result.allowedHosts ?? []
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) emit('sessionExpired')
+  }
+}
+
 async function loadJobs(background = false) {
   if (background && loading.value) return
   listRequest?.abort()
@@ -96,8 +124,70 @@ async function loadJobs(background = false) {
   }
 }
 
+function openManagedForm(job?: AutomationJob) {
+  showForm.value = false
+  managedDraft.value = { job }
+  notice.value = ''
+  runError.value = ''
+}
+
+async function managedSaved(job: AutomationJob) {
+  managedDraft.value = null
+  notice.value = job.managed?.enabled
+    ? '任务已保存，定期采集已启用。'
+    : '任务已保存，定期采集已暂停。仍可立即采集。'
+  await loadJobs()
+}
+
+function trackRun() {
+  window.clearTimeout(runRefreshTimer)
+  runRefreshTimer = window.setTimeout(async () => {
+    const active = awaitingRun.value
+    if (!active || lifecycle.signal.aborted) return
+    await loadJobs(true)
+    if (awaitingRun.value !== active || lifecycle.signal.aborted) return
+    const job = jobs.value.find(item => item.id === active.jobId)
+    if (job?.latestRun && job.latestRun.id !== active.previousRunId && !job.managed?.queued && !job.managed?.running) {
+      awaitingRun.value = null
+      const detail = automationRunDetail(job.latestRun, true)
+      if (job.latestRun.status === 'error') {
+        notice.value = ''
+        runError.value = detail
+      } else {
+        notice.value = '本次采集已完成。' + detail
+      }
+      if (selectedJob.value?.id === job.id) await loadRuns(job)
+      return
+    }
+    if (Date.now() - active.startedAt < 45_000) trackRun()
+    else {
+      awaitingRun.value = null
+      notice.value = '采集任务仍在处理，可刷新任务查看进度。'
+    }
+  }, 1_000)
+}
+
+async function runNow(job: AutomationJob) {
+  if (queueing.value !== null || !job.managed) return
+  queueing.value = job.id
+  runError.value = ''
+  notice.value = ''
+  try {
+    await request(`${managedPath}/jobs/${job.id}/run`, { method: 'POST', signal: lifecycle.signal })
+    if (lifecycle.signal.aborted) return
+    awaitingRun.value = { jobId: job.id, previousRunId: job.latestRun?.id, startedAt: Date.now() }
+    notice.value = '采集任务已排队，运行结果将自动刷新。'
+    trackRun()
+  } catch (error) {
+    runError.value = errorText(error)
+  } finally {
+    queueing.value = null
+  }
+}
+
 async function openForm() {
   formError.value = ''
+  managedDraft.value = null
   showForm.value = true
   await nextTick()
   providerInput.value?.focus()
@@ -199,6 +289,7 @@ async function revokeJob() {
     if (lifecycle.signal.aborted) return
     if (issued.value?.job.id === job.id) issued.value = null
     revokeTarget.value = null
+    if (awaitingRun.value?.jobId === job.id) awaitingRun.value = null
     notice.value = '采集任务已撤销，运行记录仍可查看。'
     await loadJobs()
   } catch (error) {
@@ -210,6 +301,7 @@ async function revokeJob() {
 
 onMounted(() => {
   void loadJobs()
+  void loadManagedAvailability()
   refreshTimer = window.setInterval(() => {
     if (document.visibilityState !== 'visible' || saving.value || revoking.value) return
     void loadJobs(true)
@@ -221,6 +313,7 @@ onBeforeUnmount(() => {
   listRequest?.abort()
   historyRequest?.abort()
   window.clearInterval(refreshTimer)
+  window.clearTimeout(runRefreshTimer)
   issued.value = null
 })
 </script>
@@ -236,12 +329,22 @@ onBeforeUnmount(() => {
       <h1>自动采集</h1>
       <p>定期读取已授权的数据来源，自动登记资产目录或检查证据，并保留每次运行结果。</p>
     </div>
-    <button v-if="owner && !showForm && !issued" type="button" class="button button-primary" @click="openForm">
-      <Icon name="plus" />新建采集任务
-    </button>
+    <div v-if="owner && !showForm && !issued && !managedDraft" class="automation-actions">
+      <button v-if="managedAvailable && !checkContext" type="button" class="button button-primary" @click="openManagedForm()">
+        <Icon name="plus" />新建 PostgreSQL 采集
+      </button>
+      <button type="button" class="button" :class="managedAvailable && !checkContext ? 'button-secondary' : 'button-primary'" @click="openForm">
+        <Icon v-if="!managedAvailable || checkContext" name="plus" />{{ managedAvailable && !checkContext ? '接入外部采集器' : '新建采集任务' }}
+      </button>
+    </div>
   </header>
 
   <p v-if="notice" class="message message-success page-feedback" role="status">{{ notice }}</p>
+  <p v-if="runError" class="message message-error page-feedback" role="alert">{{ runError }}</p>
+
+  <ManagedPostgresForm v-if="owner && managedDraft" :key="managedDraft.job?.id ?? 'new'"
+    :managed-path="managedPath" :allowed-hosts="managedHosts" :job="managedDraft.job"
+    @cancel="managedDraft = null" @saved="managedSaved" @session-expired="emit('sessionExpired')" />
 
   <section v-if="owner && showForm" class="panel form-panel automation-form" aria-labelledby="automation-form-heading">
     <h2 id="automation-form-heading">新建采集任务</h2>
@@ -308,7 +411,7 @@ onBeforeUnmount(() => {
   <section v-if="revokeTarget" class="panel automation-form" aria-labelledby="automation-revoke-heading">
     <div class="panel-heading"><h2 id="automation-revoke-heading" ref="revokeHeading" tabindex="-1">撤销采集任务</h2></div>
     <div class="automation-panel-body">
-      <p>撤销「{{ jobLabel(revokeTarget) }}」后，采集端的接入令牌立即失效。</p>
+      <p>撤销「{{ jobLabel(revokeTarget) }}」后，{{ revokeTarget.managed ? '定期采集将停止。' : '采集端的接入令牌立即失效。' }}</p>
       <p v-if="revokeError" class="message message-error page-feedback" role="alert">{{ revokeError }}</p>
       <div class="form-actions">
         <button type="button" class="button button-primary" :disabled="revoking" @click="revokeJob">{{ revoking ? '正在撤销…' : '确认撤销' }}</button>
@@ -320,7 +423,10 @@ onBeforeUnmount(() => {
   <section class="panel" aria-labelledby="automation-jobs-heading" :aria-busy="loading">
     <div class="panel-heading">
       <div><h2 id="automation-jobs-heading">采集任务</h2><p>查看任务授权和最近一次运行。</p></div>
-      <button type="button" class="button button-secondary" :disabled="loading" @click="loadJobs()">刷新任务</button>
+      <div class="automation-actions">
+        <a class="button button-secondary" :href="home + '/assets'">查看资产台账</a>
+        <button type="button" class="button button-secondary" :disabled="loading" @click="loadJobs()">刷新任务</button>
+      </div>
     </div>
     <p v-if="loadError" class="message message-error automation-feedback" role="alert">{{ loadError }}</p>
     <p v-if="!loaded && loading" class="empty-state" role="status">正在读取采集任务…</p>
@@ -333,19 +439,32 @@ onBeforeUnmount(() => {
               <a v-if="job.checkId" class="table-link" :href="home + '/checks/' + job.checkId">{{ jobLabel(job) }}</a>
               <span v-else>{{ jobLabel(job) }}</span>
               <span class="table-secondary">{{ automationProviders[job.provider] }} · 任务 #{{ job.id }}</span>
+              <span v-if="job.managed" class="table-secondary">平台采集 · 每 {{ job.managed.intervalMinutes }} 分钟</span>
             </th>
-            <td><span class="badge" :class="job.revokedAt ? 'status-draft' : 'status-verified'">{{ job.revokedAt ? '已撤销' : '已启用' }}</span></td>
+            <td>
+              <span class="badge" :class="job.revokedAt || job.managed?.enabled === false ? 'status-draft' : 'status-verified'">{{ jobState(job) }}</span>
+              <span v-if="!job.revokedAt && job.managed?.enabled && job.managed.nextRunAt && !job.managed.queued && !job.managed.running" class="table-secondary">
+                下次 <time :datetime="job.managed.nextRunAt">{{ formatDate(job.managed.nextRunAt) }}</time>
+              </span>
+            </td>
             <td v-if="job.latestRun">
               <span class="badge" :class="automationRunClass(job.latestRun.status)">{{ automationRunStatuses[job.latestRun.status] }}</span>
-              <span class="table-secondary">{{ automationRunDetail(job.latestRun) }}</span>
+              <span class="table-secondary">{{ automationRunDetail(job.latestRun, Boolean(job.managed)) }}</span>
               <time class="table-secondary" :datetime="job.latestRun.observedAt">{{ formatDate(job.latestRun.observedAt) }}</time>
             </td>
             <td v-else class="table-secondary">等待首次运行</td>
             <td>
               <div class="automation-actions">
                 <button type="button" class="button button-secondary" @click="loadRuns(job, true)">运行记录</button>
-                <button v-if="owner && !job.revokedAt" type="button" class="button button-secondary"
-                        :disabled="revoking" @click="askRevoke(job)">撤销</button>
+                <template v-if="owner && !job.revokedAt">
+                  <template v-if="job.managed && managedAvailable">
+                    <button type="button" class="button button-secondary" :disabled="Boolean(issued) || Boolean(managedDraft)" @click="openManagedForm(job)">任务配置</button>
+                    <button type="button" class="button button-secondary"
+                            :disabled="queueing !== null || Boolean(awaitingRun) || Boolean(managedDraft) || job.managed.running || job.managed.queued"
+                            @click="runNow(job)">{{ queueing === job.id ? '正在排队…' : '立即采集' }}</button>
+                  </template>
+                  <button type="button" class="button button-secondary" :disabled="revoking || Boolean(managedDraft)" @click="askRevoke(job)">撤销</button>
+                </template>
               </div>
             </td>
           </tr>
@@ -354,7 +473,8 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="loaded" class="empty-state">
       <strong>暂无采集任务</strong>
-      <p>{{ owner ? '新建任务后，在连接源系统的采集端配置接入令牌和运行频率。' : '工作区负责人创建任务后，可在这里查看采集状态。' }}</p>
+      <p v-if="owner && managedAvailable">新建 PostgreSQL 任务后可测试连接、设置定期采集，或立即采集一次。</p>
+      <p v-else>{{ owner ? '新建任务后，在连接源系统的采集端配置接入令牌和运行频率。' : '工作区负责人创建任务后，可在这里查看采集状态。' }}</p>
     </div>
   </section>
 
@@ -379,7 +499,7 @@ onBeforeUnmount(() => {
             <th scope="row" class="mono">{{ run.runId }}</th>
             <td>
               <span class="badge" :class="automationRunClass(run.status)">{{ automationRunStatuses[run.status] }}</span>
-              <span class="table-secondary">{{ automationRunDetail(run) }}</span>
+              <span class="table-secondary">{{ automationRunDetail(run, Boolean(selectedJob.managed)) }}</span>
             </td>
             <td><time :datetime="run.observedAt">{{ formatDate(run.observedAt) }}</time></td>
             <td><time :datetime="run.createdAt">{{ formatDate(run.createdAt) }}</time></td>
@@ -387,6 +507,6 @@ onBeforeUnmount(() => {
         </tbody>
       </table>
     </div>
-    <p v-else-if="!historyError" class="empty-state">等待采集端首次运行。</p>
+    <p v-else-if="!historyError" class="empty-state">{{ selectedJob.managed ? '等待任务首次运行。' : '等待采集端首次运行。' }}</p>
   </section>
 </template>

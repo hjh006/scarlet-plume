@@ -49,6 +49,8 @@ scarlet up -d --wait app
 
 打开 [本机赤翎控制台](http://127.0.0.1:8890)，用初始化的账号登录。控制台端口绑定本机回环地址，数据库通过 Compose 私有网络连接。运行 `scarlet stop` 可暂停，`scarlet up -d --wait` 可恢复。升级时重新构建镜像并运行迁移，再启动新版容器。
 
+需要在本机体验 PostgreSQL 自动采集时，可叠加 `compose.sample.yaml` 启动独立样例库，再在工作台创建采集任务。使用样例的部署应在升级时继续加载两份 Compose 文件。 [样例库与托管采集步骤](docs/automation.md#在工作台管理-postgresql-采集)
+
 ### 在宿主机启动 Go 与 Vue
 
 先按下文的本地数据库步骤启动 PostgreSQL。示例连接串使用 `openssl rand -hex 32` 生成的本地数据库密码。生产连接使用 `sslmode=verify-full`。

@@ -24,10 +24,11 @@ type AutomationJobInput struct {
 
 type AutomationJob struct {
 	AutomationJobInput
-	ID        int64          `json:"id"`
-	CreatedAt time.Time      `json:"createdAt"`
-	RevokedAt *time.Time     `json:"revokedAt,omitempty"`
-	LatestRun *AutomationRun `json:"latestRun,omitempty"`
+	ID        int64                  `json:"id"`
+	CreatedAt time.Time              `json:"createdAt"`
+	RevokedAt *time.Time             `json:"revokedAt,omitempty"`
+	LatestRun *AutomationRun         `json:"latestRun,omitempty"`
+	Managed   *ManagedPostgresConfig `json:"managed,omitempty"`
 
 	workspaceID int64
 	actorID     int64
@@ -78,14 +79,22 @@ func scanAutomationRun(row pgx.Row) (AutomationRun, error) {
 	return run, err
 }
 
+func validAutomationAssetSource(source string) bool {
+	return validCheckText(source, 80) && strings.TrimSpace(source) == source &&
+		strings.IndexFunc(source, unicode.IsControl) < 0
+}
+
+func validCollectionFailure(code string) bool {
+	return code == "collection_failed" || code == "collection_timeout"
+}
+
 func (s *Store) CreateAutomationJob(ctx context.Context, workspaceID, actorID int64, input AutomationJobInput, tokenDigest string) (AutomationJob, error) {
 	if !digestPattern.MatchString(tokenDigest) {
 		return AutomationJob{}, ErrInvalid
 	}
 	switch input.Provider {
 	case "postgresql", "openmetadata":
-		if input.CheckID != nil || !validCheckText(input.Source, 80) || strings.TrimSpace(input.Source) != input.Source ||
-			strings.IndexFunc(input.Source, unicode.IsControl) >= 0 {
+		if input.CheckID != nil || !validAutomationAssetSource(input.Source) {
 			return AutomationJob{}, ErrInvalid
 		}
 	case "feishu":
@@ -130,8 +139,9 @@ func (s *Store) ListAutomationJobs(ctx context.Context, workspaceID, actorID int
 		if _, err := checkRole(ctx, tx, workspaceID, actorID, false); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT `+automationJobColumns+`, latest.data
+		rows, err := tx.Query(ctx, `SELECT `+automationJobColumns+`, latest.data, `+managedPostgresPublicJSON+`
 			FROM plume.automation_jobs j
+			LEFT JOIN plume.managed_postgres_jobs mp ON mp.job_id = j.id
 			LEFT JOIN LATERAL (
 				SELECT jsonb_build_object('id', r.id, 'jobId', r.job_id, 'runId', r.run_id,
 					'status', r.status, 'code', r.code, 'observedAt', r.observed_at, 'createdAt', r.created_at,
@@ -147,7 +157,7 @@ func (s *Store) ListAutomationJobs(ctx context.Context, workspaceID, actorID int
 		defer rows.Close()
 		for rows.Next() {
 			var job AutomationJob
-			if err := rows.Scan(append(automationJobFields(&job), &job.LatestRun)...); err != nil {
+			if err := rows.Scan(append(automationJobFields(&job), &job.LatestRun, &job.Managed)...); err != nil {
 				return err
 			}
 			jobs = append(jobs, job)
@@ -215,7 +225,9 @@ func (s *Store) DeliverAutomationRun(ctx context.Context, tokenDigest string, in
 	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var job AutomationJob
 		err := tx.QueryRow(ctx, "SELECT "+automationJobColumns+`
-			FROM plume.automation_jobs j WHERE j.token_digest = $1 AND j.revoked_at IS NULL FOR UPDATE OF j`,
+			FROM plume.automation_jobs j WHERE j.token_digest = $1 AND j.revoked_at IS NULL
+				AND NOT EXISTS (SELECT 1 FROM plume.managed_postgres_jobs mp WHERE mp.job_id = j.id)
+			FOR UPDATE OF j`,
 			tokenDigest).Scan(automationJobFields(&job)...)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrAutomationUnauthorized
@@ -253,7 +265,7 @@ func (s *Store) DeliverAutomationRun(ctx context.Context, tokenDigest string, in
 		run = AutomationRun{JobID: job.ID, RunID: input.RunID, ObservedAt: input.ObservedAt, Status: "success"}
 		switch {
 		case input.FailureCode != "":
-			if (input.FailureCode != "collection_failed" && input.FailureCode != "collection_timeout") ||
+			if !validCollectionFailure(input.FailureCode) ||
 				input.Assets != nil || input.Evidence != nil {
 				return ErrInvalid
 			}
@@ -269,26 +281,37 @@ func (s *Store) DeliverAutomationRun(ctx context.Context, tokenDigest string, in
 			if input.Source != job.Source || input.Assets == nil || len(input.Assets) > 1000 || input.Evidence != nil {
 				return ErrInvalid
 			}
-			batchID := fmt.Sprintf("auto-%d-%s", job.ID, input.RunID)
-			imported, err := importAssetsTx(ctx, tx, job.workspaceID, job.actorID, job.Provider, job.Source, batchID, input.Digest, input.Assets)
-			if err != nil {
+			if err := importAutomationAssets(ctx, tx, job, input.Digest, input.Assets, &run); err != nil {
 				return err
 			}
-			run.ImportID, run.CreatedCount, run.ExistingCount = &imported.ID, imported.Created, imported.Existing
 		}
-		return tx.QueryRow(ctx, `
-			INSERT INTO plume.automation_runs (job_id, run_id, payload_digest, status, code, observed_at,
-				created_count, existing_count, import_id, evidence_id, member_present, permission)
-			VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, $9, $10, $11, NULLIF($12, ''))
-			RETURNING id, observed_at, created_at
-		`, job.ID, input.RunID, input.Digest, run.Status, run.Code, run.ObservedAt, run.CreatedCount,
-			run.ExistingCount, run.ImportID, run.EvidenceID, run.MemberPresent, run.Permission,
-		).Scan(&run.ID, &run.ObservedAt, &run.CreatedAt)
+		return recordAutomationRun(ctx, tx, input.Digest, &run)
 	})
 	if err != nil {
 		return AutomationRun{}, storeError(err)
 	}
 	return run, nil
+}
+
+func importAutomationAssets(ctx context.Context, tx pgx.Tx, job AutomationJob, digest string, assets []CollectedAsset, run *AutomationRun) error {
+	batchID := fmt.Sprintf("auto-%d-%s", job.ID, run.RunID)
+	imported, err := importAssetsTx(ctx, tx, job.workspaceID, job.actorID, job.Provider, job.Source, batchID, digest, assets)
+	if err != nil {
+		return err
+	}
+	run.ImportID, run.CreatedCount, run.ExistingCount = &imported.ID, imported.Created, imported.Existing
+	return nil
+}
+
+func recordAutomationRun(ctx context.Context, tx pgx.Tx, digest string, run *AutomationRun) error {
+	return tx.QueryRow(ctx, `
+		INSERT INTO plume.automation_runs (job_id, run_id, payload_digest, status, code, observed_at,
+			created_count, existing_count, import_id, evidence_id, member_present, permission)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, $9, $10, $11, NULLIF($12, ''))
+		RETURNING id, observed_at, created_at
+	`, run.JobID, run.RunID, digest, run.Status, run.Code, run.ObservedAt, run.CreatedCount,
+		run.ExistingCount, run.ImportID, run.EvidenceID, run.MemberPresent, run.Permission,
+	).Scan(&run.ID, &run.ObservedAt, &run.CreatedAt)
 }
 
 func collectFeishuEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, input EvidenceInput, run *AutomationRun) error {

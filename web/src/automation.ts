@@ -36,6 +36,20 @@ export interface AutomationRun {
   evidenceId?: number
 }
 
+export interface ManagedPostgresConfig {
+  host: string
+  port: number
+  database: string
+  user: string
+  schemas: string[]
+  intervalMinutes: number
+  enabled: boolean
+  revision: number
+  nextRunAt?: string
+  queued: boolean
+  running: boolean
+}
+
 export interface AutomationJob {
   id: number
   provider: AutomationProvider
@@ -44,6 +58,7 @@ export interface AutomationJob {
   createdAt: string
   revokedAt?: string
   latestRun?: AutomationRun
+  managed?: ManagedPostgresConfig
 }
 
 export interface IssuedAutomationJob {
@@ -51,7 +66,9 @@ export interface IssuedAutomationJob {
   token: string
 }
 
-export function automationRunDetail(run: AutomationRun) {
+export function automationRunDetail(run: AutomationRun, managed = false) {
+  if (managed && run.code === 'collection_failed') return '未能读取来源。可在任务配置中测试连接和 schema 权限。'
+  if (managed && run.code === 'collection_timeout') return '采集超时，请核对来源服务和网络状态。'
   if (run.code) return resultLabels[run.code] || '查看采集端运行记录。'
   if (run.memberPresent !== undefined) {
     return run.memberPresent ? '检出目标协作者的直接授权。' : '未检出目标协作者的直接授权。'

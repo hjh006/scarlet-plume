@@ -1,0 +1,36 @@
+services:
+  app:
+    environment:
+      SCARLET_MANAGED_PG_HOSTS: ${SCARLET_MANAGED_PG_HOSTS:-sample-db}
+    networks: [default, private, sample]
+
+  sample-db:
+    build: ./docker/postgresql-sample
+    image: scarlet-plume-sample:local
+    environment:
+      POSTGRES_DB: scarlet_sample
+      POSTGRES_USER: sample_admin
+      POSTGRES_PASSWORD: ${SCARLET_SAMPLE_DB_PASSWORD:?Set SCARLET_SAMPLE_DB_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      SCARLET_SAMPLE_READER_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:?Set SCARLET_SAMPLE_READER_PASSWORD}
+    volumes:
+      - sample_data:/var/lib/postgresql
+    networks: [sample]
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -U sample_admin -d scarlet_sample &&
+          psql -X -At -U sample_admin -d scarlet_sample
+          -c "SELECT to_regclass('inventory.shipments') IS NOT NULL" | grep -qx t
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+networks:
+  sample:
+    internal: true
+
+volumes:
+  sample_data:
