@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 def require_env(name):
     value = os.environ.get(name, "")
     if not value.strip():
-        raise ImproperlyConfigured(f"{name} is required in production.")
+        raise ImproperlyConfigured(f"{name} is required.")
     return value
 
 
@@ -26,12 +26,6 @@ DEBUG = APP_ENV == "development"
 if DEBUG:
     SECRET_KEY = "django-insecure-local-development-only"
     ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": os.environ.get("APP_SQLITE_PATH") or BASE_DIR / "db.sqlite3",
-        },
-    }
 else:
     SECRET_KEY = require_env("APP_SECRET_KEY")
     if (
@@ -45,22 +39,6 @@ else:
     if not ALLOWED_HOSTS or any("*" in host or host.startswith(".") for host in ALLOWED_HOSTS):
         raise ImproperlyConfigured("APP_ALLOWED_HOSTS must list explicit hosts.")
 
-    postgres_options = {"sslmode": "verify-full"}
-    if ca_file := os.environ.get("APP_DB_SSLROOTCERT"):
-        postgres_options["sslrootcert"] = ca_file
-
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": require_env("APP_DB_NAME"),
-            "USER": require_env("APP_DB_USER"),
-            "PASSWORD": require_env("APP_DB_PASSWORD"),
-            "HOST": require_env("APP_DB_HOST"),
-            "PORT": os.environ.get("APP_DB_PORT", "5432"),
-            "OPTIONS": postgres_options,
-        },
-    }
-
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SESSION_COOKIE_SECURE = True
@@ -69,6 +47,37 @@ else:
     # Enable only behind a trusted proxy that overwrites this header.
     if os.environ.get("APP_TRUST_PROXY_HTTPS") == "1":
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+
+database_host = require_env("APP_DB_HOST")
+# Unix-domain sockets ignore sslmode. Reject socket paths and host lists.
+if any(char in database_host for char in (",", "/", "\\")) or database_host.startswith("@"):
+    raise ImproperlyConfigured("APP_DB_HOST must be a single TCP host.")
+
+loopback_address = {"localhost": "127.0.0.1", "127.0.0.1": "127.0.0.1", "::1": "::1"}.get(database_host)
+postgres_options = {
+    "sslmode": "verify-full",
+    "gssencmode": "disable",
+    "connect_timeout": 5,
+    "application_name": "scarlet-plume",
+}
+if DEBUG and loopback_address:
+    # Pin the actual address instead of trusting DNS or PGHOSTADDR.
+    postgres_options.update(sslmode="disable", hostaddr=loopback_address)
+elif ca_file := os.environ.get("APP_DB_SSLROOTCERT"):
+    postgres_options["sslrootcert"] = ca_file
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": require_env("APP_DB_NAME"),
+        "USER": require_env("APP_DB_USER"),
+        "PASSWORD": require_env("APP_DB_PASSWORD"),
+        "HOST": database_host,
+        "PORT": os.environ.get("APP_DB_PORT", "5432"),
+        "OPTIONS": postgres_options,
+    },
+}
 
 
 INSTALLED_APPS = [

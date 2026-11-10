@@ -1,0 +1,22 @@
+name: scarlet-plume
+
+services:
+  db:
+    image: postgres:18.6-bookworm@sha256:f1ea2a1a4fb7b68d4836be1fdcb8a6466a89b072158bf9d97663600538c294c5
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME:?Set APP_DB_NAME}
+      POSTGRES_USER: ${APP_DB_USER:?Set APP_DB_USER}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "127.0.0.1:${APP_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres_data:

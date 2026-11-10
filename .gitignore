@@ -9,6 +9,7 @@ __pycache__/
 *.sqlite3-wal
 .env
 .env.*
+!.env.example
 /staticfiles/
 .coverage
 .coverage.*
