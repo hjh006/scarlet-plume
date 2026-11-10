@@ -4,6 +4,7 @@ import { ApiError, describeError, downloadFile, formatDate, request, workspacePa
 import { postgresSensitivityLabel as sensitivityLabel } from './postgresql'
 import { canManageChecks } from './workflow'
 import Icon from './Icon.vue'
+import './api-security-view.css'
 
 interface ScanSummary {
   id: number
@@ -150,9 +151,12 @@ onBeforeUnmount(() => active.abort())
           {{ scanId ? '依据接口契约分析，运行时行为待验证。' : '盘点接口、鉴权声明与疑似敏感字段，将契约发现登记到监管检查。' }}
         </p>
       </div>
-      <button v-if="detail" type="button" class="button button-primary api-export" :disabled="exporting" @click="exportScan">
-        <Icon name="download" />{{ exporting ? '正在导出…' : '导出 JSON' }}
-      </button>
+      <div class="page-actions">
+        <a class="button button-secondary" :href="scanPath + '/runtime'"><Icon name="automation" />运行时观测</a>
+        <button v-if="detail" type="button" class="button button-primary api-export" :disabled="exporting" @click="exportScan">
+          <Icon name="download" />{{ exporting ? '正在导出…' : '导出 JSON' }}
+        </button>
+      </div>
     </header>
     <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
 
@@ -316,5 +320,3 @@ onBeforeUnmount(() => active.abort())
     </template>
   </div>
 </template>
-
-<style scoped src="./api-security-view.css"></style>

@@ -1,0 +1,107 @@
+# Optional local samples; combine with compose.local.yaml and compose.sample.yaml.
+services:
+  app:
+    networks: [default, private, sample, runtime]
+
+  runtime-java:
+    build: ./docker/runtime-java-sample
+    image: scarlet-plume-java-runtime:local
+    environment:
+      SCARLET_RUNTIME_JDBC_URL: jdbc:postgresql://sample-db:5432/scarlet_sample
+      SCARLET_RUNTIME_JDBC_USER: sample_reader
+      SCARLET_RUNTIME_JDBC_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:?Set SCARLET_SAMPLE_READER_PASSWORD}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://app:8080/api/v1/runtime/otlp/v1/traces
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: Authorization=Bearer%20${SCARLET_RUNTIME_JAVA_TOKEN:?Create the Java OTLP source first}
+    networks: [runtime, sample]
+    depends_on:
+      app:
+        condition: service_healthy
+      sample-db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+
+  runtime-python:
+    build: ./docker/runtime-python-sample
+    image: scarlet-plume-python-runtime:local
+    environment:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://app:8080/api/v1/runtime/otlp/v1/traces
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: Authorization=Bearer%20${SCARLET_RUNTIME_PYTHON_TOKEN:?Create the Python OTLP source first}
+    networks: [runtime]
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 8080), 1).close()"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+
+  runtime-edge-java:
+    image: scarlet-plume-local:dev
+    entrypoint: [scarlet-runtime-agent]
+    command:
+      - -listen
+      - 0.0.0.0:8443
+      - -upstream
+      - http://runtime-java:8080
+      - -url
+      - http://app:8080
+      - -local
+      - -tls-cert
+      - /tls/server.crt
+      - -tls-key
+      - /tls/server.key
+      - -route
+      - /runtime/customers/{id}
+      - -route
+      - /runtime/undocumented
+    environment:
+      SCARLET_RUNTIME_GATEWAY_TOKEN: ${SCARLET_RUNTIME_EDGE_JAVA_TOKEN:?Create the Java edge source first}
+    ports: ["127.0.0.1:${SCARLET_RUNTIME_JAVA_PORT:-8891}:8443"]
+    volumes: ["./.scarlet-runtime-tls:/tls:ro"]
+    networks: [default, runtime]
+    depends_on:
+      runtime-java:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  runtime-edge-python:
+    image: scarlet-plume-local:dev
+    entrypoint: [scarlet-runtime-agent]
+    command:
+      - -listen
+      - 0.0.0.0:8443
+      - -upstream
+      - http://runtime-python:8080
+      - -url
+      - http://app:8080
+      - -local
+      - -tls-cert
+      - /tls/server.crt
+      - -tls-key
+      - /tls/server.key
+      - -route
+      - /runtime/python/orders/{id}
+      - -route
+      - /runtime/python/legacy
+    environment:
+      SCARLET_RUNTIME_GATEWAY_TOKEN: ${SCARLET_RUNTIME_EDGE_PYTHON_TOKEN:?Create the Python edge source first}
+    ports: ["127.0.0.1:${SCARLET_RUNTIME_PYTHON_PORT:-8892}:8443"]
+    volumes: ["./.scarlet-runtime-tls:/tls:ro"]
+    networks: [default, runtime]
+    depends_on:
+      runtime-python:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  runtime:
+    internal: true

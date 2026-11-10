@@ -14,11 +14,13 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 RUN go build -trimpath -o /out/scarlet-server ./cmd/server \
-    && go build -trimpath -o /out/scarlet-agent ./cmd/agent
+    && go build -trimpath -o /out/scarlet-agent ./cmd/agent \
+    && go build -trimpath -o /out/scarlet-runtime-agent ./cmd/runtime-agent \
+    && go build -trimpath -o /out/scarlet-gateway-log ./cmd/gateway-log
 
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 WORKDIR /app
-COPY --from=backend /out/scarlet-server /out/scarlet-agent /usr/local/bin/
+COPY --from=backend /out/ /usr/local/bin/
 COPY --from=frontend /src/web/dist/ /app/web/
 USER 10001:10001
 EXPOSE 8080

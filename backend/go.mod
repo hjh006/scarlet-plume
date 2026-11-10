@@ -4,7 +4,9 @@ go 1.27.3
 
 require (
 	github.com/jackc/pgx/v5 v5.12.0
+	go.opentelemetry.io/proto/otlp v1.11.1
 	golang.org/x/crypto v0.58.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (

@@ -1,0 +1,44 @@
+.api-runtime .api-masthead { gap: 1.2rem; }
+.api-runtime-actions { flex: none; }
+
+.runtime-source-fields {
+  display: grid;
+  grid-template-columns: minmax(8.5rem, .7fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: .9rem;
+  min-width: 0;
+  margin: 0 0 .6rem;
+  padding: 0;
+  border: 0;
+}
+
+.runtime-source-fields .field { min-width: 0; margin: 0; }
+.runtime-action-error { margin-top: .7rem; }
+.runtime-route-filters { display: flex; flex-wrap: wrap; gap: .65rem 1rem; margin: 0 0 .75rem; }
+.runtime-route-filters .field { min-width: 0; margin: 0; }
+.runtime-route-filters label { color: var(--api-quiet); font-size: .85rem; }
+.runtime-route-filters select { min-width: min(9rem, 100%); background: var(--surface); }
+.runtime-help { margin: .25rem 0 .75rem; padding: .55rem .75rem; border-radius: .4rem; background: var(--surface-subtle); }
+.runtime-help summary { min-height: 1.8rem; color: var(--api-blue-deep); cursor: pointer; font-weight: 700; }
+.runtime-help p { margin-top: .45rem; color: var(--api-quiet); font-size: .875rem; }
+.runtime-help code { overflow-wrap: anywhere; }
+.runtime-setup { margin: .75rem 0 0; }
+.runtime-more { margin-top: .75rem; }
+
+.runtime-routes-table th:first-child { width: 27%; }
+.runtime-routes-table td:nth-child(4) { font-variant-numeric: tabular-nums; }
+.runtime-routes-table [data-posture="documented"] { color: #15605a; background: #e3f4f0; }
+.runtime-routes-table [data-posture="deprecated_active"] { color: #903b2f; background: #ffebe8; }
+.runtime-routes-table [data-posture="observed_only"] { color: #794908; background: #fff2d9; }
+.runtime-routes-table [data-posture="no_baseline"] { color: var(--api-quiet); background: var(--surface-subtle); }
+.runtime-sources-table th:first-child { width: 27%; }
+.runtime-sources-table tbody button { min-height: 2.75rem; }
+
+@media (max-width: 68rem) {
+  .api-runtime .api-masthead { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 58rem) {
+  .runtime-source-fields { grid-template-columns: minmax(0, 1fr); }
+  .runtime-routes-table tbody th:first-child,
+  .runtime-sources-table tbody th:first-child { width: auto; }
+}
