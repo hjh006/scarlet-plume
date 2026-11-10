@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ApiError, describeError, request } from './api'
 import { evidenceKindLabels } from './workflow'
 
 const props = defineProps<{
   apiUrl: string
   retest: boolean
+  automaticRetest?: boolean
   targetDigest?: string
 }>()
 const emit = defineEmits<{ saved: [message: string]; sessionExpired: [] }>()
 const selected = ref<'manual' | 'feishu'>('manual')
 const kind = ref<keyof typeof evidenceKindLabels>(
-  props.retest ? (props.targetDigest ? 'remediation' : 'retest') : 'observation',
+  props.retest ? (props.targetDigest || props.automaticRetest ? 'remediation' : 'retest') : 'observation',
 )
+const evidenceOptions = computed(() => props.automaticRetest
+  ? { observation: evidenceKindLabels.observation, remediation: evidenceKindLabels.remediation }
+  : evidenceKindLabels)
 const sourceSystem = ref('')
 const sourceRecord = ref('')
 const summary = ref('')
@@ -77,6 +81,10 @@ async function save() {
       }
       payload = manifest
     } else {
+      if (props.automaticRetest && kind.value === 'retest') {
+        errorMessage.value = '运行时复测由原观测来源自动登记。'
+        return
+      }
       const time = new Date(observedAt.value + '+08:00')
       if (Number.isNaN(time.valueOf())) {
         errorMessage.value = '请输入有效的北京时间。'
@@ -116,7 +124,7 @@ async function save() {
         <div class="field">
           <label for="check-evidence-kind">证据类型</label>
           <select id="check-evidence-kind" v-model="kind" required>
-            <option v-for="(label, value) in evidenceKindLabels" :key="value" :value="value">{{ label }}</option>
+            <option v-for="(label, value) in evidenceOptions" :key="value" :value="value">{{ label }}</option>
           </select>
         </div>
         <div class="field"><label for="check-evidence-system">证据来源系统</label><input id="check-evidence-system" v-model="sourceSystem" maxlength="100" required></div>
@@ -133,6 +141,7 @@ async function save() {
           <label for="check-evidence-time">证据发生时间（北京时间）</label>
           <input id="check-evidence-time" v-model="observedAt" type="datetime-local" step="1" required>
           <p v-if="targetDigest && kind === 'remediation'" class="field-hint">填写实际撤权时间。保存整改记录后，再重新采集飞书权限清单。</p>
+          <p v-else-if="automaticRetest && kind === 'remediation'" class="field-hint">填写实际整改生效时间。保存后再使用原观测来源复测。</p>
         </div>
       </template>
       <template v-else>

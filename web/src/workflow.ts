@@ -1,6 +1,7 @@
 import type { ActivityLink } from './activity'
 import type { TemplateBinding } from './template'
 import type { PostgresEvidence } from './postgresql'
+import type { RuntimeFindingContext } from './runtime-findings'
 
 export const checkStatusLabels = {
   draft: '待取证',
@@ -90,6 +91,7 @@ export interface CheckDetail extends Check {
   feishuTargetDigest?: string
   postgresJobId?: number
   availablePostgresJobId?: number
+  runtimeFinding?: RuntimeFindingContext
   reviewRevision?: number
 }
 

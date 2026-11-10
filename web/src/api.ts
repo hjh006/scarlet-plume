@@ -170,6 +170,7 @@ export function providerLabel(provider: string) {
   if (provider === 'postgresql') return 'PostgreSQL'
   if (provider === 'openmetadata') return 'OpenMetadata'
   if (provider === 'openapi') return 'OpenAPI'
+  if (provider === 'runtime-api') return 'API 运行时'
   return provider
 }
 

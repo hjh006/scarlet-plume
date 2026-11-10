@@ -28,6 +28,7 @@ services:
     build: ./docker/runtime-python-sample
     image: scarlet-plume-python-runtime:local
     environment:
+      SCARLET_RUNTIME_DEMO_LEGACY_STATUS: "${SCARLET_RUNTIME_DEMO_LEGACY_STATUS:-410}"
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://app:8080/api/v1/runtime/otlp/v1/traces
       OTEL_EXPORTER_OTLP_TRACES_HEADERS: Authorization=Bearer%20${SCARLET_RUNTIME_PYTHON_TOKEN:?Create the Python OTLP source first}
     networks: [runtime]

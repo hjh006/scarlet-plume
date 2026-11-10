@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, documentationUrl, formatDate, request, workspacePath, type Workspace } from './api'
 import { activityCheckHints, activityKindLabels } from './activity'
 import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPermissionScope, postgresPublicSelect, postgresSensitivityLabel } from './postgresql'
+import { runtimeRuleLabels } from './runtime-findings'
 import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } from './workflow'
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
 import Icon from './Icon.vue'
@@ -132,6 +133,9 @@ onBeforeUnmount(() => active.abort())
         <div class="page-actions">
           <a v-if="record.feishuTargetDigest && workspace.role === 'owner'" class="button button-secondary"
              :href="home + '/automation/new/' + record.id"><Icon name="automation" />配置自动采集</a>
+          <a v-if="record.runtimeFinding" class="button button-secondary" :href="home + '/api-security/runtime'">
+            <Icon name="automation" />运行时观测
+          </a>
           <a class="button button-secondary" :href="apiUrl + '/export'"><Icon name="download" />导出 JSON</a>
           <button v-if="record.canSubmit" type="button" class="button button-primary"
                   :disabled="actionPending || loading || actionConflict || Boolean(loadError)" @click="saveAction('submit')">提交复核</button>
@@ -190,8 +194,21 @@ onBeforeUnmount(() => active.abort())
         <section class="panel" aria-labelledby="check-evidence-title">
           <div class="panel-heading">
             <div><h2 id="check-evidence-title">证据记录</h2><p>按来源标识和观察时间追溯核验依据。</p></div>
-            <button v-if="record.feishuTargetDigest || record.postgresJobId" type="button" class="button button-secondary"
+            <button v-if="record.feishuTargetDigest || record.postgresJobId || record.runtimeFinding" type="button" class="button button-secondary"
                     :disabled="loading || actionPending" @click="load">刷新证据</button>
+          </div>
+          <div v-if="record.runtimeFinding" class="runtime-check-binding">
+            <strong>API 运行时自动取证</strong>
+            <p class="text-block">{{ runtimeRuleLabels[record.runtimeFinding.rule] }} · <span class="mono">{{ record.runtimeFinding.method }} {{ record.runtimeFinding.route }}</span></p>
+            <p class="field-hint">{{ record.runtimeFinding.service }} · 原观测来源 {{ record.runtimeFinding.source }} · #{{ record.runtimeFinding.sourceId }}</p>
+            <p class="field-hint">
+              最近触发 <time :datetime="record.runtimeFinding.lastSeen">{{ formatDate(record.runtimeFinding.lastSeen) }}</time>
+              · <a class="table-link" :href="home + '/api-security/' + record.runtimeFinding.baselineScanId">触发时的契约扫描</a>
+            </p>
+            <p v-if="record.runtimeFinding.retestAt" class="field-hint">
+              最近自动复测 <time :datetime="record.runtimeFinding.retestAt">{{ formatDate(record.runtimeFinding.retestAt) }}</time>
+            </p>
+            <p class="field-hint">证据用于核对实际响应、发布范围和访问策略。复测由原观测来源自动登记。</p>
           </div>
           <div v-if="record.postgresJobId || record.availablePostgresJobId" class="postgres-binding">
             <strong>PostgreSQL 自动取证</strong>
@@ -214,7 +231,15 @@ onBeforeUnmount(() => active.abort())
           <div v-if="changes" class="evidence-guidance">
             <strong>本轮整改要求</strong>
             <p class="text-block">{{ changes.note }}</p>
-            <ol v-if="record.feishuTargetDigest" class="remediation-steps">
+            <ol v-if="record.runtimeFinding" class="remediation-steps">
+              <li>完成变更并登记「整改记录」，关联审批或变更编号。</li>
+              <li v-if="record.runtimeFinding.rule === 'unregistered_success'">
+                导入同一服务的新 OpenAPI 契约，登记该接口并将 <code>deprecated</code> 设为 <code>false</code>。再通过原观测来源发起获授权的复测请求，取得新的 HTTP 2xx。
+              </li>
+              <li v-else>在最新契约中保留该接口的弃用标记或移除该接口。通过原观测来源复测，同一批次需观测到该接口的 HTTP 410，且无 HTTP 2xx。</li>
+              <li>刷新证据，核对系统登记的复测后提交独立复核。</li>
+            </ol>
+            <ol v-else-if="record.feishuTargetDigest" class="remediation-steps">
               <li>在飞书移除指定协作者的直接授权。</li>
               <li>手工登记「整改记录」，关联变更记录。</li>
               <li>复测权限。已启用的采集任务会在下次运行时登记符合本轮条件的权限证据。</li>
@@ -229,6 +254,7 @@ onBeforeUnmount(() => active.abort())
           </div>
           <CheckEvidenceForm v-if="record.canAddEvidence && !loadError" :key="formVersion" :api-url="apiUrl"
                              :retest="record.status === 'needs_work'" :target-digest="record.feishuTargetDigest"
+                             :automatic-retest="Boolean(record.runtimeFinding)"
                              @saved="evidenceSaved" @session-expired="emit('sessionExpired')" />
 
           <article v-for="entry in record.evidence" :key="entry.id" class="evidence">
@@ -318,7 +344,13 @@ onBeforeUnmount(() => active.abort())
           <p v-if="record.feishuTargetDigest" class="field-hint page-feedback">
             请对照飞书源端权限，并单独核验链接、继承和群组等访问路径。
           </p>
-          <p v-if="!record.canVerify" class="message message-warning page-feedback">
+          <p v-if="record.runtimeFinding" class="field-hint page-feedback">
+            请核对变更记录、原来源自动复测和实际访问范围。
+          </p>
+          <p v-if="!record.canVerify && record.runtimeFinding" class="message message-warning page-feedback">
+            本轮尚缺符合条件的自动复测。请记录整改要求。
+          </p>
+          <p v-else-if="!record.canVerify && record.feishuTargetDigest" class="message message-warning page-feedback">
             当前飞书清单仍检出目标协作者的直接授权。请记录整改要求。
           </p>
           <div class="field">
@@ -343,3 +375,13 @@ onBeforeUnmount(() => active.abort())
     </template>
   </div>
 </template>
+
+<style scoped>
+.runtime-check-binding {
+  display: grid;
+  gap: .25rem;
+  padding: .75rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+</style>

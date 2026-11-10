@@ -18,6 +18,15 @@ func (s *Store) AddEvidence(ctx context.Context, workspaceID, actorID, checkID i
 		if err != nil {
 			return err
 		}
+		if input.Kind == "retest" {
+			finding, err := runtimeFindingForCheck(ctx, tx, check)
+			if err != nil {
+				return err
+			}
+			if finding != nil {
+				return ErrEvidenceRequired
+			}
+		}
 
 		_, err = addEvidenceTx(ctx, tx, check, actorID, input, false)
 		return err
@@ -173,6 +182,13 @@ func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error
 		err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM plume.check_evidence WHERE check_id = $1)", check.ID).Scan(&exists)
 		return exists, err
 	}
+	finding, err := runtimeFindingForCheck(ctx, tx, check)
+	if err != nil {
+		return false, err
+	}
+	if finding != nil {
+		return runtimeRetestAllowed(ctx, tx, finding)
+	}
 	change, err := latestCheckEvent(ctx, tx, check.ID, "changes")
 	if err != nil || change.ID == 0 {
 		return false, err
@@ -220,6 +236,13 @@ func independentReviewer(ctx context.Context, tx pgx.Tx, check Check, role strin
 
 func verificationAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error) {
 	if check.FeishuTargetDigest == "" {
+		finding, err := runtimeFindingForCheck(ctx, tx, check)
+		if err != nil {
+			return false, err
+		}
+		if finding != nil {
+			return runtimeRetestAllowed(ctx, tx, finding)
+		}
 		return true, nil
 	}
 	evidence, present, err := latestFeishuEvidence(ctx, tx, check.ID)
@@ -247,6 +270,11 @@ func (s *Store) ReviewCheck(ctx context.Context, workspaceID, actorID, checkID, 
 		role, err := checkRole(ctx, tx, workspaceID, actorID, true)
 		if err != nil {
 			return err
+		}
+		if decision == "verified" {
+			if err := lockRuntimeBaselineForCheck(ctx, tx, workspaceID, checkID); err != nil {
+				return err
+			}
 		}
 		check, err := scanCheck(tx.QueryRow(ctx, checkSelect+" WHERE c.workspace_id = $1 AND c.id = $2 FOR NO KEY UPDATE OF c", workspaceID, checkID))
 		if err != nil {

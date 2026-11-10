@@ -59,15 +59,16 @@ type Check struct {
 
 type CheckDetail struct {
 	Check
-	Evidence               []Evidence   `json:"evidence"`
-	Events                 []CheckEvent `json:"events"`
-	CanAddEvidence         bool         `json:"canAddEvidence"`
-	CanSubmit              bool         `json:"canSubmit"`
-	CanReview              bool         `json:"canReview"`
-	CanVerify              bool         `json:"canVerify"`
-	ReviewRevision         int64        `json:"reviewRevision,omitempty"`
-	PostgresJobID          *int64       `json:"postgresJobId,omitempty"`
-	AvailablePostgresJobID *int64       `json:"availablePostgresJobId,omitempty"`
+	Evidence               []Evidence      `json:"evidence"`
+	Events                 []CheckEvent    `json:"events"`
+	CanAddEvidence         bool            `json:"canAddEvidence"`
+	CanSubmit              bool            `json:"canSubmit"`
+	CanReview              bool            `json:"canReview"`
+	CanVerify              bool            `json:"canVerify"`
+	ReviewRevision         int64           `json:"reviewRevision,omitempty"`
+	PostgresJobID          *int64          `json:"postgresJobId,omitempty"`
+	AvailablePostgresJobID *int64          `json:"availablePostgresJobId,omitempty"`
+	RuntimeFinding         *RuntimeFinding `json:"runtimeFinding,omitempty"`
 }
 
 type EvidenceInput struct {

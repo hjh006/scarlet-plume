@@ -23,6 +23,13 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 		if err := loadCheckPostgresBinding(ctx, tx, &detail, role); err != nil {
 			return err
 		}
+		finding, err := runtimeFindingForCheck(ctx, tx, check)
+		if err != nil {
+			return err
+		}
+		if finding != nil {
+			detail.RuntimeFinding = &finding.RuntimeFinding
+		}
 		detail.Evidence, err = listCheckEvidence(ctx, tx, check)
 		if err != nil {
 			return err
