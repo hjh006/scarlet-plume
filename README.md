@@ -18,6 +18,39 @@
 
 新栈采用 Go 1.27、Vue 3 / TypeScript、Node.js 26 LTS 和 PostgreSQL 18。已提供工作区、资产清单、处理活动、监管检查、证据登记、整改复测、独立复核和 JSON 导出。检查沿用 Django 基线的 14 条规则。 [架构与迁移顺序](docs/architecture.md)
 
+### 本机 Docker
+
+以下命令从项目根目录执行。Docker Compose 会构建 Go 与 Vue 镜像，在独立卷中运行 PostgreSQL 18。控制台默认通过 `http://127.0.0.1:8890` 访问。如果需要更换端口，在 `.env.scarlet-local` 设置 `SCARLET_LOCAL_PORT`。
+
+```sh
+umask 077
+if [ ! -e .env.scarlet-local ]; then
+  printf 'SCARLET_LOCAL_DB_PASSWORD=%s\n' "$(openssl rand -hex 32)" > .env.scarlet-local
+fi
+
+scarlet() { docker compose --env-file .env.scarlet-local -f compose.local.yaml "$@"; }
+scarlet up -d --wait db
+scarlet build app
+scarlet run --rm -T app -local-docker -mode migrate
+```
+
+为负责人设置并导出 `SCARLET_BOOTSTRAP_PASSWORD`，然后初始化工作区。再次初始化保留账号原密码。
+
+```sh
+export SCARLET_BOOTSTRAP_USER=scarlet-owner
+export SCARLET_BOOTSTRAP_WORKSPACE=local
+export SCARLET_BOOTSTRAP_WORKSPACE_NAME=赤翎本地工作区
+: "${SCARLET_BOOTSTRAP_PASSWORD:?请先设置并导出负责人密码}"
+scarlet run --rm -T -e SCARLET_BOOTSTRAP_USER -e SCARLET_BOOTSTRAP_PASSWORD \
+  -e SCARLET_BOOTSTRAP_WORKSPACE -e SCARLET_BOOTSTRAP_WORKSPACE_NAME app -local-docker -mode bootstrap
+unset SCARLET_BOOTSTRAP_PASSWORD
+scarlet up -d --wait app
+```
+
+打开 [本机赤翎控制台](http://127.0.0.1:8890)，用初始化的账号登录。控制台端口绑定本机回环地址，数据库通过 Compose 私有网络连接。运行 `scarlet stop` 可暂停，`scarlet up -d --wait` 可恢复。升级时重新构建镜像并运行迁移，再启动新版容器。
+
+### 在宿主机启动 Go 与 Vue
+
 先按下文的本地数据库步骤启动 PostgreSQL。示例连接串使用 `openssl rand -hex 32` 生成的本地数据库密码。生产连接使用 `sslmode=verify-full`。
 
 ```sh
@@ -46,7 +79,9 @@ go run ./cmd/server -web ../web/dist -allow-insecure-loopback
 
 打开 [赤翎 Go 与 Vue 控制台](http://127.0.0.1:8080)，用首次初始化时生成的账号密码登录。再次执行初始化会保留已建立的账号。开发时也可用 `npm run dev --prefix web`，并将 Go API 的 `SCARLET_ORIGIN` 设为 `http://127.0.0.1:5173`。
 
-采集器从客户环境读取源连接配置。在 `backend/` 下运行下面的本地示例，盘点指定 schema 后生成 JSON，使用授权工作区的「集成与导入」上传。生产源使用专用元数据账号，并移除回环明文选项。
+工作台的「自动采集」支持 PostgreSQL、OpenMetadata 和飞书权限定期采集。完成一次任务配置后，采集器会按间隔自动提交资产目录或检查证据。 [自动采集配置](docs/automation.md)
+
+离线清单导入仍可使用。采集器从客户环境读取源连接配置。在 `backend/` 下运行下面的本地示例，盘点指定 schema 后生成 JSON，使用授权工作区的「集成与导入」上传。生产源使用专用元数据账号，并移除回环明文选项。
 
 ```sh
 export SCARLET_PG_DSN='postgresql://metadata_user@127.0.0.1:5432/inventory?sslmode=disable'
@@ -142,7 +177,7 @@ GitHub Actions 使用临时 PostgreSQL 服务验证迁移和测试。Django 测�
 
 生产环境使用 WSGI 服务加载 `config.wsgi:application`，通过部署平台提供 TLS 和静态文件服务。上线前运行 `python manage.py collectstatic --noinput` 和 `python manage.py check --deploy`，并配置登录限速、监控和恢复演练。
 
-当前版本由企业人工确认适用性和证据，设计上接收证据引用及脱敏摘要。外部源系统采集、权限执行、AI 实时拦截和监管报送由后续集成覆盖。内置条目提供官方依据，具体适用范围由企业确认。
+当前版本接收源系统引用和脱敏证据。已接入的目录和权限信息可定期采集。企业负责确认规则适用范围、执行授权整改和独立复核。
 
 ## 许可证
 

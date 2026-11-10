@@ -1,0 +1,49 @@
+name: scarlet-plume-local
+
+services:
+  db:
+    image: postgres:18.6-bookworm@sha256:f1ea2a1a4fb7b68d4836be1fdcb8a6466a89b072158bf9d97663600538c294c5
+    environment:
+      POSTGRES_DB: scarlet_plume
+      POSTGRES_USER: scarlet_plume
+      POSTGRES_PASSWORD: ${SCARLET_LOCAL_DB_PASSWORD:?Set SCARLET_LOCAL_DB_PASSWORD to a random hexadecimal value}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks: [private]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "scarlet_plume", "-d", "scarlet_plume"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    image: scarlet-plume-local:dev
+    command: ["-local-docker", "-addr", "0.0.0.0:8080", "-web", "/app/web"]
+    environment:
+      SCARLET_DB_DSN: postgresql://scarlet_plume:${SCARLET_LOCAL_DB_PASSWORD:?Set SCARLET_LOCAL_DB_PASSWORD to a random hexadecimal value}@db:5432/scarlet_plume?sslmode=disable
+      SCARLET_ORIGIN: http://127.0.0.1:${SCARLET_LOCAL_PORT:-8890}
+    ports:
+      - "127.0.0.1:${SCARLET_LOCAL_PORT:-8890}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [default, private]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+networks:
+  private:
+    internal: true
+
+volumes:
+  postgres_data:

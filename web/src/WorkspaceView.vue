@@ -121,8 +121,8 @@ onBeforeUnmount(() => active?.abort())
           <h1>治理概览</h1>
           <p>跟踪工作区的数据资产和接入记录。</p>
         </div>
-        <a class="button button-primary" :href="home + '/integrations'">
-          <Icon name="integrations" />{{ canEdit ? '接入数据' : '查看集成' }}
+        <a class="button button-primary" :href="home + '/automation'">
+          <Icon name="automation" />管理自动采集
         </a>
       </div>
     </header>
@@ -138,6 +138,9 @@ onBeforeUnmount(() => active?.abort())
             aria-controls="asset-create-form" :aria-expanded="showAssetForm" @click="openAssetForm">
       <Icon name="plus" />登记资产
     </button>
+    <a v-if="page === 'integrations'" class="button button-primary" :href="home + '/automation'">
+      <Icon name="automation" />查看自动采集
+    </a>
   </header>
 
   <div v-if="loadError" class="message message-error page-feedback" role="alert">
@@ -205,8 +208,8 @@ onBeforeUnmount(() => active?.abort())
         </div>
         <ol class="intake-steps">
           <li><Icon name="integrations" /><div><strong>查看集成</strong><p>确认当前可用的来源。</p></div></li>
-          <li><Icon name="upload" /><div><strong>准备清单</strong><p>在客户环境中采集获准的表目录。</p></div></li>
-          <li><Icon name="assets" /><div><strong>核对资产</strong><p>比对导入批次与来源引用。</p></div></li>
+          <li><Icon name="automation" /><div><strong>配置自动采集</strong><p>授权采集端定期读取获准的目录。</p></div></li>
+          <li><Icon name="assets" /><div><strong>核对资产</strong><p>查看采集结果与来源引用。</p></div></li>
         </ol>
       </section>
     </div>
@@ -229,7 +232,7 @@ onBeforeUnmount(() => active?.abort())
     </section>
     <section v-if="loaded" class="panel" aria-labelledby="assets-title" :aria-busy="loading">
       <div class="panel-heading">
-        <div><h2 id="assets-title">资产台账</h2><p>包含人工登记与目录导入的资产。</p></div>
+        <div><h2 id="assets-title">资产台账</h2><p>包含自动采集、目录导入和人工登记的资产。</p></div>
       </div>
       <p v-if="assets.length" class="table-hint">横向滑动查看完整台账。</p>
       <div v-if="assets.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="assets-title">

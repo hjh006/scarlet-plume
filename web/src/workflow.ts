@@ -59,6 +59,8 @@ export interface Evidence {
   observedAt: string
   createdAt: string
   recordedBy: string
+  automationJobId?: number
+  automationRunId?: string
   feishu?: {
     memberPresent: boolean
     permission?: string

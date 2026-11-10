@@ -175,6 +175,7 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <li><strong>{{label .Kind}} · {{.SourceSystem}}</strong><br>
 引用 <span class="wrap">{{.SourceRecord}}</span> · 观察 {{date .ObservedAt}} · {{.RecordedBy}} 于 {{date .CreatedAt}} 登记
 <div class="wrap">{{.Summary}}</div>
+{{if .AutomationJobID}}<div class="wrap">自动采集 · 任务 #{{.AutomationJobID}} · 运行 {{.AutomationRunID}}</div>{{end}}
 {{with .Feishu}}<div class="wrap">飞书目标摘要 {{.TargetDigest}} · 快照摘要 {{.SnapshotDigest}} · {{if .MemberPresent}}存在直接授权 {{.Permission}}{{else}}未观察到指定直接授权{{end}}</div>{{end}}</li>
 {{end}}</ul>{{else}}<p class="muted">暂无证据记录</p>{{end}}
 <h3>操作和独立复核</h3>

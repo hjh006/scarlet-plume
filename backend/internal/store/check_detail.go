@@ -57,8 +57,10 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 func listCheckEvidence(ctx context.Context, tx pgx.Tx, check Check) ([]Evidence, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT e.id, e.kind, e.source_system, e.source_record, e.summary, e.observed_at,
-		       e.created_at, u.username, e.feishu_snapshot_digest, e.feishu_member_present, COALESCE(e.feishu_permission, '')
+		       e.created_at, u.username, e.feishu_snapshot_digest, e.feishu_member_present, COALESCE(e.feishu_permission, ''),
+		       r.job_id, COALESCE(r.run_id, '')
 		FROM plume.check_evidence e JOIN plume.users u ON u.id = e.created_by
+		LEFT JOIN plume.automation_runs r ON r.evidence_id = e.id
 		WHERE e.check_id = $1 ORDER BY e.id DESC`, check.ID)
 	if err != nil {
 		return nil, err
@@ -71,7 +73,8 @@ func listCheckEvidence(ctx context.Context, tx pgx.Tx, check Check) ([]Evidence,
 		var present *bool
 		var permission string
 		if err := rows.Scan(&entry.ID, &entry.Kind, &entry.SourceSystem, &entry.SourceRecord, &entry.Summary,
-			&entry.ObservedAt, &entry.CreatedAt, &entry.RecordedBy, &snapshotDigest, &present, &permission); err != nil {
+			&entry.ObservedAt, &entry.CreatedAt, &entry.RecordedBy, &snapshotDigest, &present, &permission,
+			&entry.AutomationJobID, &entry.AutomationRunID); err != nil {
 			return nil, err
 		}
 		if snapshotDigest != nil {
