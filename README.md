@@ -14,7 +14,50 @@
 - 社区版保留核心治理流程和记录导出。企业可以自行部署、核查代码，并迁移自己的记录。
 - 托管、实施和支持按服务分别计价，发布时公开计价单位、交付范围和超额费用。以同等交付范围下的总成本为比较口径。
 
-## 本地运行
+## Go 与 Vue 开发预览
+
+新栈采用 Go 1.27、Vue 3 / TypeScript、Node.js 26 LTS 和 PostgreSQL 18。已提供登录与工作区、资产、集成目录，以及 PostgreSQL 和 OpenMetadata 资产清单采集与导入。处理活动和控制证据流程目前可在下面的 Django 预览体验。 [架构与迁移顺序](docs/architecture.md)
+
+先按下文的本地数据库步骤启动 PostgreSQL。示例连接串使用 `openssl rand -hex 32` 生成的本地数据库密码。生产连接使用 `sslmode=verify-full`。
+
+```sh
+set -a
+. ./.env
+set +a
+docker compose up -d --wait db
+
+export SCARLET_DB_DSN="postgresql://$APP_DB_USER:$APP_DB_PASSWORD@$APP_DB_HOST:$APP_DB_PORT/$APP_DB_NAME?sslmode=disable"
+export SCARLET_ORIGIN=http://127.0.0.1:8080
+export SCARLET_BOOTSTRAP_USER=demo-owner
+export SCARLET_BOOTSTRAP_WORKSPACE=demo
+export SCARLET_BOOTSTRAP_WORKSPACE_NAME=示例制造工作区
+printf '为演示账号生成的密码：'
+export SCARLET_BOOTSTRAP_PASSWORD="$(openssl rand -hex 16)"
+printf '%s\n' "$SCARLET_BOOTSTRAP_PASSWORD"
+
+npm ci --prefix web
+npm run build --prefix web
+cd backend
+go run ./cmd/server -mode migrate -allow-insecure-loopback
+go run ./cmd/server -mode bootstrap -allow-insecure-loopback
+unset SCARLET_BOOTSTRAP_PASSWORD
+go run ./cmd/server -web ../web/dist -allow-insecure-loopback
+```
+
+打开 [赤翎 Go 与 Vue 控制台](http://127.0.0.1:8080)，用首次初始化时生成的账号密码登录。再次执行初始化会保留已建立的账号。开发时也可用 `npm run dev --prefix web`，并将 Go API 的 `SCARLET_ORIGIN` 设为 `http://127.0.0.1:5173`。
+
+采集器从客户环境读取源连接配置。在 `backend/` 下运行下面的本地示例，盘点指定 schema 后生成 JSON，使用授权工作区的「集成与导入」上传。生产源使用专用元数据账号，并移除回环明文选项。
+
+```sh
+export SCARLET_PG_DSN='postgresql://metadata_user@127.0.0.1:5432/inventory?sslmode=disable'
+go run ./cmd/collector -provider postgresql -source CRM -schema public -allow-insecure-loopback > inventory.json
+```
+
+OpenMetadata 连接器通过 `SCARLET_OPENMETADATA_URL` 和 `SCARLET_OPENMETADATA_TOKEN` 接收客户侧配置，执行 `go run ./cmd/collector -provider openmetadata -source Catalog -service crm`。令牌由源系统的最小权限身份提供。清单只包含表名与源端标识。当前导入是增量发现，后续盘点缺项不会删除现有资产。
+
+运行 `go test -race ./...` 时，可为 `PLUME_STORE_TEST_DSN` 配置专用的测试 PostgreSQL 数据库以执行持久化和授权集成测试。GitHub Actions 为两个开发栈分别启动 PostgreSQL 18。
+
+## Django 基线本地运行
 
 需要 Python 3.14 和 Docker Compose。开发、测试和生产均使用 PostgreSQL。本地 Compose 启动 PostgreSQL 18，默认只监听本机的 `127.0.0.1:5432`。
 

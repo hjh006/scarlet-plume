@@ -43,3 +43,44 @@ jobs:
           python manage.py makemigrations --check --dry-run
           python manage.py migrate --noinput
           python manage.py test --noinput
+
+  next-stack:
+    name: Verify Go and Vue (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_DB_NAME: scarlet_plume_go_ci
+      APP_DB_USER: scarlet_plume_go_ci
+      APP_DB_HOST: 127.0.0.1
+      APP_DB_PORT: 55432
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start PostgreSQL
+        run: |
+          password="$(openssl rand -hex 24)"
+          dsn="postgres://${APP_DB_USER}:$password@${APP_DB_HOST}:${APP_DB_PORT}/${APP_DB_NAME}?sslmode=disable"
+          echo "::add-mask::$password"
+          echo "::add-mask::$dsn"
+          echo "PLUME_STORE_TEST_DSN=$dsn" >> "$GITHUB_ENV"
+          APP_DB_PASSWORD="$password" docker compose up -d --wait --wait-timeout 90 db
+      - name: Verify Go backend and connectors
+        working-directory: backend
+        run: |
+          go test -race ./...
+          go vet ./...
+      - name: Build Vue console
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
