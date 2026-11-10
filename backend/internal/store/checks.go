@@ -59,13 +59,15 @@ type Check struct {
 
 type CheckDetail struct {
 	Check
-	Evidence       []Evidence   `json:"evidence"`
-	Events         []CheckEvent `json:"events"`
-	CanAddEvidence bool         `json:"canAddEvidence"`
-	CanSubmit      bool         `json:"canSubmit"`
-	CanReview      bool         `json:"canReview"`
-	CanVerify      bool         `json:"canVerify"`
-	ReviewRevision int64        `json:"reviewRevision,omitempty"`
+	Evidence               []Evidence   `json:"evidence"`
+	Events                 []CheckEvent `json:"events"`
+	CanAddEvidence         bool         `json:"canAddEvidence"`
+	CanSubmit              bool         `json:"canSubmit"`
+	CanReview              bool         `json:"canReview"`
+	CanVerify              bool         `json:"canVerify"`
+	ReviewRevision         int64        `json:"reviewRevision,omitempty"`
+	PostgresJobID          *int64       `json:"postgresJobId,omitempty"`
+	AvailablePostgresJobID *int64       `json:"availablePostgresJobId,omitempty"`
 }
 
 type EvidenceInput struct {
@@ -78,17 +80,18 @@ type EvidenceInput struct {
 }
 
 type Evidence struct {
-	ID              int64              `json:"id"`
-	Kind            string             `json:"kind"`
-	SourceSystem    string             `json:"sourceSystem"`
-	SourceRecord    string             `json:"sourceRecord"`
-	Summary         string             `json:"summary"`
-	ObservedAt      time.Time          `json:"observedAt"`
-	CreatedAt       time.Time          `json:"createdAt"`
-	RecordedBy      string             `json:"recordedBy"`
-	AutomationJobID *int64             `json:"automationJobId,omitempty"`
-	AutomationRunID string             `json:"automationRunId,omitempty"`
-	Feishu          *FeishuObservation `json:"feishu,omitempty"`
+	ID              int64                `json:"id"`
+	Kind            string               `json:"kind"`
+	SourceSystem    string               `json:"sourceSystem"`
+	SourceRecord    string               `json:"sourceRecord"`
+	Summary         string               `json:"summary"`
+	ObservedAt      time.Time            `json:"observedAt"`
+	CreatedAt       time.Time            `json:"createdAt"`
+	RecordedBy      string               `json:"recordedBy"`
+	AutomationJobID *int64               `json:"automationJobId,omitempty"`
+	AutomationRunID string               `json:"automationRunId,omitempty"`
+	Feishu          *FeishuObservation   `json:"feishu,omitempty"`
+	Postgres        *PostgresObservation `json:"postgres,omitempty"`
 }
 
 type FeishuObservation struct {

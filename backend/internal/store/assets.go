@@ -13,6 +13,7 @@ type Asset struct {
 	Name                string    `json:"name"`
 	System              string    `json:"system"`
 	OwnerTeam           string    `json:"ownerTeam"`
+	SourceProvider      string    `json:"sourceProvider,omitempty"`
 	Source              string    `json:"source"`
 	SourceRef           string    `json:"sourceRef"`
 	Category            string    `json:"category"`
@@ -39,13 +40,13 @@ type CollectedAsset struct {
 	Name      string `json:"name"`
 }
 
-const assetColumns = "id, name, system, owner_team, COALESCE(source, ''), COALESCE(source_ref, ''), " +
+const assetColumns = "id, name, system, owner_team, COALESCE(source_provider, ''), COALESCE(source, ''), COALESCE(source_ref, ''), " +
 	"category, business_level, statutory_category, classification_basis, description, created_at"
 const importColumns = "id, provider, source, batch_id, created_count, existing_count, created_at"
 
 func scanAsset(row pgx.Row) (Asset, error) {
 	var asset Asset
-	err := row.Scan(&asset.ID, &asset.Name, &asset.System, &asset.OwnerTeam, &asset.Source, &asset.SourceRef,
+	err := row.Scan(&asset.ID, &asset.Name, &asset.System, &asset.OwnerTeam, &asset.SourceProvider, &asset.Source, &asset.SourceRef,
 		&asset.Category, &asset.BusinessLevel, &asset.StatutoryCategory, &asset.ClassificationBasis, &asset.Description, &asset.CreatedAt)
 	return asset, storeError(err)
 }

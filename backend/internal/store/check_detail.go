@@ -20,6 +20,9 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 			return err
 		}
 		detail.Check = check
+		if err := loadCheckPostgresBinding(ctx, tx, &detail, role); err != nil {
+			return err
+		}
 		detail.Evidence, err = listCheckEvidence(ctx, tx, check)
 		if err != nil {
 			return err
@@ -58,9 +61,11 @@ func listCheckEvidence(ctx context.Context, tx pgx.Tx, check Check) ([]Evidence,
 	rows, err := tx.Query(ctx, `
 		SELECT e.id, e.kind, e.source_system, e.source_record, e.summary, e.observed_at,
 		       e.created_at, u.username, e.feishu_snapshot_digest, e.feishu_member_present, COALESCE(e.feishu_permission, ''),
-		       r.job_id, COALESCE(r.run_id, '')
+		       COALESCE(r.job_id, pr.job_id), COALESCE(r.run_id, pr.run_id, ''), p.observation
 		FROM plume.check_evidence e JOIN plume.users u ON u.id = e.created_by
 		LEFT JOIN plume.automation_runs r ON r.evidence_id = e.id
+		LEFT JOIN plume.postgres_check_evidence p ON p.evidence_id = e.id
+		LEFT JOIN plume.automation_runs pr ON pr.id = p.automation_run_id
 		WHERE e.check_id = $1 ORDER BY e.id DESC`, check.ID)
 	if err != nil {
 		return nil, err
@@ -74,7 +79,7 @@ func listCheckEvidence(ctx context.Context, tx pgx.Tx, check Check) ([]Evidence,
 		var permission string
 		if err := rows.Scan(&entry.ID, &entry.Kind, &entry.SourceSystem, &entry.SourceRecord, &entry.Summary,
 			&entry.ObservedAt, &entry.CreatedAt, &entry.RecordedBy, &snapshotDigest, &present, &permission,
-			&entry.AutomationJobID, &entry.AutomationRunID); err != nil {
+			&entry.AutomationJobID, &entry.AutomationRunID, &entry.Postgres); err != nil {
 			return nil, err
 		}
 		if snapshotDigest != nil {

@@ -4,6 +4,7 @@ import { ApiError, describeError, request, roleLabels, sessionPath, type Session
 import Brand from './Brand.vue'
 import Icon from './Icon.vue'
 import WorkspaceView from './WorkspaceView.vue'
+import PostgresInspectionView from './PostgresInspectionView.vue'
 import ChecksView from './ChecksView.vue'
 import CheckCreate from './CheckCreate.vue'
 import CheckDetail from './CheckDetail.vue'
@@ -181,6 +182,9 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
                           :workspace="workspace" :activity-id="route.recordId" @session-expired="sessionExpired" />
           <ActivitiesView v-else :key="workspace.slug" :workspace="workspace" @session-expired="sessionExpired" />
         </template>
+        <PostgresInspectionView v-else-if="route.page === 'assets' && route.recordId"
+                                :key="`${workspace.slug}/assets/${route.recordId}`" :workspace="workspace" :asset-id="route.recordId"
+                                @session-expired="sessionExpired" />
         <template v-else-if="route.page === 'checks'">
           <CheckCreate v-if="route.recordId === 'new'" :key="`${workspace.slug}/${route.contextId}`"
                        :workspace="workspace" :activity-context="route.contextId"

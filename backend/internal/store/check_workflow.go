@@ -130,7 +130,7 @@ func latestFeishuEvidence(ctx context.Context, tx pgx.Tx, checkID int64) (Eviden
 	return evidence, present, err
 }
 
-func feishuRemediationAt(ctx context.Context, tx pgx.Tx, checkID int64, change CheckEvent) (time.Time, error) {
+func checkRemediationAt(ctx context.Context, tx pgx.Tx, checkID int64, change CheckEvent) (time.Time, error) {
 	if change.ID == 0 {
 		return time.Time{}, nil
 	}
@@ -162,7 +162,7 @@ func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error
 		if err != nil {
 			return false, err
 		}
-		remediatedAt, err := feishuRemediationAt(ctx, tx, check.ID, change)
+		remediatedAt, err := checkRemediationAt(ctx, tx, check.ID, change)
 		if err != nil {
 			return false, err
 		}
