@@ -47,7 +47,19 @@
   .integration-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
 }
 @media (max-width: 43.99rem) {
-  .sidebar-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .table-hint { display: block; padding: .55rem .8rem; color: var(--secondary); font-size: .78rem; }
   .integration-row { padding-inline: .8rem; }
 }
+
+.check-table tbody th { min-width: 10rem; }
+.check-table th, .check-table td { overflow-wrap: anywhere; }
+.more-assets { margin-top: .55rem; }
+.check-record .evidence-ref, .check-record .detail-list dd, .check-record .text-block { overflow-wrap: anywhere; }
+.check-record .review-panel { margin-top: 1.25rem; }
+.check-record .evidence-forms { border-bottom: 1px solid var(--line); }
+.check-record .evidence-forms > summary { min-height: 2.75rem; padding: .7rem 1.1rem; cursor: pointer; font-weight: 700; }
+.check-record .evidence-forms > summary:hover { background: var(--surface-subtle); }
+.check-record .evidence-form { padding: .95rem 1.1rem; }
+.check-record .form-feedback { margin-top: .85rem; }
+.check-record .evidence-guidance .text-block { margin-top: .35rem; }
+.remediation-steps { margin: .4rem 0 0; padding-inline-start: 1.35rem; }

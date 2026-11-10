@@ -15,7 +15,8 @@ var integrations = []integration{
 	{"aliyun-dsc", "阿里云 DSC", "分类分级", "读取扫描范围及分类发现，提交人工复核。", "planned", "https://help.aliyun.com/zh/dsc/data-security-center/developer-reference/api-sddp-2019-01-03-overview"},
 	{"tencent-dsgc", "腾讯云 DSGC", "风险评估", "读取风险项及扫描范围，关联资产和控制。", "planned", "https://cloud.tencent.com/document/api/1087/97236"},
 	{"huawei-dsc", "华为云 DSC", "分类分级", "采集扫描任务状态、执行时间和资源范围。", "planned", "https://support.huaweicloud.com/api-dsc/ShowScanJobList.html"},
-	{"feishu", "飞书云文档与审批", "外发与协同", "核对审批实例和已授权文档的实际共享权限。", "planned", "https://open.feishu.cn/document/server-docs/docs/permission/permission-member/list"},
+	{"feishu", "飞书云文档", "访问控制", "采集指定直接协作者的权限快照，导入 G03 检查。已通过模拟接口验证，待真实租户联调。", "available", "https://open.feishu.cn/document/server-docs/docs/permission/permission-member/list"},
+	{"feishu-approval", "飞书审批", "外发与协同", "接入审批实例并与文档权限证据关联。", "planned", "https://open.feishu.cn/document/server-docs/approval-v4/instance/get"},
 	{"aliyun-oss", "阿里云 OSS", "访问控制", "结合阻止公共访问、桶策略和 ACL 检查共享配置。", "planned", "https://help.aliyun.com/zh/oss/user-guide/block-public-access"},
 	{"wazuh", "Wazuh", "事件证据", "接收客户侧过滤的告警元数据，进入待研判。", "planned", "https://documentation.wazuh.com/current/user-manual/manager/integration-with-external-apis.html"},
 	{"feilian", "火山引擎飞连", "终端防泄漏", "接入支持外发的终端与通道防护日志，核对策略和处置结果。", "planned", "https://docs.volcengine.com/docs/feilian/log-audit-and-forwarding?lang=zh"},
@@ -26,10 +27,5 @@ var integrations = []integration{
 }
 
 func availableProvider(provider string) bool {
-	for _, item := range integrations {
-		if item.ID == provider && item.Status == "available" {
-			return true
-		}
-	}
-	return false
+	return provider == "postgresql" || provider == "openmetadata"
 }

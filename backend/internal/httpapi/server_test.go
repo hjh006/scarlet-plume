@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	owner, other := "web-owner-"+suffix, "web-other-"+suffix
+	owner, other, reviewer := "web-owner-"+suffix, "web-other-"+suffix, "web-reviewer-"+suffix
 	a, b := "web-a-"+suffix, "web-b-"+suffix
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -89,7 +91,7 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		if _, err := pool.Exec(ctx, "DELETE FROM plume.workspaces WHERE slug = ANY($1)", []string{a, b}); err != nil {
 			t.Error(err)
 		}
-		if _, err := pool.Exec(ctx, "DELETE FROM plume.users WHERE username = ANY($1)", []string{owner, other}); err != nil {
+		if _, err := pool.Exec(ctx, "DELETE FROM plume.users WHERE username = ANY($1)", []string{owner, other, reviewer}); err != nil {
 			t.Error(err)
 		}
 	})
@@ -158,6 +160,84 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil ||
 		len(page.Items) != 1 || page.Items[0].SourceRef != "public.orders" {
 		t.Fatalf("unexpected asset page: %s", rec.Body)
+	}
+	if err := repo.ProvisionReviewer(ctx, a, reviewer, hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ProvisionReviewer(ctx, a, owner, hash); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("reviewer provision unexpectedly accepted the workspace owner: %v", err)
+	}
+	reviewerLogin := do("POST", session, fmt.Sprintf(`{"username":%q,"password":%q}`, reviewer, password), nil, 204)
+	reviewerCookie := reviewerLogin.Result().Cookies()[0]
+	checks := workspace + "/checks"
+	target := strings.Repeat("a", 64)
+	makeCheck := fmt.Sprintf(`{"assetId":%d,"requirementCode":"G03","ownerTeam":"QA","note":"指定直接协作者","feishuTargetDigest":%q}`, page.Items[0].ID, target)
+	do("GET", workspace+"/requirements", "", cookie, 200)
+	do("POST", checks, makeCheck, reviewerCookie, 403)
+	created := do("POST", checks, makeCheck, cookie, 201)
+	var check store.Check
+	if err := json.Unmarshal(created.Body.Bytes(), &check); err != nil || check.ID < 1 {
+		t.Fatalf("check was not created: %s", created.Body)
+	}
+	path := fmt.Sprintf("%s/%d", checks, check.ID)
+	do("GET", fmt.Sprintf("%s/checks/%d/export", otherWorkspace, check.ID), "", cookie, 404)
+	do("POST", path+"/submit", "{}", cookie, 409)
+
+	snapshot := func(target string, present bool, observedAt time.Time) string {
+		permission := ""
+		if present {
+			permission = "edit"
+		}
+		return fmt.Sprintf(`{"version":1,"targetDigest":%q,"observedAt":%q,"present":%t,"permission":%q}`,
+			target, observedAt.UTC().Format(time.RFC3339Nano), present, permission)
+	}
+	readDetail := func() store.CheckDetail {
+		t.Helper()
+		reply := do("GET", path, "", reviewerCookie, 200)
+		var detail store.CheckDetail
+		if err := json.Unmarshal(reply.Body.Bytes(), &detail); err != nil {
+			t.Fatal(err)
+		}
+		return detail
+	}
+	baseline := snapshot(target, true, time.Now())
+	do("POST", path+"/feishu", snapshot(strings.Repeat("b", 64), true, time.Now()), cookie, 400)
+	do("POST", path+"/feishu", snapshot(target, true, time.Now().Add(time.Second)), cookie, 400)
+	do("POST", path+"/feishu", baseline, cookie, 204)
+	do("POST", path+"/feishu", baseline, cookie, 409)
+	do("POST", path+"/submit", "{}", cookie, 204)
+	detail := readDetail()
+	if !detail.CanReview || detail.CanVerify || detail.ReviewRevision < 1 {
+		t.Fatalf("unexpected permissions for a still-present grant: %+v", detail)
+	}
+	review := func(revision int64, decision string) string {
+		return fmt.Sprintf(`{"reviewRevision":%d,"decision":%q,"note":"核对测试协作者的直接权限"}`, revision, decision)
+	}
+	firstRevision := detail.ReviewRevision
+	do("POST", path+"/review", review(firstRevision, "changes"), cookie, 403)
+	do("POST", path+"/review", review(firstRevision, "verified"), reviewerCookie, 409)
+	do("POST", path+"/review", review(firstRevision, "changes"), reviewerCookie, 204)
+	do("POST", path+"/submit", "{}", cookie, 409)
+	remediation := fmt.Sprintf(`{"kind":"remediation","sourceSystem":"飞书测试夹具","sourceRecord":"remediation-test","summary":"模拟移除指定协作者的直接授权","observedAt":%q}`,
+		time.Now().UTC().Format(time.RFC3339Nano))
+	do("POST", path+"/evidence", remediation, cookie, 204)
+	do("POST", path+"/feishu", snapshot(target, false, time.Now()), cookie, 204)
+	do("POST", path+"/submit", "{}", cookie, 204)
+	detail = readDetail()
+	if !detail.CanReview || !detail.CanVerify || detail.ReviewRevision <= firstRevision {
+		t.Fatalf("unexpected permissions for an absent grant: %+v", detail)
+	}
+	do("POST", path+"/review", review(firstRevision, "verified"), reviewerCookie, 409)
+	do("POST", path+"/review", review(detail.ReviewRevision, "verified"), reviewerCookie, 204)
+	detail = readDetail()
+	if detail.Status != "verified" || len(detail.Evidence) != 3 {
+		t.Fatalf("unexpected verified check: %+v", detail)
+	}
+	export := do("GET", path+"/export", "", reviewerCookie, 200)
+	if !strings.Contains(export.Header().Get("Content-Disposition"), "attachment") ||
+		!strings.Contains(export.Body.String(), `"memberPresent":false`) ||
+		!strings.Contains(export.Body.String(), `"action":"verified"`) {
+		t.Fatalf("invalid audit export: %s", export.Body)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE plume.memberships AS m SET role = 'viewer'
 		FROM plume.workspaces AS w WHERE m.workspace_id = w.id AND w.slug = $1`, a); err != nil {

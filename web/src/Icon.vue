@@ -19,6 +19,11 @@ defineProps<{ name: string }>()
     <template v-else-if="name === 'integrations'">
       <path d="M10 7H6a5 5 0 0 0 0 10h4m4-10h4a5 5 0 0 1 0 10h-4m-6-5h8" />
     </template>
+    <template v-else-if="name === 'checks'">
+      <rect x="5" y="5" width="14" height="16" rx="2" /><path d="M9 5V3h6v2m-6 8 2 2 4-4" />
+    </template>
+    <path v-else-if="name === 'back'" d="M20 12H5m6-6-6 6 6 6" />
+    <path v-else-if="name === 'download'" d="M12 4v11m-5-5 5 5 5-5M4 16v4h16v-4" />
     <path v-else-if="name === 'plus'" d="M12 5v14M5 12h14" />
     <path v-else-if="name === 'arrow'" d="M4 12h15m-6-6 6 6-6 6" />
     <path v-else-if="name === 'chevron'" d="m9 6 6 6-6 6" />
