@@ -1,0 +1,53 @@
+.page-feedback { margin-bottom: 1rem; }
+.page-feedback .button { margin-top: .5rem; }
+.overview-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.recent-table tbody td { font-variant-numeric: tabular-nums; }
+.asset-form { margin-bottom: 1.2rem; }
+.asset-form h2 { margin-bottom: .85rem; }
+.asset-form .message, .import-panel-body .message { margin: .85rem 0 0; }
+.asset-table { min-width: 38rem; }
+.asset-table td:nth-child(3) { max-width: 22rem; }
+.table-hint { display: none; }
+.panel-footer { padding: .75rem 1.1rem; border-top: 1px solid var(--line); }
+
+.intake-steps, .integration-list { margin: 0; padding: 0; list-style: none; }
+.intake-steps li {
+  display: flex;
+  gap: .65rem;
+  align-items: center;
+  padding: .78rem 1.1rem;
+}
+.intake-steps li + li { border-top: 1px solid var(--line); }
+.intake-steps .icon { color: var(--accent); }
+.intake-steps p, .integration-copy p { margin-top: .12rem; color: var(--secondary); font-size: .85rem; }
+.integration-grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 1.15rem; }
+.integration-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: .65rem;
+  padding: .95rem 1.1rem;
+}
+.integration-row + .integration-row { border-top: 1px solid var(--line); }
+.integration-copy .source-link { display: inline-flex; align-items: center; gap: .25rem; padding: .25rem 0; }
+.import-panel-body { padding: 1rem 1.1rem 1.15rem; }
+.import-panel-body .button { margin-top: .9rem; }
+.import-panel-body input[type=file] { font-size: .875rem; }
+.import-panel-body input[type=file]::file-selector-button {
+  margin-right: .55rem;
+  padding: .2rem .4rem;
+  border: 1px solid var(--line);
+  border-radius: .25rem;
+  color: var(--ink);
+  background: var(--surface-subtle);
+  cursor: pointer;
+}
+
+@media (min-width: 75rem) {
+  .integration-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+}
+@media (max-width: 43.99rem) {
+  .sidebar-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .table-hint { display: block; padding: .55rem .8rem; color: var(--secondary); font-size: .78rem; }
+  .integration-row { padding-inline: .8rem; }
+}
