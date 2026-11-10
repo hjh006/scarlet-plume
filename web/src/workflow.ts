@@ -1,3 +1,5 @@
+import type { ActivityLink } from './activity'
+
 export const checkStatusLabels = {
   draft: '待取证',
   in_review: '待复核',
@@ -29,9 +31,11 @@ export interface Requirement {
 
 export interface Check {
   id: number
+  djangoId?: number
   assetId: number
   assetName: string
   assetSystem: string
+  activity?: ActivityLink
   requirement: Requirement
   ownerTeam: string
   note: string

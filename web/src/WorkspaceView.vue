@@ -28,6 +28,18 @@ const draft = reactive<AssetDraft>({ name: '', system: '', ownerTeam: '' })
 const saving = ref(false)
 const formError = ref('')
 const notice = ref('')
+const assetCategories: Record<string, string> = { business: '业务数据', personal: '个人信息', sensitive_personal: '敏感个人信息' }
+const businessLevels: Record<string, string> = { internal: '内部', confidential: '机密' }
+const statutoryCategories: Record<string, string> = { general: '一般数据', important: '重要数据', core: '核心数据' }
+
+function knownClassification(value?: string) {
+  return Boolean(value && value !== 'unknown')
+}
+
+function hasAssetMetadata(asset: Asset) {
+  return [asset.category, asset.businessLevel, asset.statutoryCategory].some(knownClassification) ||
+    Boolean(asset.classificationBasis || asset.description)
+}
 
 function reportError(error: unknown, output: { value: string }) {
   if (error instanceof ApiError && error.status === 401) emit('sessionExpired')
@@ -227,7 +239,29 @@ onBeforeUnmount(() => active?.abort())
           </thead>
           <tbody>
             <tr v-for="asset in assets" :key="asset.id">
-              <th scope="row">{{ asset.name }}</th>
+              <th scope="row">
+                {{ asset.name }}
+                <details v-if="hasAssetMetadata(asset)" class="asset-metadata">
+                  <summary>分类与说明</summary>
+                  <dl>
+                    <template v-if="knownClassification(asset.category)">
+                      <dt>数据属性</dt><dd>{{ assetCategories[asset.category!] || asset.category }}</dd>
+                    </template>
+                    <template v-if="knownClassification(asset.businessLevel)">
+                      <dt>企业内部敏感级别</dt><dd>{{ businessLevels[asset.businessLevel!] || asset.businessLevel }}</dd>
+                    </template>
+                    <template v-if="knownClassification(asset.statutoryCategory)">
+                      <dt>法定数据类别</dt><dd>{{ statutoryCategories[asset.statutoryCategory!] || asset.statutoryCategory }}</dd>
+                    </template>
+                    <template v-if="asset.classificationBasis">
+                      <dt>分级依据</dt><dd class="text-block">{{ asset.classificationBasis }}</dd>
+                    </template>
+                    <template v-if="asset.description">
+                      <dt>说明</dt><dd class="text-block">{{ asset.description }}</dd>
+                    </template>
+                  </dl>
+                </details>
+              </th>
               <td>{{ asset.system }}</td>
               <td>
                 {{ asset.source || '人工登记' }}

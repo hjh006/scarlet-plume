@@ -9,13 +9,18 @@ import (
 )
 
 type Asset struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	System    string    `json:"system"`
-	OwnerTeam string    `json:"ownerTeam"`
-	Source    string    `json:"source"`
-	SourceRef string    `json:"sourceRef"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID                  int64     `json:"id"`
+	Name                string    `json:"name"`
+	System              string    `json:"system"`
+	OwnerTeam           string    `json:"ownerTeam"`
+	Source              string    `json:"source"`
+	SourceRef           string    `json:"sourceRef"`
+	Category            string    `json:"category"`
+	BusinessLevel       string    `json:"businessLevel"`
+	StatutoryCategory   string    `json:"statutoryCategory"`
+	ClassificationBasis string    `json:"classificationBasis"`
+	Description         string    `json:"description"`
+	CreatedAt           time.Time `json:"createdAt"`
 }
 
 type ImportRun struct {
@@ -34,12 +39,14 @@ type CollectedAsset struct {
 	Name      string `json:"name"`
 }
 
-const assetColumns = "id, name, system, owner_team, COALESCE(source, ''), COALESCE(source_ref, ''), created_at"
+const assetColumns = "id, name, system, owner_team, COALESCE(source, ''), COALESCE(source_ref, ''), " +
+	"category, business_level, statutory_category, classification_basis, description, created_at"
 const importColumns = "id, provider, source, batch_id, created_count, existing_count, created_at"
 
 func scanAsset(row pgx.Row) (Asset, error) {
 	var asset Asset
-	err := row.Scan(&asset.ID, &asset.Name, &asset.System, &asset.OwnerTeam, &asset.Source, &asset.SourceRef, &asset.CreatedAt)
+	err := row.Scan(&asset.ID, &asset.Name, &asset.System, &asset.OwnerTeam, &asset.Source, &asset.SourceRef,
+		&asset.Category, &asset.BusinessLevel, &asset.StatutoryCategory, &asset.ClassificationBasis, &asset.Description, &asset.CreatedAt)
 	return asset, storeError(err)
 }
 
@@ -61,6 +68,11 @@ func (s *Store) ListAssets(ctx context.Context, workspaceID, after int64, limit 
 		assets = append(assets, asset)
 	}
 	return assets, rows.Err()
+}
+
+func (s *Store) Asset(ctx context.Context, workspaceID, assetID int64) (Asset, error) {
+	return scanAsset(s.pool.QueryRow(ctx, "SELECT "+assetColumns+" FROM plume.assets WHERE workspace_id = $1 AND id = $2",
+		workspaceID, assetID))
 }
 
 func (s *Store) AssetCount(ctx context.Context, workspaceID int64) (int64, error) {

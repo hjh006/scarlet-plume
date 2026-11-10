@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, documentationUrl, formatDate, request, workspacePath, type Workspace } from './api'
+import { activityCheckHints, activityKindLabels } from './activity'
 import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } from './workflow'
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
 import Icon from './Icon.vue'
@@ -8,7 +9,8 @@ import Icon from './Icon.vue'
 const props = defineProps<{ workspace: Workspace; checkId: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const apiUrl = workspacePath(props.workspace.slug) + '/checks/' + encodeURIComponent(props.checkId)
-const pageUrl = `#/${encodeURIComponent(props.workspace.slug)}/checks`
+const home = `#/${encodeURIComponent(props.workspace.slug)}`
+const pageUrl = home + '/checks'
 const record = ref<CheckDetail | null>(null)
 const loading = ref(true)
 const loadError = ref('')
@@ -23,6 +25,7 @@ const active = new AbortController()
 
 const changes = computed(() => record.value?.status === 'needs_work'
   ? record.value.events.find(event => event.action === 'changes') : undefined)
+const activityHint = computed(() => record.value?.activity ? activityCheckHints[record.value.activity.kind] : undefined)
 const requirementUrl = computed(() => documentationUrl(record.value?.requirement.sourceUrl || ''))
 
 function errorText(error: unknown) {
@@ -122,6 +125,14 @@ onBeforeUnmount(() => active.abort())
         </div>
         <dl class="detail-list">
           <div><dt>关联资产</dt><dd>{{ record.assetName }}</dd></div>
+          <div v-if="record.djangoId"><dt>Django 原检查编号</dt><dd>#{{ record.djangoId }}</dd></div>
+          <div v-if="record.activity">
+            <dt>关联处理活动</dt>
+            <dd>
+              <a class="table-link" :href="home + '/activities/' + record.activity.id">{{ record.activity.name }}</a>
+              <span class="table-secondary">{{ activityKindLabels[record.activity.kind] }}</span>
+            </dd>
+          </div>
           <div><dt>整改责任团队</dt><dd>{{ record.ownerTeam }}</dd></div>
           <div><dt>更新时间</dt><dd class="date-text"><time :datetime="record.updatedAt">{{ formatDate(record.updatedAt) }}</time></dd></div>
           <div>
@@ -146,6 +157,12 @@ onBeforeUnmount(() => active.abort())
         <section class="panel" aria-labelledby="check-evidence-title">
           <div class="panel-heading">
             <div><h2 id="check-evidence-title">证据记录</h2><p>按来源标识和观察时间追溯核验依据。</p></div>
+          </div>
+          <div v-if="activityHint" class="activity-guidance">
+            <strong>建议核对的证据</strong>
+            <p>{{ activityHint.scope }}</p>
+            <p v-if="changes">{{ activityHint.retest }}</p>
+            <p>仅登记记录编号或脱敏摘要，原始业务数据和提示词留在源系统。</p>
           </div>
           <div v-if="changes" class="evidence-guidance">
             <strong>本轮整改要求</strong>

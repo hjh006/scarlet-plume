@@ -56,29 +56,11 @@ func run() error {
 		return errors.New("mode must be serve, migrate, bootstrap, or add-reviewer")
 	}
 
-	dsn := os.Getenv("SCARLET_DB_DSN")
-	if dsn == "" {
-		return errors.New("SCARLET_DB_DSN is required")
-	}
-	if os.Getenv("PGSERVICE") != "" {
-		return errors.New("use an explicit database DSN without PGSERVICE")
-	}
-	poolConfig, err := pgxpool.ParseConfig(dsn)
+	poolConfig, err := store.PostgresConfig(os.Getenv("SCARLET_DB_DSN"), *allowLoopback)
 	if err != nil {
-		return errors.New("invalid PostgreSQL connection configuration")
+		return err
 	}
-	conn := poolConfig.ConnConfig
-	if len(conn.Fallbacks) != 0 || conn.Host == "" || strings.HasPrefix(conn.Host, "/") ||
-		strings.HasPrefix(conn.Host, "@") || strings.Contains(conn.Host, ",") {
-		return errors.New("database connection requires a single TCP host without fallbacks")
-	}
-	tls := conn.TLSConfig
-	if !(tls != nil && !tls.InsecureSkipVerify && tls.ServerName == conn.Host) &&
-		!(*allowLoopback && tls == nil && loopback(conn.Host)) {
-		return errors.New("database requires sslmode=verify-full; plaintext is limited to explicit loopback development")
-	}
-	conn.ConnectTimeout = 5 * time.Second
-	conn.RuntimeParams["application_name"] = "scarlet-plume-go"
+	poolConfig.ConnConfig.RuntimeParams["application_name"] = "scarlet-plume-go"
 	poolConfig.MaxConns = 10
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

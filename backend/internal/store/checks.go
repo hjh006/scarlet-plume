@@ -28,6 +28,7 @@ type Requirement struct {
 
 type CheckInput struct {
 	AssetID            int64  `json:"assetId"`
+	ActivityID         *int64 `json:"activityId,omitempty"`
 	RequirementCode    string `json:"requirementCode"`
 	OwnerTeam          string `json:"ownerTeam"`
 	Note               string `json:"note"`
@@ -35,16 +36,18 @@ type CheckInput struct {
 }
 
 type Check struct {
-	ID          int64       `json:"id"`
-	AssetID     int64       `json:"assetId"`
-	AssetName   string      `json:"assetName"`
-	AssetSystem string      `json:"assetSystem"`
-	Requirement Requirement `json:"requirement"`
-	OwnerTeam   string      `json:"ownerTeam"`
-	Note        string      `json:"note"`
-	Status      string      `json:"status"`
-	CreatedAt   time.Time   `json:"createdAt"`
-	UpdatedAt   time.Time   `json:"updatedAt"`
+	DjangoID    *int64             `json:"djangoId,omitempty"`
+	ID          int64              `json:"id"`
+	AssetID     int64              `json:"assetId"`
+	AssetName   string             `json:"assetName"`
+	AssetSystem string             `json:"assetSystem"`
+	Activity    *ActivityReference `json:"activity,omitempty"`
+	Requirement Requirement        `json:"requirement"`
+	OwnerTeam   string             `json:"ownerTeam"`
+	Note        string             `json:"note"`
+	Status      string             `json:"status"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	UpdatedAt   time.Time          `json:"updatedAt"`
 
 	FeishuTargetDigest string `json:"feishuTargetDigest,omitempty"`
 	createdBy          int64
@@ -100,20 +103,27 @@ type CheckEvent struct {
 
 const checkSelect = `
 	SELECT c.id, c.asset_id, a.name, a.system,
+	       COALESCE(p.id, 0), COALESCE(p.name, ''), COALESCE(p.kind, ''),
 	       r.code, r.title, r.citation, r.source_url, r.summary,
 	       c.owner_team, c.note, c.status, c.created_at, c.updated_at,
-	       COALESCE(c.feishu_target_digest, ''), c.created_by, c.submitted_by
+	       COALESCE(c.feishu_target_digest, ''), c.created_by, c.submitted_by, c.django_id
 	FROM plume.checks c
 	JOIN plume.assets a ON a.workspace_id = c.workspace_id AND a.id = c.asset_id
 	JOIN plume.requirements r ON r.code = c.requirement_code
+	LEFT JOIN plume.activities p ON p.workspace_id = c.workspace_id AND p.asset_id = c.asset_id AND p.id = c.activity_id
 `
 
 func scanCheck(row pgx.Row) (Check, error) {
 	var c Check
+	var activity ActivityReference
 	err := row.Scan(&c.ID, &c.AssetID, &c.AssetName, &c.AssetSystem,
+		&activity.ID, &activity.Name, &activity.Kind,
 		&c.Requirement.Code, &c.Requirement.Title, &c.Requirement.Citation,
 		&c.Requirement.SourceURL, &c.Requirement.Summary, &c.OwnerTeam, &c.Note, &c.Status,
-		&c.CreatedAt, &c.UpdatedAt, &c.FeishuTargetDigest, &c.createdBy, &c.submittedBy)
+		&c.CreatedAt, &c.UpdatedAt, &c.FeishuTargetDigest, &c.createdBy, &c.submittedBy, &c.DjangoID)
+	if activity.ID != 0 {
+		c.Activity = &activity
+	}
 	return c, storeError(err)
 }
 
@@ -136,10 +146,27 @@ func (s *Store) ListRequirements(ctx context.Context) ([]Requirement, error) {
 }
 
 func (s *Store) ListChecks(ctx context.Context, workspaceID int64, status string, before int64, limit int) ([]Check, error) {
+	return s.listChecks(ctx, workspaceID, status, 0, before, limit)
+}
+
+func (s *Store) ListActivityChecks(ctx context.Context, workspaceID, activityID int64, status string, before int64, limit int) ([]Check, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM plume.activities WHERE workspace_id = $1 AND id = $2)
+	`, workspaceID, activityID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	return s.listChecks(ctx, workspaceID, status, activityID, before, limit)
+}
+
+func (s *Store) listChecks(ctx context.Context, workspaceID int64, status string, activityID, before int64, limit int) ([]Check, error) {
 	rows, err := s.pool.Query(ctx, checkSelect+`
 		WHERE c.workspace_id = $1 AND ($2 = '' OR c.status = $2)
-		  AND ($3 = 0 OR c.id < $3)
-		ORDER BY c.id DESC LIMIT $4`, workspaceID, status, before, limit)
+		  AND ($3 = 0::bigint OR c.activity_id = $3) AND ($4 = 0::bigint OR c.id < $4)
+		ORDER BY c.id DESC LIMIT $5`, workspaceID, status, activityID, before, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +188,7 @@ func validCheckText(value string, length int) bool {
 }
 
 func (s *Store) CreateCheck(ctx context.Context, workspaceID, actorID int64, input CheckInput) (Check, error) {
-	if input.AssetID < 1 || !validCheckText(input.RequirementCode, 12) ||
+	if input.AssetID < 1 || (input.ActivityID != nil && *input.ActivityID < 1) || !validCheckText(input.RequirementCode, 12) ||
 		!validCheckText(input.OwnerTeam, 80) || !validCheckText(input.Note, 1000) ||
 		(input.FeishuTargetDigest != "" && (input.RequirementCode != "G03" || !digestPattern.MatchString(input.FeishuTargetDigest))) {
 		return Check{}, ErrInvalid
@@ -178,9 +205,11 @@ func (s *Store) CreateCheck(ctx context.Context, workspaceID, actorID int64, inp
 		}
 		var id int64
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO plume.checks (workspace_id, asset_id, requirement_code, owner_team, note, created_by, feishu_target_digest)
-			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '')) RETURNING id`,
-			workspaceID, input.AssetID, input.RequirementCode, input.OwnerTeam, input.Note, actorID, input.FeishuTargetDigest,
+			INSERT INTO plume.checks (workspace_id, asset_id, requirement_code, owner_team, note, created_by,
+				feishu_target_digest, activity_id)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8) RETURNING id`,
+			workspaceID, input.AssetID, input.RequirementCode, input.OwnerTeam, input.Note, actorID,
+			input.FeishuTargetDigest, input.ActivityID,
 		).Scan(&id); err != nil {
 			return storeError(err)
 		}
