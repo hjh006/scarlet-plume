@@ -1,0 +1,219 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+const (
+	ReportCheckLimit    = 200
+	ReportTimelineLimit = 3000
+)
+
+var ErrReportScopeTooLarge = errors.New("report scope is too large")
+
+type ComplianceReport struct {
+	Workspace   ReportWorkspace `json:"workspace"`
+	GeneratedAt time.Time       `json:"generatedAt"`
+	Scope       ReportScope     `json:"scope"`
+	Counts      ReportCounts    `json:"counts"`
+	Checks      []ReportCheck   `json:"checks"`
+}
+
+type ReportWorkspace struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+type ReportScope struct {
+	ActivityID   int64     `json:"activityId,omitempty"`
+	ActivityName string    `json:"activityName,omitempty"`
+	Activity     *Activity `json:"activity,omitempty"`
+	Basis        string    `json:"basis"`
+}
+
+type ReportCounts struct {
+	Total        int `json:"total"`
+	Draft        int `json:"draft"`
+	InReview     int `json:"inReview"`
+	NeedsWork    int `json:"needsWork"`
+	Verified     int `json:"verified"`
+	Templated    int `json:"templated"`
+	Evidence     int `json:"evidence"`
+	Remediations int `json:"remediations"`
+	Retests      int `json:"retests"`
+	Reviews      int `json:"reviews"`
+}
+
+type ReportCheck struct {
+	Check        Check        `json:"check"`
+	Evidence     []Evidence   `json:"evidence"`
+	Events       []CheckEvent `json:"events"`
+	LatestReview *CheckEvent  `json:"latestReview,omitempty"`
+}
+
+const reportBasis = "报告范围以列明的已创建检查为准。已验证指对应检查完成独立复核。整体合规结论需结合实际适用范围及其他证据另行评定。"
+
+// ComplianceReport reads the checks and their history from the same database snapshot.
+func (s *Store) ComplianceReport(ctx context.Context, workspaceID, actorID, activityID int64) (ComplianceReport, error) {
+	report := ComplianceReport{
+		Scope:  ReportScope{Basis: reportBasis},
+		Checks: make([]ReportCheck, 0),
+	}
+	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{
+		IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly,
+	}, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `
+			SELECT w.slug, w.name, transaction_timestamp()
+			FROM plume.workspaces w JOIN plume.memberships m ON m.workspace_id = w.id
+			WHERE w.id = $1 AND m.user_id = $2
+		`, workspaceID, actorID).Scan(&report.Workspace.Slug, &report.Workspace.Name, &report.GeneratedAt); err != nil {
+			return storeError(err)
+		}
+		report.GeneratedAt = report.GeneratedAt.UTC()
+		if activityID != 0 {
+			activity, err := scanActivity(tx.QueryRow(ctx, activitySelect+" WHERE p.workspace_id = $1 AND p.id = $2", workspaceID, activityID))
+			if err != nil {
+				return err
+			}
+			report.Scope.ActivityID = activity.ID
+			report.Scope.ActivityName = activity.Name
+			report.Scope.Activity = &activity
+		}
+		if err := readReportChecks(ctx, tx, workspaceID, activityID, &report); err != nil || len(report.Checks) == 0 {
+			return err
+		}
+
+		ids := make([]int64, 0, len(report.Checks))
+		positions := make(map[int64]int, len(report.Checks))
+		for i, entry := range report.Checks {
+			ids = append(ids, entry.Check.ID)
+			positions[entry.Check.ID] = i
+		}
+
+		if err := readReportEvidence(ctx, tx, ids, positions, &report); err != nil {
+			return err
+		}
+		return readReportEvents(ctx, tx, ids, positions, &report)
+	})
+	if err != nil {
+		return ComplianceReport{}, err
+	}
+	return report, nil
+}
+
+func readReportChecks(ctx context.Context, tx pgx.Tx, workspaceID, activityID int64, report *ComplianceReport) error {
+	rows, err := tx.Query(ctx, checkSelect+`
+		WHERE c.workspace_id = $1 AND ($2 = 0::bigint OR c.activity_id = $2)
+		ORDER BY c.id DESC LIMIT $3
+	`, workspaceID, activityID, ReportCheckLimit+1)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if len(report.Checks) == ReportCheckLimit {
+			return ErrReportScopeTooLarge
+		}
+		check, err := scanCheck(rows)
+		if err != nil {
+			return err
+		}
+		report.Counts.Total++
+		switch check.Status {
+		case "draft":
+			report.Counts.Draft++
+		case "in_review":
+			report.Counts.InReview++
+		case "needs_work":
+			report.Counts.NeedsWork++
+		case "verified":
+			report.Counts.Verified++
+		}
+		if check.Template != nil {
+			report.Counts.Templated++
+		}
+		report.Checks = append(report.Checks, ReportCheck{Check: check, Evidence: []Evidence{}, Events: []CheckEvent{}})
+	}
+	return rows.Err()
+}
+
+func readReportEvidence(ctx context.Context, tx pgx.Tx, ids []int64, positions map[int64]int, report *ComplianceReport) error {
+	rows, err := tx.Query(ctx, `
+		SELECT e.check_id, e.id, e.kind, e.source_system, e.source_record, e.summary, e.observed_at,
+			e.created_at, u.username, e.feishu_snapshot_digest, e.feishu_member_present, COALESCE(e.feishu_permission, '')
+		FROM plume.check_evidence e JOIN plume.users u ON u.id = e.created_by
+		WHERE e.check_id = ANY($1) ORDER BY e.check_id, e.id DESC LIMIT $2
+	`, ids, ReportTimelineLimit+1)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if report.Counts.Evidence == ReportTimelineLimit {
+			return ErrReportScopeTooLarge
+		}
+		var checkID int64
+		var evidence Evidence
+		var snapshotDigest *string
+		var present *bool
+		var permission string
+		if err := rows.Scan(&checkID, &evidence.ID, &evidence.Kind, &evidence.SourceSystem, &evidence.SourceRecord,
+			&evidence.Summary, &evidence.ObservedAt, &evidence.CreatedAt, &evidence.RecordedBy,
+			&snapshotDigest, &present, &permission); err != nil {
+			return err
+		}
+		entry := &report.Checks[positions[checkID]]
+		if snapshotDigest != nil {
+			evidence.Feishu = &FeishuObservation{
+				TargetDigest: entry.Check.FeishuTargetDigest, SnapshotDigest: *snapshotDigest,
+				MemberPresent: *present, Permission: permission,
+			}
+		}
+		entry.Evidence = append(entry.Evidence, evidence)
+		report.Counts.Evidence++
+		switch evidence.Kind {
+		case "remediation":
+			report.Counts.Remediations++
+		case "retest":
+			report.Counts.Retests++
+		}
+	}
+	return rows.Err()
+}
+
+func readReportEvents(ctx context.Context, tx pgx.Tx, ids []int64, positions map[int64]int, report *ComplianceReport) error {
+	budget := ReportTimelineLimit - report.Counts.Evidence
+	rows, err := tx.Query(ctx, `
+		SELECT e.check_id, e.id, e.action, u.username, e.note, e.created_at
+		FROM plume.check_events e JOIN plume.users u ON u.id = e.actor_id
+		WHERE e.check_id = ANY($1) ORDER BY e.check_id, e.id DESC LIMIT $2
+	`, ids, budget+1)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if budget == 0 {
+			return ErrReportScopeTooLarge
+		}
+		var checkID int64
+		var event CheckEvent
+		if err := rows.Scan(&checkID, &event.ID, &event.Action, &event.Actor, &event.Note, &event.CreatedAt); err != nil {
+			return err
+		}
+		entry := &report.Checks[positions[checkID]]
+		entry.Events = append(entry.Events, event)
+		if event.Action == "changes" || event.Action == "verified" {
+			report.Counts.Reviews++
+			if entry.LatestReview == nil {
+				entry.LatestReview = &event
+			}
+		}
+		budget--
+	}
+	return rows.Err()
+}

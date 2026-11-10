@@ -30,7 +30,7 @@ func checkFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrEvidenceRequired):
 		fail(w, http.StatusConflict, "缺少当前检查所需的证据。整改后须登记新复测。飞书检查需登记整改，并用同一目标的新清单核对授权已移除。")
 	case errors.Is(err, store.ErrInvalid):
-		fail(w, http.StatusBadRequest, "检查、证据或复核字段无效。请核对来源、检查目标及时间。")
+		fail(w, http.StatusBadRequest, "检查、证据或复核字段无效。请核对来源、检查目标、模板适用场景及时间。")
 	case errors.Is(err, store.ErrConflict):
 		fail(w, http.StatusConflict, "检查状态、提交版本或证据已变化，请刷新后核对。")
 	default:
@@ -101,6 +101,7 @@ func (s *server) createCheck(w http.ResponseWriter, r *http.Request, user store.
 	input.OwnerTeam = strings.TrimSpace(input.OwnerTeam)
 	input.Note = strings.TrimSpace(input.Note)
 	input.FeishuTargetDigest = strings.TrimSpace(input.FeishuTargetDigest)
+	input.TemplateItemKey = strings.TrimSpace(input.TemplateItemKey)
 	check, err := s.store.CreateCheck(r.Context(), workspace.ID, user.ID, input)
 	if err != nil {
 		checkFailure(w, err)

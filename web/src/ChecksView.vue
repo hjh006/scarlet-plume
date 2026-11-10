@@ -81,7 +81,7 @@ onBeforeUnmount(() => active?.abort())
         <tbody>
           <tr v-for="check in items" :key="check.id">
             <th scope="row">
-              <a class="table-link" :href="pageUrl + '/' + check.id">{{ check.requirement.title }}</a>
+              <a class="table-link" :href="pageUrl + '/' + check.id">{{ check.template?.item.title || check.requirement.title }}</a>
               <span class="table-secondary">{{ check.requirement.code }} · {{ check.assetName }}</span>
               <span v-if="!activityId && check.activity" class="table-secondary">{{ check.activity.name }}</span>
               <time class="table-secondary compact-date" :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time>

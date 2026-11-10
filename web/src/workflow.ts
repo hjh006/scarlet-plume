@@ -1,4 +1,5 @@
 import type { ActivityLink } from './activity'
+import type { TemplateBinding } from './template'
 
 export const checkStatusLabels = {
   draft: '待取证',
@@ -36,6 +37,7 @@ export interface Check {
   assetName: string
   assetSystem: string
   activity?: ActivityLink
+  template?: TemplateBinding
   requirement: Requirement
   ownerTeam: string
   note: string

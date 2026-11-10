@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { activityCheckHints, activityKindLabels, type Activity, type ActivityPage } from './activity'
 import { ApiError, describeError, request, workspacePath, type Asset, type AssetPage, type Workspace } from './api'
+import type { CheckTemplate } from './template'
+import TemplateCriteria from './TemplateCriteria.vue'
 import { canManageChecks, type Check, type Requirement } from './workflow'
 import Icon from './Icon.vue'
 
@@ -31,6 +33,15 @@ const ownerTeam = ref('')
 const note = ref('')
 const feishuTargetDigest = ref('')
 const active = new AbortController()
+const templates = ref<CheckTemplate[]>([])
+const templateRevisionId = ref('')
+const templateItemKey = ref('')
+const templateLoading = ref(false)
+const templateError = ref('')
+let templateOperation: AbortController | undefined
+const selectedTemplate = computed(() => templates.value.find(item => String(item.id) === templateRevisionId.value))
+const selectedTemplateItem = computed(() => selectedTemplate.value?.items.find(item => item.key === templateItemKey.value))
+const effectiveRequirementCode = computed(() => selectedTemplateItem.value?.requirementCode || requirementCode.value)
 const selectedActivity = computed(() => linkedActivity.value ?? activityOptions.value.find(item => String(item.id) === activityId.value))
 const activityHint = computed(() => selectedActivity.value ? activityCheckHints[selectedActivity.value.kind] : undefined)
 
@@ -103,9 +114,36 @@ async function loadActivities(append = false) {
   }
 }
 
+async function loadTemplates() {
+  templateOperation?.abort()
+  templateRevisionId.value = ''
+  templateItemKey.value = ''
+  templates.value = []
+  templateError.value = ''
+  const kind = selectedActivity.value?.kind
+  if (!kind || kind === 'internal') {
+    templateLoading.value = false
+    return
+  }
+  const operation = new AbortController()
+  templateOperation = operation
+  templateLoading.value = true
+  try {
+    const result = await request<{ items: CheckTemplate[] }>(
+      apiUrl + '/templates?kind=' + encodeURIComponent(kind), { signal: operation.signal },
+    )
+    if (!operation.signal.aborted) templates.value = result.items
+  } catch (error) {
+    if (!operation.signal.aborted) templateError.value = errorText(error)
+  } finally {
+    if (!operation.signal.aborted) templateLoading.value = false
+  }
+}
+
 async function createCheck() {
   if (saving.value || loading.value || !canManageChecks(props.workspace.role) ||
-      (props.activityContext && !linkedActivity.value)) return
+      (props.activityContext && !linkedActivity.value) ||
+      (templateRevisionId.value && !selectedTemplateItem.value)) return
   saving.value = true
   formError.value = ''
   try {
@@ -113,9 +151,11 @@ async function createCheck() {
       method: 'POST',
       body: JSON.stringify({
         assetId: linkedActivity.value?.assetId ?? Number(assetId.value),
-        activityId: selectedActivity.value?.id, requirementCode: requirementCode.value,
+        activityId: selectedActivity.value?.id, requirementCode: effectiveRequirementCode.value,
+        templateRevisionId: selectedTemplateItem.value ? selectedTemplate.value?.id : undefined,
+        templateItemKey: selectedTemplateItem.value?.key,
         ownerTeam: ownerTeam.value.trim(), note: note.value.trim(),
-        feishuTargetDigest: requirementCode.value === 'G03' ? feishuTargetDigest.value.trim() || undefined : undefined,
+        feishuTargetDigest: effectiveRequirementCode.value === 'G03' ? feishuTargetDigest.value.trim() || undefined : undefined,
       }),
     })
     if (!active.signal.aborted) window.location.hash = pageUrl + '/' + check.id
@@ -127,6 +167,8 @@ async function createCheck() {
 }
 
 watch(assetId, () => { void loadActivities() })
+watch(selectedActivity, () => { void loadTemplates() })
+watch(templateRevisionId, () => { templateItemKey.value = '' })
 watch(activityHint, (hint, previous) => {
   if (hint && (!requirementCode.value || requirementCode.value === previous?.code) &&
       requirements.value.some(rule => rule.code === hint.code)) {
@@ -138,6 +180,7 @@ onMounted(() => { void load() })
 onBeforeUnmount(() => {
   active.abort()
   activityOperation?.abort()
+  templateOperation?.abort()
 })
 </script>
 
@@ -163,14 +206,6 @@ onBeforeUnmount(() => {
     <div v-if="linkedActivity" class="field">
       <strong>{{ linkedActivity.name }}</strong>
       <p class="field-hint">{{ activityKindLabels[linkedActivity.kind] }} · 关联资产 {{ linkedActivity.assetName }} · {{ linkedActivity.assetSystem }}</p>
-    </div>
-    <div class="field">
-      <label for="check-requirement">监管要求</label>
-      <select id="check-requirement" v-model="requirementCode" :aria-describedby="activityHint ? 'check-rule-hint' : undefined" required>
-        <option value="" disabled>选择监管要求</option>
-        <option v-for="rule in requirements" :key="rule.code" :value="rule.code">{{ rule.code }} · {{ rule.title }}</option>
-      </select>
-      <p v-if="activityHint" id="check-rule-hint" class="field-hint">候选规则 {{ activityHint.code }}。请结合实际场景选择适用要求。</p>
     </div>
     <div v-if="!linkedActivity" class="field">
       <label for="check-asset">关联资产</label>
@@ -202,6 +237,39 @@ onBeforeUnmount(() => {
       <button v-if="activityCursor !== null" type="button" class="button button-secondary more-assets"
               :disabled="activityLoading" @click="loadActivities(true)">加载更多活动</button>
     </div>
+    <div v-if="selectedActivity && selectedActivity.kind !== 'internal'" class="field">
+      <label for="check-template">检查模板（可选）</label>
+      <select id="check-template" v-model="templateRevisionId" :disabled="templateLoading || saving" aria-describedby="check-template-hint">
+        <option value="">手动选择监管要求</option>
+        <option v-for="entry in templates" :key="entry.id" :value="String(entry.id)">
+          {{ entry.title }} · 版本 {{ entry.version }}{{ entry.builtIn ? ' · 内置' : ' · 工作区' }}
+        </option>
+      </select>
+      <p id="check-template-hint" class="field-hint">核对适用条件后选用一项。检查记录将保留该项和模板版本。</p>
+      <p v-if="templateLoading" class="field-hint" role="status">正在读取匹配的检查模板…</p>
+      <div v-else-if="templateError" class="field-hint" role="alert">
+        <p>{{ templateError }}</p>
+        <button type="button" class="button button-secondary more-assets" @click="loadTemplates">重新读取模板</button>
+      </div>
+    </div>
+    <div v-if="selectedTemplate" class="field">
+      <label for="check-template-item">模板检查项</label>
+      <select id="check-template-item" v-model="templateItemKey" required>
+        <option value="" disabled>选择检查项</option>
+        <option v-for="item in selectedTemplate.items" :key="item.key" :value="item.key">
+          {{ item.requirementCode }} · {{ item.title }}
+        </option>
+      </select>
+      <TemplateCriteria v-if="selectedTemplateItem" :item="selectedTemplateItem" />
+    </div>
+    <div v-else class="field">
+      <label for="check-requirement">监管要求</label>
+      <select id="check-requirement" v-model="requirementCode" :aria-describedby="activityHint ? 'check-rule-hint' : undefined" required>
+        <option value="" disabled>选择监管要求</option>
+        <option v-for="rule in requirements" :key="rule.code" :value="rule.code">{{ rule.code }} · {{ rule.title }}</option>
+      </select>
+      <p v-if="activityHint" id="check-rule-hint" class="field-hint">候选规则 {{ activityHint.code }}。请结合实际场景选择适用要求。</p>
+    </div>
     <div class="field"><label for="check-owner">整改责任团队</label><input id="check-owner" v-model="ownerTeam" maxlength="80" required></div>
     <div class="field">
       <label for="check-note">检查范围与标准</label>
@@ -209,7 +277,7 @@ onBeforeUnmount(() => {
                 :aria-describedby="activityHint ? 'check-scope-hint' : undefined" required></textarea>
       <p v-if="activityHint" id="check-scope-hint" class="field-hint">{{ activityHint.scope }}</p>
     </div>
-    <div v-if="requirementCode === 'G03'" class="field">
+    <div v-if="effectiveRequirementCode === 'G03'" class="field">
       <label for="check-feishu-target">飞书核验目标摘要（可选）</label>
       <input id="check-feishu-target" v-model="feishuTargetDigest" maxlength="64" pattern="[a-f0-9]{64}"
              spellcheck="false" autocomplete="off" aria-describedby="check-feishu-hint">

@@ -82,7 +82,57 @@
 .asset-metadata dd { margin: .08rem 0 0; }
 
 @media (max-width: 43.99rem) {
-  .sidebar-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .sidebar-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .sidebar-nav a { text-align: center; }
   .activity-table .activity-purpose { display: none; }
+}
+
+.template-catalog, .template-items { margin: 0; padding: 0; list-style: none; }
+.template-catalog li + li, .template-items li + li { border-top: 1px solid var(--line); }
+.template-catalog-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .75rem;
+  min-height: 4rem;
+  padding: .75rem 1.1rem;
+  color: var(--ink);
+}
+.template-catalog-link:hover { background: var(--surface-subtle); }
+.template-catalog-link:focus-visible { outline-offset: -3px; }
+.template-catalog-copy { min-width: 0; overflow-wrap: anywhere; }
+.template-catalog-copy p, .template-catalog-meta time { color: var(--secondary); font-size: .83rem; }
+.template-catalog-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
+.template-items li { padding: 1rem 1.1rem; }
+.template-item-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.template-item-heading h3 { font-size: 1rem; overflow-wrap: anywhere; }
+.template-criteria {
+  display: grid;
+  gap: .65rem;
+  min-width: 0;
+  margin: .65rem 0 0;
+  padding: .75rem .9rem;
+  background: var(--surface-subtle);
+  border-radius: .4rem;
+}
+.template-criteria dt { color: var(--secondary); font-size: .82rem; font-weight: 700; }
+.template-criteria dd { margin: .15rem 0 0; overflow-wrap: anywhere; }
+.template-form { max-width: 54rem; }
+.template-fieldset { min-width: 0; margin: .5rem 0 1.15rem; padding: 1rem; border: 1px solid var(--line); border-radius: .45rem; }
+.template-fieldset legend { padding-inline: .35rem; color: var(--ink); font-weight: 700; }
+.template-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.template-form .form-feedback { margin-top: .75rem; }
+.report-scope .filter-bar select { min-width: 0; }
+.report-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); margin: 0; }
+.report-counts div { min-width: 0; padding: .85rem 1.1rem; border-bottom: 1px solid var(--line); }
+.report-counts dt, .report-timestamp { color: var(--secondary); font-size: .83rem; }
+.report-counts dd { margin: .2rem 0 0; font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-timestamp, .report-feedback { margin: .75rem 1.1rem; }
+.report-results { margin-top: 1.15rem; }
+.report-table { min-width: 32rem; }
+
+@media (max-width: 43.99rem) {
+  .template-catalog-link { gap: .4rem; padding-inline: .8rem; }
+  .template-catalog-meta .wide-date { display: none; }
+  .template-field-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }

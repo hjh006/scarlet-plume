@@ -258,10 +258,19 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		}
 		do("GET", fmt.Sprintf("%s/%d", activities, activity.ID), "", reviewerCookie, 200)
 		do("GET", fmt.Sprintf("%s/activities/%d", otherWorkspace, activity.ID), "", cookie, 404)
-		reply := do("POST", checks, fmt.Sprintf(`{"assetId":%d,"activityId":%d,"requirementCode":%q,"ownerTeam":"QA","note":"核对证据引用"}`,
-			activity.AssetID, activity.ID, scenario.rule), cookie, 201)
+		templateResponse := do("GET", workspace+"/templates?kind="+scenario.kind, "", reviewerCookie, 200)
+		var library struct{ Items []store.Template }
+		if err := json.Unmarshal(templateResponse.Body.Bytes(), &library); err != nil || len(library.Items) != 1 ||
+			!library.Items[0].BuiltIn || len(library.Items[0].Items) < 3 {
+			t.Fatalf("expected builtin scenario template: %s", templateResponse.Body)
+		}
+		template := library.Items[0]
+		item := template.Items[0]
+		reply := do("POST", checks, fmt.Sprintf(`{"assetId":%d,"activityId":%d,"requirementCode":%q,"ownerTeam":"QA","note":"核对证据引用","templateRevisionId":%d,"templateItemKey":%q}`,
+			activity.AssetID, activity.ID, scenario.rule, template.ID, item.Key), cookie, 201)
 		var linked store.Check
-		if err := json.Unmarshal(reply.Body.Bytes(), &linked); err != nil || linked.Activity == nil || linked.Activity.ID != activity.ID {
+		if err := json.Unmarshal(reply.Body.Bytes(), &linked); err != nil || linked.Activity == nil || linked.Activity.ID != activity.ID ||
+			linked.Template == nil || linked.Template.RevisionID != template.ID || linked.Template.Item != item {
 			t.Fatalf("activity link was not returned: %s", reply.Body)
 		}
 		result := do("GET", fmt.Sprintf("%s?activityId=%d&status=draft", checks, activity.ID), "", reviewerCookie, 200)
@@ -276,6 +285,15 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 			t.Fatalf("activity was not preserved in export: %s", download.Body)
 		}
 	}
+	const customTemplate = `{"key":"workspace-ai","title":"工作区 AI 模板","kind":"ai","items":[{"key":"policy","title":"模型网关策略","requirementCode":"G03","applicability":"存在模型网关","evidenceRequirements":"策略版本和测试编号","acceptanceCriteria":"受限请求被拒绝"}]}`
+	do("POST", workspace+"/templates", customTemplate, reviewerCookie, 403)
+	published := do("POST", workspace+"/templates", customTemplate, cookie, 201)
+	var version store.Template
+	if err := json.Unmarshal(published.Body.Bytes(), &version); err != nil || version.Version != 1 || version.BuiltIn {
+		t.Fatalf("custom template publication failed: %s", published.Body)
+	}
+	do("GET", fmt.Sprintf("%s/templates/%d", workspace, version.ID), "", reviewerCookie, 200)
+	do("POST", workspace+"/templates", customTemplate, cookie, 409)
 	do("GET", activities+"?kind=invalid", "", cookie, 400)
 	do("GET", checks+"?activityId=-1", "", cookie, 400)
 	if _, err := pool.Exec(ctx, `UPDATE plume.memberships AS m SET role = 'viewer'
