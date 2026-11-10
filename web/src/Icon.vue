@@ -5,9 +5,8 @@ defineProps<{ name: string }>()
 <template>
   <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
     <template v-if="name === 'mark'">
-      <path d="m4 20 5-11 6-5 6-1-1 6-4 4-4 1-2 4-6 2Z" fill="currentColor" stroke="none" />
-      <path d="M3 21 16 8" />
-      <path d="m9 15 3-3 1-4m-1 4 5-1" class="mark-cut" stroke-width="1.2" />
+      <path d="M2 19.6c2.3-6.3 5.7-8.5 10.7-10.3 3.9-1.4 7.3-3.1 9.3-6.7-.5 5.3-3.2 8.5-8.5 10.3-5.7 1.9-8.2 3.1-11.5 6.7Z" fill="currentColor" stroke="none" />
+      <path d="M2 22c1.3-3.7 5.1-6 11.5-8 2.2-.7 4-1.6 5.9-2.9-1.2 4.1-4.4 6.2-8.5 7.1C6.8 19.1 4 20.1 2 22Z" fill="currentColor" stroke="none" />
     </template>
     <template v-else-if="name === 'overview'">
       <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
@@ -32,6 +31,8 @@ defineProps<{ name: string }>()
     </template>
     <path v-else-if="name === 'reports'" d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6" />
     <path v-else-if="name === 'api-security'" d="M12 3c2.4 1.6 5 2.6 8 3v5.5c0 4-3.3 7.4-8 9.5-4.7-2.1-8-5.5-8-9.5V6c3-.4 5.6-1.4 8-3Zm-2 6-2 2.5 2 2.5m4-5 2 2.5-2 2.5" />
+    <path v-else-if="name === 'menu'" d="M4 6h16M4 12h16M4 18h16" />
+    <path v-else-if="name === 'close'" d="m6 6 12 12M18 6 6 18" />
     <path v-else-if="name === 'back'" d="M20 12H5m6-6-6 6 6 6" />
     <path v-else-if="name === 'download'" d="M12 4v11m-5-5 5 5 5-5M4 16v4h16v-4" />
     <path v-else-if="name === 'plus'" d="M12 5v14M5 12h14" />

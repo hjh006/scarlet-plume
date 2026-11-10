@@ -1,0 +1,109 @@
+:root {
+  --paper: #f5f8fc;
+  --surface: #fff;
+  --surface-subtle: #f2f7fc;
+  --ink: #13233c;
+  --secondary: #4c5e76;
+  --line: #d9e5f1;
+  --input-line: #788da9;
+  --nav-surface: #fff;
+  --nav-hover: #f3f7fd;
+  --nav-active: #e5effd;
+  --nav-text: #243650;
+  --nav-muted: #536781;
+  --accent: #174eb1;
+  --accent-hover: #113b88;
+  --accent-soft: #e8f1fe;
+  --coral: #f56a51;
+  --focus: #175fc3;
+  --spectrum: linear-gradient(100deg, #172e84 0%, #0767a0 34%, #0789a4 54%, #6053dd 100%);
+  --radius: 12px;
+  --sidebar-width: 13.5rem;
+}
+
+::selection { color: #102d63; background: #dceaff; }
+
+.app-shell .sidebar {
+  height: 100dvh;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem .7rem .75rem;
+}
+.brand { color: var(--ink); font-size: 1.35rem; line-height: 1.12; }
+.brand small { color: var(--nav-text); font-size: .68rem; letter-spacing: .065em; text-transform: uppercase; }
+.brand .brand-mark { inline-size: 2.55rem; block-size: 2.55rem; background: transparent; }
+.brand .brand-mark .icon { inline-size: 2.55rem; block-size: 2.55rem; }
+.app-shell .sidebar .brand { margin: .05rem .45rem 1.65rem; }
+.app-shell .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 0; }
+.nav-group { display: grid; gap: .17rem; }
+.nav-group + .nav-group { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.app-shell .nav-label { display: block; padding: .24rem .69rem .45rem; font-weight: 700; }
+.app-shell .sidebar-nav a { min-height: 2.67rem; padding: .48rem .65rem; border-radius: .45rem; }
+.app-shell .sidebar-nav a[aria-current="page"] { box-shadow: inset 3px 0 var(--accent); }
+.app-shell .sidebar-footer { margin-top: auto; padding-top: 1rem; border-top: 0; }
+.app-shell .sidebar-footer a { min-height: 2.75rem; border: 1px solid var(--line); }
+.app-shell .sidebar-footer a span { flex: 1; }
+.app-shell .sidebar-footer a .icon:last-child { inline-size: .9rem; }
+.mobile-menu { display: none; }
+
+.workspace-shell { min-width: 0; }
+.app-shell .topbar { min-height: 3.45rem; padding: .3rem 1.75rem; }
+.workspace-name { gap: .75rem; }
+.workspace-crumb { color: var(--secondary); font-weight: 400; }
+.breadcrumb-divider { flex: none; color: #687e9a; }
+.page-crumb { flex: none; font-weight: 700; }
+.topbar-account .account-avatar { background: #e7effa; }
+.app-shell .main-content { padding: 1.55rem 1.75rem 3rem; }
+.app-shell .page-header h1 { letter-spacing: -.018em; text-wrap: balance; }
+.app-shell .data-table thead th { background: #eaf2fb; color: #263c5b; }
+.app-shell .data-table tbody tr:hover { background: #f9fbfe; }
+.app-shell .panel-heading { border-color: var(--line); }
+.app-shell .button { border-radius: .48rem; }
+.app-shell .button-secondary { border-color: #c9d8e9; }
+.app-shell .button-secondary:hover { border-color: var(--input-line); }
+
+.public-header { min-height: 4.1rem; }
+.login-intro {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background: #12316f;
+}
+.login-intro::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: "";
+  background: linear-gradient(100deg, #0b235af2, #102a638a 65%, #142e6b45), url("./plume-signal.webp") 70% center / cover no-repeat;
+}
+.login-intro h1, .login-intro .eyebrow { color: #fff; }
+.login-intro > p { color: #e2edff; }
+.login-intro .brand-mark { color: #ff896f; background: #173975; }
+
+@media (max-width: 59.99rem) {
+  :root { --sidebar-width: 11.5rem; }
+  .app-shell .topbar { padding-inline: 1.25rem; }
+  .app-shell .main-content { padding-inline: 1.25rem; }
+}
+@media (max-width: 43.99rem) {
+  .app-shell .sidebar { height: auto; overflow: visible; padding: .45rem .75rem; gap: .45rem; }
+  .app-shell .sidebar .brand { margin: 0; }
+  .brand { font-size: 1.17rem; }
+  .brand .brand-mark, .brand .brand-mark .icon { inline-size: 2.25rem; block-size: 2.25rem; }
+  .mobile-menu { display: inline-flex; }
+  .app-shell .sidebar-nav { display: none; }
+  .app-shell .sidebar-open .sidebar-nav { display: flex; padding: .15rem 0 .35rem; }
+  .app-shell .nav-group { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .3rem; }
+  .app-shell .nav-group + .nav-group { margin-top: .45rem; padding-top: .4rem; }
+  .app-shell .nav-label { grid-column: 1 / -1; padding: .1rem .35rem; }
+  .app-shell .sidebar-nav a { min-height: 2.75rem; padding: .35rem .18rem; }
+  .app-shell .sidebar-footer { padding-top: .45rem; }
+  .app-shell .sidebar-footer a { justify-content: flex-start; padding-inline: .65rem; }
+  .app-shell .sidebar-footer a .icon { display: inline-block; }
+  .app-shell .topbar { min-height: 3.15rem; padding: .1rem .85rem; gap: .35rem; }
+  .workspace-name { gap: .35rem; font-size: .79rem; }
+  .workspace-crumb { max-width: min(33vw, 13rem); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .account-name { display: none; }
+  .app-shell .main-content { padding: 1rem .75rem 2rem; }
+}

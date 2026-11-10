@@ -37,6 +37,14 @@ export interface AssetDraft {
   ownerTeam: string
 }
 
+export const assetCategoryLabels: Record<string, string> = {
+  business: '业务数据', personal: '个人信息', sensitive_personal: '敏感个人信息',
+}
+
+export const assetBusinessLevelLabels: Record<string, string> = {
+  internal: '内部', confidential: '机密',
+}
+
 export interface Integration {
   id: string
   label: string
@@ -67,7 +75,17 @@ export interface ImportManifest {
 
 export interface Overview {
   workspace: Workspace
-  counts: { assets: number; integrations: number }
+  counts: {
+    assets: number
+    integrations: number
+    activities: number
+    checks: number
+    draft: number
+    inReview: number
+    needsWork: number
+    verified: number
+  }
+  recentAssets: Asset[]
   recentImports: ImportRun[]
 }
 

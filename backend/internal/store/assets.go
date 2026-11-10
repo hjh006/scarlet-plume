@@ -40,6 +40,16 @@ type CollectedAsset struct {
 	Name      string `json:"name"`
 }
 
+type OverviewCounts struct {
+	Assets     int64 `json:"assets"`
+	Activities int64 `json:"activities"`
+	Checks     int64 `json:"checks"`
+	Draft      int64 `json:"draft"`
+	InReview   int64 `json:"inReview"`
+	NeedsWork  int64 `json:"needsWork"`
+	Verified   int64 `json:"verified"`
+}
+
 const assetColumns = "id, name, system, owner_team, COALESCE(source_provider, ''), COALESCE(source, ''), COALESCE(source_ref, ''), " +
 	"category, business_level, statutory_category, classification_basis, description, created_at"
 const importColumns = "id, provider, source, batch_id, created_count, existing_count, created_at"
@@ -80,6 +90,34 @@ func (s *Store) AssetCount(ctx context.Context, workspaceID int64) (int64, error
 	var count int64
 	err := s.pool.QueryRow(ctx, "SELECT count(*) FROM plume.assets WHERE workspace_id = $1", workspaceID).Scan(&count)
 	return count, err
+}
+
+func (s *Store) OverviewCounts(ctx context.Context, workspaceID int64) (OverviewCounts, error) {
+	var counts OverviewCounts
+	err := s.pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM plume.assets WHERE workspace_id = $1),
+		       (SELECT count(*) FROM plume.activities WHERE workspace_id = $1),
+		       count(*),
+		       count(*) FILTER (WHERE status = 'draft'),
+		       count(*) FILTER (WHERE status = 'in_review'),
+		       count(*) FILTER (WHERE status = 'needs_work'),
+		       count(*) FILTER (WHERE status = 'verified')
+		FROM plume.checks WHERE workspace_id = $1
+	`, workspaceID).Scan(&counts.Assets, &counts.Activities, &counts.Checks, &counts.Draft,
+		&counts.InReview, &counts.NeedsWork, &counts.Verified)
+	return counts, err
+}
+
+func (s *Store) ListRecentAssets(ctx context.Context, workspaceID int64, limit int) ([]Asset, error) {
+	rows, err := s.pool.Query(ctx, "SELECT "+assetColumns+`
+		FROM plume.assets WHERE workspace_id = $1 ORDER BY id DESC LIMIT $2
+	`, workspaceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Asset, error) {
+		return scanAsset(row)
+	})
 }
 
 func (s *Store) CreateAsset(ctx context.Context, workspaceID int64, name, system, ownerTeam string) (Asset, error) {

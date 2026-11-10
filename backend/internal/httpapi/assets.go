@@ -15,7 +15,12 @@ import (
 )
 
 func (s *server) overview(w http.ResponseWriter, r *http.Request, _ store.User, workspace store.Workspace) {
-	count, err := s.store.AssetCount(r.Context(), workspace.ID)
+	counts, err := s.store.OverviewCounts(r.Context(), workspace.ID)
+	if err != nil {
+		storeFailure(w, err)
+		return
+	}
+	assets, err := s.store.ListRecentAssets(r.Context(), workspace.ID, 6)
 	if err != nil {
 		storeFailure(w, err)
 		return
@@ -32,7 +37,12 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request, _ store.User, 
 		}
 	}
 	respond(w, http.StatusOK, map[string]any{
-		"workspace": workspace, "counts": map[string]int64{"assets": count, "integrations": int64(active)},
+		"workspace": workspace,
+		"counts": struct {
+			store.OverviewCounts
+			Integrations int `json:"integrations"`
+		}{OverviewCounts: counts, Integrations: active},
+		"recentAssets":  assets,
 		"recentImports": runs[:min(len(runs), 20)],
 	})
 }
