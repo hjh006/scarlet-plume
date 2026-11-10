@@ -140,124 +140,181 @@ onBeforeUnmount(() => active.abort())
 </script>
 
 <template>
-  <a v-if="scanId" class="back-link" :href="scanPath"><Icon name="back" />返回 API 安全</a>
-  <header class="page-header">
-    <div>
-      <p v-if="scanId" class="eyebrow">API 安全 · 扫描 #{{ scanId }}</p>
-      <h1>{{ scanId ? detail?.source || 'API 契约扫描' : 'API 安全' }}</h1>
-      <p>扫描 OpenAPI 契约中的接口、鉴权声明和疑似敏感字段。结论基于文档，运行时行为需另行验证。</p>
-    </div>
-    <div class="page-actions">
-      <button v-if="detail" type="button" class="button button-primary" :disabled="exporting" @click="exportScan">
+  <div class="api-workbench">
+    <a v-if="scanId" class="back-link api-back" :href="scanPath"><Icon name="back" />返回 API 安全</a>
+    <header class="api-masthead" :class="{ 'api-masthead--detail': scanId }">
+      <div class="api-masthead-copy">
+        <p v-if="scanId" class="api-scan-index">API 安全 · 扫描 #{{ scanId }}</p>
+        <h1>{{ scanId ? detail?.source || 'API 契约扫描' : 'API 安全' }}</h1>
+        <p class="api-scan-context">
+          {{ scanId ? '依据接口契约分析，运行时行为待验证。' : '盘点接口、鉴权声明与疑似敏感字段，将契约发现登记到监管检查。' }}
+        </p>
+      </div>
+      <button v-if="detail" type="button" class="button button-primary api-export" :disabled="exporting" @click="exportScan">
         <Icon name="download" />{{ exporting ? '正在导出…' : '导出 JSON' }}
       </button>
-    </div>
-  </header>
-  <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
+    </header>
+    <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
 
-  <section v-if="!scanId && canScan" class="panel automation-form" aria-labelledby="api-scan-title">
-    <div class="panel-heading">
-      <div><h2 id="api-scan-title">扫描 OpenAPI 文档</h2><p>提交 JSON 后自动分析契约，并将相关发现登记到检查流程。</p></div>
-    </div>
-    <div class="import-panel-body">
-      <form @submit.prevent="scan">
-        <div class="field">
-          <label for="api-scan-source">来源名称</label>
-          <input id="api-scan-source" v-model="source" maxlength="80" required :disabled="scanning" placeholder="例如，客户服务 API">
+    <section v-if="!scanId && canScan" class="panel api-panel api-import" aria-labelledby="api-scan-title">
+      <div class="api-panel-heading">
+        <div><h2 id="api-scan-title">扫描 OpenAPI 文档</h2><p>提交 JSON 后自动分析契约，并将相关发现登记到检查流程。</p></div>
+      </div>
+      <form class="api-import-form" @submit.prevent="scan">
+        <div class="api-import-fields">
+          <div class="field">
+            <label for="api-scan-source">来源名称</label>
+            <input id="api-scan-source" v-model="source" maxlength="80" required :disabled="scanning" placeholder="例如，客户服务 API">
+          </div>
+          <div class="field">
+            <label for="api-scan-file">OpenAPI JSON</label>
+            <input id="api-scan-file" type="file" accept=".json,application/json"
+                   aria-describedby="api-scan-file-hint" :disabled="scanning" required @change="selectFile">
+          </div>
         </div>
-        <div class="field">
-          <label for="api-scan-file">OpenAPI JSON</label>
-          <input id="api-scan-file" type="file" accept=".json,application/json"
-                 aria-describedby="api-scan-file-hint" :disabled="scanning" required @change="selectFile">
-          <p id="api-scan-file-hint" class="field-hint">支持 OpenAPI 3.0 和 3.1，文件上限 480 KiB，每份文档最多扫描 200 个接口操作。</p>
-        </div>
-        <p v-if="scanError" class="message message-error page-feedback" role="alert">{{ scanError }}</p>
+        <p id="api-scan-file-hint" class="field-hint">支持 OpenAPI 3.0 和 3.1，文件上限 480 KiB，每份文档最多扫描 200 个接口操作。</p>
+        <p v-if="scanError" class="message message-error api-scan-error" role="alert">{{ scanError }}</p>
         <button type="submit" class="button button-primary" :disabled="scanning || !file || file.size > maxFileBytes">
           <Icon name="upload" />{{ scanning ? '扫描中…' : '开始扫描' }}
         </button>
       </form>
-    </div>
-  </section>
-
-  <section v-if="!scanId" class="panel" aria-labelledby="api-history-title" :aria-busy="loading">
-    <div class="panel-heading">
-      <div><h2 id="api-history-title">最近扫描</h2><p>展示最近 25 次扫描，可查看接口明细与关联检查。</p></div>
-      <button type="button" class="button button-secondary" :disabled="loading" @click="load">刷新扫描</button>
-    </div>
-    <p v-if="loadError" class="message message-error report-feedback" role="alert">{{ loadError }}</p>
-    <p v-else-if="loading && !scans.length" class="empty-state" role="status">正在读取扫描记录…</p>
-    <div v-else-if="scans.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="api-history-title">
-      <table class="data-table report-table">
-        <thead><tr><th scope="col">来源</th><th scope="col">接口</th><th scope="col">疑似敏感字段</th><th scope="col">契约发现</th><th scope="col">扫描时间</th></tr></thead>
-        <tbody>
-          <tr v-for="entry in scans" :key="entry.id">
-            <th scope="row">
-              <a class="table-link" :href="scanPath + '/' + entry.id">{{ entry.source }}</a>
-              <span class="table-secondary">OpenAPI {{ entry.version }}</span>
-            </th>
-            <td>{{ entry.operationCount }}</td>
-            <td>{{ entry.sensitiveFieldCount }}</td>
-            <td>{{ entry.findingCount }}<span class="table-secondary">{{ entry.checkCount }} 项关联检查</span></td>
-            <td><time :datetime="entry.createdAt">{{ formatDate(entry.createdAt) }}</time></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else class="empty-state"><strong>暂无 API 扫描</strong><p>导入 OpenAPI 文档后，这里会显示扫描结果。</p></div>
-  </section>
-
-  <p v-else-if="loading" class="message" role="status">正在读取 API 扫描结果…</p>
-  <p v-else-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }}</p>
-  <template v-else-if="detail">
-    <section class="panel" aria-labelledby="api-results-title">
-      <div class="panel-heading">
-        <div>
-          <h2 id="api-results-title">契约扫描结果</h2>
-          <p>OpenAPI {{ detail.version }} · <time :datetime="detail.createdAt">{{ formatDate(detail.createdAt) }}</time></p>
-        </div>
-      </div>
-      <dl class="report-counts">
-        <div><dt>接口数</dt><dd>{{ detail.operationCount }}</dd></div>
-        <div><dt>疑似敏感字段</dt><dd>{{ detail.sensitiveFieldCount }}</dd></div>
-        <div><dt>契约发现</dt><dd>{{ detail.findingCount }}</dd></div>
-        <div><dt>关联检查</dt><dd>{{ detail.checkCount }}</dd></div>
-      </dl>
-      <p v-if="detail.unresolvedReferences" class="report-timestamp">有 {{ detail.unresolvedReferences }} 处引用未解析，对应内容未纳入扫描。</p>
     </section>
-    <section class="panel report-results" aria-labelledby="api-operations-title">
-      <div class="panel-heading"><div><h2 id="api-operations-title">接口明细</h2></div></div>
-      <div v-if="detail.operations.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="api-operations-title">
-        <table class="data-table check-table report-table">
-          <thead><tr><th scope="col">接口</th><th scope="col">鉴权声明</th><th scope="col">疑似敏感字段</th><th scope="col">契约发现</th><th scope="col">检查</th></tr></thead>
-          <tbody>
-            <tr v-for="operation in detail.operations" :key="operation.method + ' ' + operation.path">
-              <th scope="row"><span class="mono">{{ operation.method.toUpperCase() }} {{ operation.path }}</span><span v-if="operation.deprecated" class="table-secondary">已标记弃用</span></th>
-              <td>{{ authLabels[operation.auth] || operation.auth }}</td>
-              <td>
-                <details v-if="operation.sensitiveFields?.length" class="asset-metadata">
-                  <summary>{{ operation.sensitiveFields.length }} 个字段</summary>
-                  <ul class="api-operation-list">
-                    <li v-for="(field, index) in operation.sensitiveFields" :key="index">
-                      <span class="mono">{{ field.name }}</span> · {{ locationLabels[field.location] || field.location }} · {{ sensitivityLabel(field.category) }}
-                    </li>
-                  </ul>
-                </details>
-                <span v-else>未识别到</span>
-              </td>
-              <td>
-                <ul v-if="operation.findings?.length" class="api-operation-list">
-                  <li v-for="finding in operation.findings" :key="finding.code">
-                    <strong>{{ severityLabels[finding.severity] || finding.severity }}</strong> · {{ finding.title }}
-                  </li>
-                </ul>
-                <span v-else>未检出</span>
-              </td>
-              <td><a v-if="operation.checkId" class="table-link" :href="home + '/checks/' + operation.checkId">检查 #{{ operation.checkId }}</a><span v-else>—</span></td>
+
+    <section v-if="!scanId" class="panel api-panel" aria-labelledby="api-history-title" :aria-busy="loading">
+      <div class="api-panel-heading">
+        <div><h2 id="api-history-title">最近扫描</h2><p>展示最近 25 次扫描，可查看接口明细与关联检查。</p></div>
+        <button type="button" class="button button-secondary" :disabled="loading" @click="load">刷新扫描</button>
+      </div>
+      <p v-if="loadError" class="message message-error report-feedback" role="alert">{{ loadError }}</p>
+      <p v-else-if="loading && !scans.length" class="empty-state" role="status">正在读取扫描记录…</p>
+      <div v-else-if="scans.length" class="api-table-frame" role="region" tabindex="0" aria-labelledby="api-history-title">
+        <table class="api-table api-history-table" role="table">
+          <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">来源</th><th scope="col" role="columnheader">接口</th><th scope="col" role="columnheader">疑似敏感字段</th><th scope="col" role="columnheader">契约发现</th><th scope="col" role="columnheader">扫描时间</th></tr></thead>
+          <tbody role="rowgroup">
+            <tr v-for="entry in scans" :key="entry.id" role="row">
+              <th scope="row" role="rowheader">
+                <a class="table-link" :href="scanPath + '/' + entry.id">{{ entry.source }}</a>
+                <span class="api-secondary">OpenAPI {{ entry.version }}</span>
+              </th>
+              <td role="cell"><span class="api-cell-label" aria-hidden="true">接口</span>{{ entry.operationCount }}</td>
+              <td role="cell"><span class="api-cell-label" aria-hidden="true">疑似敏感字段</span>{{ entry.sensitiveFieldCount }}</td>
+              <td role="cell"><span class="api-cell-label" aria-hidden="true">契约发现</span>{{ entry.findingCount }}<span class="api-secondary">{{ entry.checkCount }} 项关联检查</span></td>
+              <td role="cell"><span class="api-cell-label" aria-hidden="true">扫描时间</span><time :datetime="entry.createdAt">{{ formatDate(entry.createdAt) }}</time></td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p v-else class="empty-state">此文档没有可扫描的接口。</p>
+      <div v-else class="empty-state"><strong>暂无 API 扫描</strong><p>导入 OpenAPI 文档后，这里会显示扫描结果。</p></div>
     </section>
-  </template>
+
+    <p v-else-if="loading" class="message" role="status">正在读取 API 扫描结果…</p>
+    <p v-else-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }}</p>
+    <template v-else-if="detail">
+      <dl class="api-metrics" aria-label="契约扫描结果">
+        <div class="api-metric">
+          <dt>
+            <span class="api-metric-icon api-metric-icon--blue" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 7-5 5 5 5m10-10 5 5-5 5M14.5 5l-5 14" /></svg>
+            </span>
+            接口操作
+          </dt>
+          <dd>{{ detail.operationCount }}</dd>
+        </div>
+        <div class="api-metric">
+          <dt><span class="api-metric-icon api-metric-icon--teal" aria-hidden="true"><Icon name="assets" /></span>疑似敏感字段</dt>
+          <dd>{{ detail.sensitiveFieldCount }}</dd>
+        </div>
+        <div class="api-metric">
+          <dt>
+            <span class="api-metric-icon api-metric-icon--coral" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.4 4.6 2.8 18a1.7 1.7 0 0 0 1.5 2.5h15.4a1.7 1.7 0 0 0 1.5-2.5L13.6 4.6a1.85 1.85 0 0 0-3.2 0ZM12 9v4.5m0 3h.01" /></svg>
+            </span>
+            契约风险
+          </dt>
+          <dd>{{ detail.findingCount }}</dd>
+        </div>
+        <div class="api-metric">
+          <dt><span class="api-metric-icon api-metric-icon--violet" aria-hidden="true"><Icon name="checks" /></span>关联检查</dt>
+          <dd>{{ detail.checkCount }}</dd>
+        </div>
+      </dl>
+
+      <section class="panel api-panel api-operations" aria-labelledby="api-operations-title">
+        <div class="api-panel-heading">
+          <h2 id="api-operations-title">接口与发现</h2>
+          <p class="api-scan-date">OpenAPI {{ detail.version }} · <time :datetime="detail.createdAt">{{ formatDate(detail.createdAt) }}</time></p>
+        </div>
+        <div v-if="detail.operations.length" class="api-table-frame" role="region" tabindex="0" aria-labelledby="api-operations-title">
+          <table class="api-table api-operations-table" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th scope="col" role="columnheader">接口操作</th><th scope="col" role="columnheader">鉴权声明</th>
+                <th scope="col" role="columnheader">疑似敏感字段</th><th scope="col" role="columnheader">契约发现</th>
+                <th scope="col" role="columnheader">关联记录</th>
+              </tr>
+            </thead>
+            <tbody role="rowgroup">
+              <tr v-for="operation in detail.operations" :key="operation.method + ' ' + operation.path" role="row">
+                <th scope="row" role="rowheader">
+                  <span class="api-endpoint">
+                    <span class="api-method mono" :class="{ 'api-method--write': operation.method !== 'GET' && operation.method !== 'HEAD' }">{{ operation.method.toUpperCase() }}</span>
+                    <code class="api-path mono">{{ operation.path }}</code>
+                  </span>
+                  <span v-if="operation.deprecated" class="api-secondary">已标记弃用</span>
+                </th>
+                <td role="cell">
+                  <span class="api-cell-label" aria-hidden="true">鉴权声明</span>
+                  <span class="api-auth" :class="'api-auth--' + operation.auth">{{ authLabels[operation.auth] || operation.auth }}</span>
+                </td>
+                <td role="cell">
+                  <span class="api-cell-label" aria-hidden="true">疑似敏感字段</span>
+                  <details v-if="operation.sensitiveFields?.length" class="api-fields">
+                    <summary :aria-label="`查看 ${operation.sensitiveFields.length} 个疑似敏感字段详情`">
+                      <span v-for="field in operation.sensitiveFields.slice(0, 2)" :key="`${field.location}/${field.name}/${field.category}`" class="api-field-chip mono">{{ field.name }}</span>
+                      <span class="api-field-more">
+                        <template v-if="operation.sensitiveFields.length > 2">+{{ operation.sensitiveFields.length - 2 }}</template>
+                        <Icon name="chevron" />
+                      </span>
+                    </summary>
+                    <ul class="api-field-list">
+                      <li v-for="field in operation.sensitiveFields" :key="`${field.location}/${field.name}/${field.category}`">
+                        <span class="mono">{{ field.name }}</span>
+                        <span class="api-secondary">{{ locationLabels[field.location] || field.location }} · {{ sensitivityLabel(field.category) }}</span>
+                      </li>
+                    </ul>
+                  </details>
+                  <span v-else class="api-muted">未识别到</span>
+                </td>
+                <td role="cell">
+                  <span class="api-cell-label" aria-hidden="true">契约发现</span>
+                  <ul v-if="operation.findings?.length" class="api-findings">
+                    <li v-for="finding in operation.findings" :key="finding.code" class="api-finding" :class="'api-finding--' + finding.severity">
+                      <span>
+                        <strong class="api-finding-title">{{ finding.title.split('，', 1)[0] }}</strong>
+                        <span v-if="finding.title.includes('，')" class="api-finding-detail">{{ finding.title.slice(finding.title.indexOf('，') + 1) }}</span>
+                      </span>
+                      <span class="api-severity">{{ severityLabels[finding.severity] || finding.severity }}</span>
+                    </li>
+                  </ul>
+                  <span v-else class="api-muted">未检出</span>
+                </td>
+                <td role="cell">
+                  <span class="api-cell-label" aria-hidden="true">关联记录</span>
+                  <a v-if="operation.checkId" class="api-check-link table-link" :href="home + '/checks/' + operation.checkId" :aria-label="`查看检查 #${operation.checkId}`">查看检查<Icon name="arrow" /></a>
+                  <span v-else class="api-muted">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty-state">此文档没有可扫描的接口。</p>
+        <p class="api-scan-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></svg>
+          <span>结果基于 OpenAPI 定义。<template v-if="detail.unresolvedReferences"> 有 {{ detail.unresolvedReferences }} 处引用未解析，对应内容未纳入扫描。</template></span>
+        </p>
+      </section>
+    </template>
+  </div>
 </template>
+
+<style scoped src="./api-security-view.css"></style>

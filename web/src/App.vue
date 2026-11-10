@@ -18,17 +18,22 @@ import ReportArchiveView from './ReportArchiveView.vue'
 import AutomationView from './AutomationView.vue'
 import ApiSecurityView from './ApiSecurityView.vue'
 
-const pages = [
-  { id: 'overview', label: '概览' },
-  { id: 'assets', label: '数据资产' },
-  { id: 'activities', label: '处理活动' },
-  { id: 'checks', label: '监管检查' },
-  { id: 'templates', label: '检查模板' },
-  { id: 'reports', label: '合规报告' },
-  { id: 'automation', label: '自动采集' },
-  { id: 'api-security', label: 'API 安全' },
-  { id: 'integrations', label: '集成与导入' },
+const pageGroups = [
+  { label: '治理', items: [
+    { id: 'overview', label: '概览' },
+    { id: 'assets', label: '数据资产' },
+    { id: 'activities', label: '处理活动' },
+    { id: 'checks', label: '监管检查' },
+    { id: 'templates', label: '检查模板' },
+    { id: 'reports', label: '合规报告' },
+  ] },
+  { label: '安全与集成', items: [
+    { id: 'api-security', label: 'API 安全' },
+    { id: 'automation', label: '自动采集' },
+    { id: 'integrations', label: '集成与导入' },
+  ] },
 ] as const
+const pages = [...pageGroups[0].items, ...pageGroups[1].items]
 
 function readRoute() {
   const [, rawSlug, requestedPage, recordId = '', contextId = ''] = window.location.hash.split('/')
@@ -51,10 +56,20 @@ const busy = ref(false)
 const username = ref('')
 const password = ref('')
 const mainContent = ref<HTMLElement | null>(null)
+const menuButton = ref<HTMLButtonElement | null>(null)
+const menuOpen = ref(false)
+const activePage = computed(() => pages.find(item => item.id === route.value.page)?.label ?? '概览')
+
+function closeMenu() {
+  if (!menuOpen.value) return
+  menuOpen.value = false
+  menuButton.value?.focus()
+}
 const workspace = computed(() => session.value?.workspaces.find(item => item.slug === route.value.slug))
 
 function syncRoute() {
   route.value = readRoute()
+  menuOpen.value = false
   actionError.value = ''
 }
 
@@ -134,9 +149,8 @@ watch(route, async () => {
 })
 
 watch([workspace, route, session, initializing], () => {
-  const page = pages.find(item => item.id === route.value.page)?.label
   document.title = workspace.value
-    ? `${page} · ${workspace.value.name} · 赤翎`
+    ? `${activePage.value} · ${workspace.value.name} · 赤翎`
     : session.value ? '工作区 · 赤翎' : '登录 · 赤翎'
 })
 
@@ -151,22 +165,33 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
 <template>
   <a class="skip-link" href="#main-content" @click.prevent="focusMain">跳至主要内容</a>
   <div v-if="session && workspace" class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ 'sidebar-open': menuOpen }" @keydown.esc.stop="closeMenu">
       <Brand />
-      <nav class="sidebar-nav" aria-label="工作区导航">
-        <span class="nav-label">治理工作区</span>
-        <a v-for="item in pages" :key="item.id" :href="`#/${encodeURIComponent(workspace.slug)}/${item.id}`"
-           :aria-current="item.id === route.page ? 'page' : undefined">
-          <Icon :name="item.id" /><span>{{ item.label }}</span>
-        </a>
+      <button ref="menuButton" class="mobile-menu button button-secondary" type="button" aria-controls="workspace-navigation"
+              :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+        <Icon :name="menuOpen ? 'close' : 'menu'" />菜单
+      </button>
+      <nav id="workspace-navigation" class="sidebar-nav" aria-label="工作区导航">
+        <div v-for="group in pageGroups" :key="group.label" class="nav-group">
+          <span class="nav-label">{{ group.label }}</span>
+          <a v-for="item in group.items" :key="item.id" :href="`#/${encodeURIComponent(workspace.slug)}/${item.id}`"
+             :aria-current="item.id === route.page ? 'page' : undefined"
+             @click="item.id === route.page && !route.recordId && closeMenu()">
+            <Icon :name="item.id" /><span>{{ item.label }}</span>
+          </a>
+        </div>
+        <div class="sidebar-footer">
+          <a href="#/"><Icon name="workspace" /><span>切换工作区</span><Icon name="chevron" /></a>
+        </div>
       </nav>
-      <div class="sidebar-footer">
-        <a href="#/"><Icon name="workspace" />切换工作区</a>
-      </div>
     </aside>
     <div class="workspace-shell">
       <header class="topbar">
-        <div class="workspace-name"><Icon name="workspace" /><span>{{ workspace.name }}</span></div>
+        <div class="workspace-name">
+          <span class="workspace-crumb">{{ workspace.name }}</span>
+          <span class="breadcrumb-divider" aria-hidden="true">/</span>
+          <span class="page-crumb">{{ activePage }}</span>
+        </div>
         <div class="topbar-account">
           <span class="account-avatar"><Icon name="user" /></span>
           <div class="account-name">
@@ -261,9 +286,9 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
       <div v-else class="login-layout">
         <section class="login-intro" aria-labelledby="login-intro-title">
           <span class="brand-mark"><Icon name="mark" /></span>
-          <p class="eyebrow">数据安全治理工作台</p>
+          <p class="eyebrow">SCARLET PLUME / 数据安全治理</p>
           <h1 id="login-intro-title">让数据来源可追溯</h1>
-          <p>在授权的工作区登记资产，查看接入能力与元数据导入记录。</p>
+          <p>在授权的工作区查看数据资产、检查和证据。</p>
         </section>
         <section class="panel login-panel" aria-labelledby="login-title">
           <h2 id="login-title">登录赤翎</h2>
