@@ -52,7 +52,11 @@ func (m *Manager) runNext(ctx context.Context) bool {
 		return false
 	}
 
-	finishCtx, cancelFinish := context.WithTimeout(ctx, 5*time.Second)
+	finishTimeout := 5 * time.Second
+	if claim.Config.AutoChecks || claim.Config.AutoReports {
+		finishTimeout = 35 * time.Second
+	}
+	finishCtx, cancelFinish := context.WithTimeout(ctx, finishTimeout)
 	defer cancelFinish()
 	if _, err := m.store.FinishManagedPostgresJob(finishCtx, *claim, delivery); err != nil {
 		if ctx.Err() == nil && !errors.Is(err, store.ErrConflict) && !errors.Is(err, store.ErrNotFound) {
@@ -97,6 +101,8 @@ func (m *Manager) collectClaim(ctx context.Context, claim store.ManagedPostgresC
 		delivery.FailureCode = "collection_failed"
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(collectionCtx.Err(), context.DeadlineExceeded) {
 			delivery.FailureCode = "collection_timeout"
+		} else if errors.Is(err, collector.ErrPostgreSQLSchemaUnavailable) {
+			delivery.FailureCode = store.ManagedPostgresSchemaUnavailableCode
 		}
 		encoded = []byte(delivery.FailureCode)
 	} else {

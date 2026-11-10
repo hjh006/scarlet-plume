@@ -13,9 +13,11 @@ const record = ref<PostgresInspection | null>(null)
 const loading = ref(true)
 const missing = ref(false)
 const loadError = ref('')
+const candidatesOnly = ref(false)
 
 const table = computed(() => record.value?.table)
-const sensitiveCount = computed(() => table.value?.columns.filter(column => column.sensitivity).length ?? 0)
+const candidates = computed(() => table.value?.columns.filter(column => column.sensitivity) ?? [])
+const visibleColumns = computed(() => candidatesOnly.value ? candidates.value : table.value?.columns ?? [])
 const publicColumnCount = computed(() => table.value?.publicSelectColumns?.length ?? 0)
 const hasPublicSelect = computed(() => table.value?.publicSelect || publicColumnCount.value > 0)
 
@@ -70,7 +72,7 @@ onBeforeUnmount(() => active.abort())
         </div>
         <dl class="detail-list">
           <div><dt>表所有者</dt><dd class="mono">{{ table.owner || '未记录' }}</dd></div>
-          <div><dt>字段</dt><dd>{{ table.columns.length }} 个 · {{ sensitiveCount }} 个疑似敏感</dd></div>
+          <div><dt>字段自动识别</dt><dd>{{ table.columns.length }} 个字段 · {{ candidates.length }} 个疑似敏感</dd></div>
           <div><dt>采集时间</dt><dd><time :datetime="record.observedAt">{{ formatDate(record.observedAt) }}</time></dd></div>
           <div>
             <dt>运行来源</dt>
@@ -87,15 +89,18 @@ onBeforeUnmount(() => active.abort())
       </section>
       <section class="panel postgres-panel" aria-labelledby="postgres-columns-title">
         <div class="panel-heading">
-          <div><h2 id="postgres-columns-title">字段结构</h2><p>疑似敏感标记来自字段名称和类型，供人工核对。</p></div>
+          <div><h2 id="postgres-columns-title">字段与自动识别</h2><p>按字段名称和类型识别疑似敏感字段，供分级分类时核对。</p></div>
+          <button v-if="table.columns.length" type="button" class="button"
+                  :class="candidatesOnly ? 'button-primary' : 'button-secondary'" :aria-pressed="candidatesOnly"
+                  @click="candidatesOnly = !candidatesOnly">仅看疑似敏感</button>
         </div>
-        <div v-if="table.columns.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-columns-title">
+        <div v-if="visibleColumns.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-columns-title">
           <table class="data-table postgres-table">
             <thead>
               <tr><th scope="col">字段</th><th scope="col">数据类型</th><th scope="col">可为空</th><th scope="col">疑似敏感</th></tr>
             </thead>
             <tbody>
-              <tr v-for="column in table.columns" :key="column.ordinal">
+              <tr v-for="column in visibleColumns" :key="column.ordinal">
                 <th scope="row" class="mono">{{ column.name }}</th>
                 <td class="mono">{{ column.type }}</td>
                 <td>{{ column.nullable ? '是' : '否' }}</td>
@@ -104,7 +109,7 @@ onBeforeUnmount(() => active.abort())
             </tbody>
           </table>
         </div>
-        <p v-else class="empty-state">此表暂无字段。</p>
+        <p v-else class="empty-state">{{ candidatesOnly ? '此快照未识别到疑似敏感字段。' : '此表暂无字段。' }}</p>
       </section>
       <section class="panel postgres-panel" aria-labelledby="postgres-grants-title">
         <div class="panel-heading">

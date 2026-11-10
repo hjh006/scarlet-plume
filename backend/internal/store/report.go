@@ -16,11 +16,12 @@ const (
 var ErrReportScopeTooLarge = errors.New("report scope is too large")
 
 type ComplianceReport struct {
-	Workspace   ReportWorkspace `json:"workspace"`
-	GeneratedAt time.Time       `json:"generatedAt"`
-	Scope       ReportScope     `json:"scope"`
-	Counts      ReportCounts    `json:"counts"`
-	Checks      []ReportCheck   `json:"checks"`
+	Workspace      ReportWorkspace       `json:"workspace"`
+	GeneratedAt    time.Time             `json:"generatedAt"`
+	Scope          ReportScope           `json:"scope"`
+	Counts         ReportCounts          `json:"counts"`
+	Checks         []ReportCheck         `json:"checks"`
+	Identification *ReportIdentification `json:"identification,omitempty"`
 }
 
 type ReportWorkspace struct {
@@ -29,10 +30,11 @@ type ReportWorkspace struct {
 }
 
 type ReportScope struct {
-	ActivityID   int64     `json:"activityId,omitempty"`
-	ActivityName string    `json:"activityName,omitempty"`
-	Activity     *Activity `json:"activity,omitempty"`
-	Basis        string    `json:"basis"`
+	ActivityID   int64         `json:"activityId,omitempty"`
+	ActivityName string        `json:"activityName,omitempty"`
+	Activity     *Activity     `json:"activity,omitempty"`
+	Source       *ReportSource `json:"source,omitempty"`
+	Basis        string        `json:"basis"`
 }
 
 type ReportCounts struct {
@@ -49,10 +51,11 @@ type ReportCounts struct {
 }
 
 type ReportCheck struct {
-	Check        Check        `json:"check"`
-	Evidence     []Evidence   `json:"evidence"`
-	Events       []CheckEvent `json:"events"`
-	LatestReview *CheckEvent  `json:"latestReview,omitempty"`
+	Check               Check                `json:"check"`
+	Evidence            []Evidence           `json:"evidence"`
+	Events              []CheckEvent         `json:"events"`
+	LatestReview        *CheckEvent          `json:"latestReview,omitempty"`
+	AutomaticEvaluation *PostgresObservation `json:"automaticEvaluation,omitempty"`
 }
 
 const reportBasis = "报告范围以列明的已创建检查为准。已验证指对应检查完成独立复核。整体合规结论需结合实际适用范围及其他证据另行评定。"
@@ -83,21 +86,10 @@ func (s *Store) ComplianceReport(ctx context.Context, workspaceID, actorID, acti
 			report.Scope.ActivityName = activity.Name
 			report.Scope.Activity = &activity
 		}
-		if err := readReportChecks(ctx, tx, workspaceID, activityID, &report); err != nil || len(report.Checks) == 0 {
+		if err := readReportChecks(ctx, tx, workspaceID, activityID, &report); err != nil {
 			return err
 		}
-
-		ids := make([]int64, 0, len(report.Checks))
-		positions := make(map[int64]int, len(report.Checks))
-		for i, entry := range report.Checks {
-			ids = append(ids, entry.Check.ID)
-			positions[entry.Check.ID] = i
-		}
-
-		if err := readReportEvidence(ctx, tx, ids, positions, &report); err != nil {
-			return err
-		}
-		return readReportEvents(ctx, tx, ids, positions, &report)
+		return readReportHistory(ctx, tx, &report)
 	})
 	if err != nil {
 		return ComplianceReport{}, err
@@ -114,6 +106,10 @@ func readReportChecks(ctx context.Context, tx pgx.Tx, workspaceID, activityID in
 		return err
 	}
 	defer rows.Close()
+	return readReportCheckRows(rows, report)
+}
+
+func readReportCheckRows(rows pgx.Rows, report *ComplianceReport) error {
 	for rows.Next() {
 		if len(report.Checks) == ReportCheckLimit {
 			return ErrReportScopeTooLarge
@@ -139,6 +135,22 @@ func readReportChecks(ctx context.Context, tx pgx.Tx, workspaceID, activityID in
 		report.Checks = append(report.Checks, ReportCheck{Check: check, Evidence: []Evidence{}, Events: []CheckEvent{}})
 	}
 	return rows.Err()
+}
+
+func readReportHistory(ctx context.Context, tx pgx.Tx, report *ComplianceReport) error {
+	if len(report.Checks) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(report.Checks))
+	positions := make(map[int64]int, len(report.Checks))
+	for i, entry := range report.Checks {
+		ids = append(ids, entry.Check.ID)
+		positions[entry.Check.ID] = i
+	}
+	if err := readReportEvidence(ctx, tx, ids, positions, report); err != nil {
+		return err
+	}
+	return readReportEvents(ctx, tx, ids, positions, report)
 }
 
 func readReportEvidence(ctx context.Context, tx pgx.Tx, ids []int64, positions map[int64]int, report *ComplianceReport) error {

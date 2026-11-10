@@ -40,6 +40,8 @@ type PostgresObservation struct {
 	Table                   string                   `json:"table"`
 	Database                string                   `json:"database"`
 	Scope                   string                   `json:"scope"`
+	Assessment              string                   `json:"assessment,omitempty"`
+	AssessmentReasons       []string                 `json:"assessmentReasons,omitempty"`
 	ColumnCount             int                      `json:"columnCount"`
 	SensitiveCandidateCount int                      `json:"sensitiveCandidateCount"`
 	GrantCount              int                      `json:"grantCount"`
@@ -248,6 +250,11 @@ func addPostgresCheckEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob,
 		ids = append(ids, id)
 		byAssetID[id] = table
 	}
+	if cfg.AutoChecks {
+		if err := ensurePostgresChecks(ctx, tx, job, cfg, ids); err != nil {
+			return err
+		}
+	}
 	rows, err := tx.Query(ctx, `
 		SELECT c.id, c.asset_id, c.status, c.requirement_code
 		FROM plume.postgres_check_bindings b
@@ -277,6 +284,44 @@ func addPostgresCheckEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob,
 	return nil
 }
 
+func ensurePostgresChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg ManagedPostgresConfig, assetIDs []int64) error {
+	// The managed job lock also serializes manual bindings for this source.
+	_, err := tx.Exec(ctx, `
+		WITH new_checks AS (
+			INSERT INTO plume.checks (workspace_id, asset_id, requirement_code, owner_team, note, created_by)
+			SELECT a.workspace_id, a.id, rule.code, COALESCE(NULLIF(left(a.owner_team, 80), ''), '自动采集'), rule.note, $7
+			FROM plume.assets a
+			CROSS JOIN (VALUES
+				('G02', '由 PostgreSQL 采集生成。基于字段元数据识别可能敏感的字段，分类分级需要复核。'),
+				('G03', '由 PostgreSQL 采集生成。检查表和字段的直接 SELECT 授权，实际访问及其他保护措施需要复核。')
+			) AS rule(code, note)
+			WHERE a.workspace_id = $1 AND a.id = ANY($2)
+			  AND NOT EXISTS (
+				SELECT 1 FROM plume.postgres_check_bindings b
+				JOIN plume.checks c ON c.id = b.check_id
+				WHERE b.job_id = $3 AND c.workspace_id = a.workspace_id AND c.asset_id = a.id
+				  AND c.requirement_code = rule.code AND c.feishu_target_digest IS NULL
+				  AND (b.source_host, b.source_port, b.source_database) = ($4, $5, $6)
+			  )
+			ORDER BY a.id, rule.code
+			RETURNING id
+		), bindings AS (
+			INSERT INTO plume.postgres_check_bindings (check_id, job_id, source_host, source_port, source_database)
+			SELECT id, $3, $4, $5, $6 FROM new_checks
+			RETURNING check_id
+		)
+		INSERT INTO plume.check_events (check_id, action, actor_id, note)
+		SELECT b.check_id, event.action, $7, event.note
+		FROM bindings b
+		CROSS JOIN (VALUES
+			(1, 'created', '由 PostgreSQL 自动采集生成'),
+			(2, 'postgres_binding', '自动关联 PostgreSQL 采集任务')
+		) AS event(position, action, note)
+		ORDER BY b.check_id, event.position
+	`, job.workspaceID, assetIDs, job.ID, cfg.Host, cfg.Port, cfg.Database, job.actorID)
+	return err
+}
+
 func appendPostgresEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg ManagedPostgresConfig, run AutomationRun,
 	check Check, table collector.PostgreSQLTable,
 ) error {
@@ -294,27 +339,12 @@ func appendPostgresEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, c
 		kind, cycleID = "retest", change.ID
 	}
 
-	var scope, summary string
-	observation := summarizePostgresInspection(table, cfg.Database)
-	var facts any
-	if check.Requirement.Code == "G02" {
-		scope = "字段名和类型启发式识别，待人工核实数据分类。"
-		summary = fmt.Sprintf("已观测 %d 个字段，其中 %d 个字段的名称或类型提示可能涉及敏感数据。", observation.ColumnCount, observation.SensitiveCandidateCount)
-		facts = table.Columns
-	} else {
-		scope = "表与字段 ACL 及 schema USAGE 观测。实际有效访问取决于角色继承、行级策略等条件。"
-		summary = fmt.Sprintf("已观测 %d 条表或字段 ACL。PUBLIC 的 schema USAGE %s，表级 SELECT %s，字段级 SELECT 涉及 %d 个字段。",
-			len(table.Grants), observedFlag(table.PublicSchemaUsage), observedFlag(table.PublicSelect), len(table.PublicSelectColumns))
-		facts = struct {
-			Owner             string
-			Grants            []collector.PostgreSQLGrant
-			PublicSchemaUsage bool
-			PublicSelect      bool
-			PublicColumns     []string
-		}{table.Owner, table.Grants, table.PublicSchemaUsage, table.PublicSelect, table.PublicSelectColumns}
-	}
-	observation.Scope = scope
-	payload, err := json.Marshal(facts)
+	observation, summary, facts := evaluatePostgresInspection(table, cfg.Database, check.Requirement.Code)
+	payload, err := json.Marshal(struct {
+		Assessment        string
+		AssessmentReasons []string
+		Facts             any
+	}{observation.Assessment, observation.AssessmentReasons, facts})
 	if err != nil {
 		return err
 	}
@@ -340,7 +370,7 @@ func appendPostgresEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, c
 
 	input := EvidenceInput{
 		Kind: kind, SourceSystem: "PostgreSQL 自动采集", SourceRecord: fmt.Sprintf("采集任务 #%d · 运行 #%d", job.ID, run.ID),
-		Summary: summary + scope, ObservedAt: run.ObservedAt,
+		Summary: summary + observation.Scope, ObservedAt: run.ObservedAt,
 	}
 	id, err := addEvidenceTx(ctx, tx, check, job.actorID, input, true)
 	if err != nil {
@@ -351,6 +381,50 @@ func appendPostgresEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, c
 		VALUES ($1, $2, $3, $4, $5)
 	`, id, run.ID, cycleID, digest, observation)
 	return err
+}
+
+func evaluatePostgresInspection(table collector.PostgreSQLTable, database, requirementCode string) (PostgresObservation, string, any) {
+	var scope, summary string
+	observation := summarizePostgresInspection(table, database)
+	var facts any
+	if requirementCode == "G02" {
+		scope = "按字段名和类型识别候选，未读取业务行。数据分类分级需要复核。"
+		summary = fmt.Sprintf("已观测 %d 个字段，其中 %d 个字段的名称或类型提示可能涉及敏感数据。", observation.ColumnCount, observation.SensitiveCandidateCount)
+		observation.Assessment = "no_signal"
+		observation.AssessmentReasons = []string{"no_sensitive_candidate"}
+		if observation.SensitiveCandidateCount > 0 {
+			observation.Assessment = "review_required"
+			observation.AssessmentReasons = []string{"sensitive_candidate"}
+		}
+		facts = table.Columns
+	} else {
+		scope = "仅观测表和字段的直接授权及 schema USAGE。实际访问受角色继承和行级策略等影响。加密及备份需另行验证。"
+		summary = fmt.Sprintf("已观测 %d 条表或字段 ACL。PUBLIC 的 schema USAGE %s，表级 SELECT %s，字段级 SELECT 涉及 %d 个字段。",
+			len(table.Grants), observedFlag(table.PublicSchemaUsage), observedFlag(table.PublicSelect), len(table.PublicSelectColumns))
+		if table.PublicSelect || len(table.PublicSelectColumns) > 0 {
+			observation.AssessmentReasons = append(observation.AssessmentReasons, "public_select")
+		}
+		for _, grant := range table.Grants {
+			if grant.Privilege == "SELECT" && !grant.Public && grant.Grantee != table.Owner {
+				observation.AssessmentReasons = append(observation.AssessmentReasons, "named_select")
+				break
+			}
+		}
+		observation.Assessment = "review_required"
+		if len(observation.AssessmentReasons) == 0 {
+			observation.Assessment = "no_signal"
+			observation.AssessmentReasons = []string{"no_non_owner_select"}
+		}
+		facts = struct {
+			Owner             string
+			Grants            []collector.PostgreSQLGrant
+			PublicSchemaUsage bool
+			PublicSelect      bool
+			PublicColumns     []string
+		}{table.Owner, table.Grants, table.PublicSchemaUsage, table.PublicSelect, table.PublicSelectColumns}
+	}
+	observation.Scope = scope
+	return observation, summary, facts
 }
 
 func observedFlag(observed bool) string {

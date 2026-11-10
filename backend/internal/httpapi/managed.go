@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/collector"
 	"github.com/hjh006/scarlet-plume/backend/internal/managed"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 )
@@ -104,6 +105,10 @@ func (s *server) testManagedConnection(w http.ResponseWriter, r *http.Request, u
 		fail(w, http.StatusTooManyRequests, "连接测试较多，请稍后重试。")
 		return
 	}
+	if errors.Is(err, collector.ErrPostgreSQLSchemaUnavailable) {
+		fail(w, http.StatusUnprocessableEntity, "配置的 schema 不存在，或采集账号没有 USAGE 权限。")
+		return
+	}
 	if err != nil {
 		fail(w, http.StatusUnprocessableEntity, "无法读取 PostgreSQL 表目录，请核对连接、密码、TLS 和 schema 访问权限。")
 		return
@@ -117,6 +122,8 @@ type managedJobInput struct {
 	IntervalMinutes int    `json:"intervalMinutes"`
 	Enabled         bool   `json:"enabled"`
 	Revision        int64  `json:"revision,omitempty"`
+	AutoChecks      *bool  `json:"autoChecks,omitempty"`
+	AutoReports     *bool  `json:"autoReports,omitempty"`
 }
 
 func (s *server) prepareManagedJob(w http.ResponseWriter, r *http.Request, input *managedJobInput) (store.ManagedPostgresInput, bool) {
@@ -140,6 +147,7 @@ func (s *server) prepareManagedJob(w http.ResponseWriter, r *http.Request, input
 	return store.ManagedPostgresInput{
 		Host: conn.Host, Port: conn.Port, Database: conn.Database, User: conn.User, Schemas: conn.Schemas,
 		EncryptedPassword: encrypted, IntervalMinutes: input.IntervalMinutes, Enabled: input.Enabled,
+		AutoChecks: input.AutoChecks != nil && *input.AutoChecks, AutoReports: input.AutoReports != nil && *input.AutoReports,
 	}, true
 }
 
@@ -190,15 +198,21 @@ func (s *server) updateManagedJob(w http.ResponseWriter, r *http.Request, user s
 	if !ok {
 		return
 	}
-	if strings.TrimSpace(body.Source) != "" {
+	if source := strings.TrimSpace(body.Source); source != "" || body.AutoChecks == nil || body.AutoReports == nil {
 		current, err := s.store.ManagedPostgresJob(r.Context(), workspace.ID, user.ID, id)
 		if err != nil {
 			managedJobFailure(w, err)
 			return
 		}
-		if current.Source != strings.TrimSpace(body.Source) {
+		if source != "" && current.Source != source {
 			fail(w, http.StatusBadRequest, "来源别名用于资产去重，发布后保持固定。")
 			return
+		}
+		if body.AutoChecks == nil {
+			input.AutoChecks = current.Managed.AutoChecks
+		}
+		if body.AutoReports == nil {
+			input.AutoReports = current.Managed.AutoReports
 		}
 	}
 	job, err := s.store.UpdateManagedPostgresJob(r.Context(), workspace.ID, user.ID, id, body.Revision, input)

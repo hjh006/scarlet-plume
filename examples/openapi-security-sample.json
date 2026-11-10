@@ -1,0 +1,60 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Scarlet Plume synthetic API security sample", "version": "1.0.0" },
+  "servers": [{ "url": "https://scarlet-sample.invalid" }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/v1/customers/{customerId}": {
+      "parameters": [{ "name": "customerId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Customer",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Customer" } } }
+          }
+        }
+      }
+    },
+    "/v1/legacy/customers": {
+      "get": {
+        "deprecated": true,
+        "responses": { "204": { "description": "Legacy integration" } }
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "login": { "type": "string", "format": "email" }, "password": { "type": "string", "format": "password" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "access_token": { "type": "string" } } } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "schemas": {
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "customer_email": { "type": "string", "format": "email" },
+          "mobile_phone": { "type": "string" },
+          "national_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}

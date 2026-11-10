@@ -176,7 +176,7 @@ func postgresInspectColumns(ctx context.Context, tx pgx.Tx, ids []uint32, positi
 		if err := rows.Scan(&id, &column.Name, &column.Type, &column.Ordinal, &column.Nullable); err != nil {
 			return errReadPostgreSQLCatalog
 		}
-		column.Sensitivity = postgresSensitivity(column.Name, column.Type)
+		column.Sensitivity = MetadataSensitivity(column.Name, column.Type)
 		table := &tables[positions[id]]
 		table.Columns = append(table.Columns, column)
 		count++
@@ -220,7 +220,8 @@ func postgresInspectGrants(ctx context.Context, tx pgx.Tx, ids []uint32, positio
 	return nil
 }
 
-func postgresSensitivity(name, dataType string) string {
+// MetadataSensitivity identifies candidate fields from their declared name and type.
+func MetadataSensitivity(name, dataType string) string {
 	dataType = strings.TrimSuffix(dataType, "[]")
 	if dataType == "inet" || dataType == "cidr" {
 		return "ip_address"

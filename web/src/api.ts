@@ -99,6 +99,24 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   return body as T
 }
 
+export async function downloadFile(path: string, filename: string, signal: AbortSignal) {
+  const response = await fetch(path, { signal, credentials: 'same-origin' })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new ApiError(response.status, typeof body?.error === 'string' ? body.error.slice(0, 300) : '')
+  }
+  const blob = await response.blob()
+  if (signal.aborted) return
+  const fileUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = fileUrl
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(fileUrl), 1000)
+}
+
 export function describeError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401) return '登录已失效，请重新登录。'
@@ -133,6 +151,7 @@ export function formatDate(value: string) {
 export function providerLabel(provider: string) {
   if (provider === 'postgresql') return 'PostgreSQL'
   if (provider === 'openmetadata') return 'OpenMetadata'
+  if (provider === 'openapi') return 'OpenAPI'
   return provider
 }
 

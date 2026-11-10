@@ -46,6 +46,9 @@ func ValidatePostgreSQLSchemas(schemas []string) error {
 
 var errReadPostgreSQLCatalog = errors.New("无法读取 PostgreSQL 表目录，请检查连接、TLS 和 schema 权限")
 
+// ErrPostgreSQLSchemaUnavailable covers missing schemas and schemas without USAGE.
+var ErrPostgreSQLSchemaUnavailable = errors.New("至少一个指定的 schema 不存在或当前账号缺少 USAGE 权限")
+
 func collectPostgreSQL(ctx context.Context, dsn string, schemas []string, allowInsecureLoopback, dockerSample bool) ([]Asset, error) {
 	assets := make([]Asset, 0)
 	err := withPostgreSQLCatalog(ctx, dsn, schemas, allowInsecureLoopback, dockerSample, func(ctx context.Context, tx pgx.Tx, schemas []string) error {
@@ -109,7 +112,7 @@ WHERE nspname::text = ANY ($1::text[])
 		return errReadPostgreSQLCatalog
 	}
 	if authorized != len(schemas) {
-		return errors.New("至少一个指定的 schema 不存在或当前账号无权访问")
+		return ErrPostgreSQLSchemaUnavailable
 	}
 
 	if err := read(ctx, tx, schemas); err != nil {

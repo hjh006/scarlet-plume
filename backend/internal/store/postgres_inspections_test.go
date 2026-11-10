@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ func TestManagedPostgresInspectionEvidence(t *testing.T) {
 		},
 		PublicSchemaUsage: true, PublicSelectColumns: []string{"email"},
 	}
-	run := func(runID string) store.AutomationRun {
+	runTables := func(runID string, tables []collector.PostgreSQLTable) store.AutomationRun {
 		t.Helper()
 		want(repo.QueueManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID), nil)
 		claim, err := repo.ClaimManagedPostgresJob(ctx, runID, time.Minute)
@@ -84,13 +85,20 @@ func TestManagedPostgresInspectionEvidence(t *testing.T) {
 		if claim == nil || claim.JobID != job.ID {
 			t.Fatalf("expected to claim own job: %+v", claim)
 		}
+		assets := make([]store.CollectedAsset, 0, len(tables))
+		for _, table := range tables {
+			assets = append(assets, store.CollectedAsset{SourceRef: table.SourceRef, Name: table.Name})
+		}
 		result, err := repo.FinishManagedPostgresJob(ctx, *claim, store.AutomationDelivery{
 			Digest: fmt.Sprintf("%x", sha256.Sum256([]byte(runID))), ObservedAt: now(),
-			Assets:         []store.CollectedAsset{{SourceRef: table.SourceRef, Name: table.Name}},
-			PostgresTables: []collector.PostgreSQLTable{table},
+			Assets: assets, PostgresTables: tables,
 		})
 		want(err, nil)
 		return result
+	}
+	run := func(runID string) store.AutomationRun {
+		t.Helper()
+		return runTables(runID, []collector.PostgreSQLTable{table})
 	}
 
 	initial := run("first")
@@ -163,7 +171,9 @@ func TestManagedPostgresInspectionEvidence(t *testing.T) {
 	run("retest")
 	result := detail(owner.ID, permissions.ID)
 	if len(result.Evidence) != 3 || result.Status != "needs_work" || result.Evidence[0].Kind != "retest" ||
-		result.Evidence[0].Postgres == nil || result.Evidence[0].Postgres.PublicSelectColumnCount != 0 {
+		result.Evidence[0].Postgres == nil || result.Evidence[0].Postgres.PublicSelectColumnCount != 0 ||
+		result.Evidence[0].Postgres.Assessment != "no_signal" ||
+		!slices.Equal(result.Evidence[0].Postgres.AssessmentReasons, []string{"no_non_owner_select"}) {
 		t.Fatalf("expected captured retest without state change: %+v", result)
 	}
 	if len(detail(owner.ID, classification.ID).Evidence) != 1 {
@@ -185,5 +195,77 @@ func TestManagedPostgresInspectionEvidence(t *testing.T) {
 	if len(report.Checks) != 2 || report.Counts.Evidence != 4 || report.Counts.Retests != 1 ||
 		report.Checks[0].Evidence[0].Postgres == nil {
 		t.Fatalf("report dropped collected evidence: %+v", report)
+	}
+
+	config.AutoChecks = true
+	updated, err := repo.UpdateManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID, 2, config)
+	want(err, nil)
+	if !updated.Managed.AutoChecks || updated.Managed.AutoReports {
+		t.Fatalf("unexpected automatic job configuration: %+v", updated.Managed)
+	}
+	run("automatic")
+	run("automatic-unchanged")
+	checks, err := repo.ListChecks(ctx, workspace.ID, "", 0, 10)
+	want(err, nil)
+	if len(checks) != 4 {
+		t.Fatalf("expected two new checks for the new source identity, got %d total", len(checks))
+	}
+	automatic := map[string]int64{}
+	for _, check := range checks {
+		if check.ID == classification.ID || check.ID == permissions.ID {
+			continue
+		}
+		result := detail(owner.ID, check.ID)
+		automatic[check.Requirement.Code] = check.ID
+		if result.Status != "draft" || result.PostgresJobID == nil || *result.PostgresJobID != job.ID ||
+			len(result.Events) != 3 || len(result.Evidence) != 1 || result.Evidence[0].AutomationRunID != "automatic" {
+			t.Fatalf("unexpected automated check after unchanged collection: %+v", result)
+		}
+	}
+	assertAssessment := func(code, runID, assessment string, reasons []string) {
+		t.Helper()
+		result := detail(owner.ID, automatic[code])
+		evidence := result.Evidence[0]
+		if result.Status != "draft" || evidence.AutomationRunID != runID || evidence.Postgres == nil ||
+			evidence.Postgres.Scope == "" || evidence.Postgres.Assessment != assessment ||
+			!slices.Equal(evidence.Postgres.AssessmentReasons, reasons) {
+			t.Fatalf("unexpected %s assessment: %+v", code, result)
+		}
+	}
+	assertAssessment("G02", "automatic", "review_required", []string{"sensitive_candidate"})
+	assertAssessment("G03", "automatic", "review_required", []string{"public_select"})
+
+	table.Columns = []collector.PostgreSQLColumn{{Name: "category", Type: "text", Ordinal: 1}}
+	table.Grants = append(table.Grants[:1], collector.PostgreSQLGrant{
+		Grantee: "named_reader", Grantor: "source_admin", Privilege: "SELECT", SchemaUsage: true,
+	})
+	table.PublicSelect = false
+	run("automatic-change")
+	assertAssessment("G02", "automatic-change", "no_signal", []string{"no_sensitive_candidate"})
+	assertAssessment("G03", "automatic-change", "review_required", []string{"named_select"})
+
+	config.Database = "source_one"
+	_, err = repo.UpdateManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID, updated.Managed.Revision, config)
+	want(err, nil)
+	run("automatic-reuse")
+	checks, err = repo.ListChecks(ctx, workspace.ID, "", 0, 10)
+	want(err, nil)
+	if len(checks) != 4 {
+		t.Fatalf("expected existing bound checks to be reused, got %d total", len(checks))
+	}
+
+	oversized := make([]collector.PostgreSQLTable, store.ManagedPostgresAutoCheckTableLimit+1)
+	for i := range oversized {
+		name := fmt.Sprintf("customer_%d", i)
+		oversized[i] = collector.PostgreSQLTable{Asset: collector.Asset{SourceRef: "inventory." + name, Name: name}, Schema: "inventory"}
+	}
+	limited := runTables("oversized", oversized)
+	if limited.Status != "error" || limited.Code != "automation_scope_limit" || limited.ImportID != nil {
+		t.Fatalf("expected recorded scope error without partial import: %+v", limited)
+	}
+	assets, err = repo.ListAssets(ctx, workspace.ID, 0, 10)
+	want(err, nil)
+	if len(assets) != 1 {
+		t.Fatalf("oversized scan updated assets: %+v", assets)
 	}
 }

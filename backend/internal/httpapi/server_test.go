@@ -246,12 +246,13 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 	}
 	activities := workspace + "/activities"
 	for _, scenario := range []struct {
-		kind string
-		rule string
+		kind        string
+		rule        string
+		templateKey string
 	}{
-		{"sharing", "T01"},
-		{"cross_border", "T03"},
-		{"ai", "X01"},
+		{"sharing", "T01", "sharing-baseline"},
+		{"cross_border", "T03", "cross-border-baseline"},
+		{"ai", "X01", "ai-use-baseline"},
 	} {
 		input := fmt.Sprintf(`{"assetId":%d,"name":%q,"kind":%q,"purpose":"核验处理边界","recipient":"测试接收方","region":"测试地域","retentionPolicy":"按审批期限"}`,
 			page.Items[0].ID, scenario.kind, scenario.kind)
@@ -265,11 +266,19 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		do("GET", fmt.Sprintf("%s/activities/%d", otherWorkspace, activity.ID), "", cookie, 404)
 		templateResponse := do("GET", workspace+"/templates?kind="+scenario.kind, "", reviewerCookie, 200)
 		var library struct{ Items []store.Template }
-		if err := json.Unmarshal(templateResponse.Body.Bytes(), &library); err != nil || len(library.Items) != 1 ||
-			!library.Items[0].BuiltIn || len(library.Items[0].Items) < 3 {
+		if err := json.Unmarshal(templateResponse.Body.Bytes(), &library); err != nil {
+			t.Fatalf("invalid template list: %s", templateResponse.Body)
+		}
+		var template store.Template
+		for _, candidate := range library.Items {
+			if candidate.Key == scenario.templateKey && candidate.BuiltIn {
+				template = candidate
+				break
+			}
+		}
+		if template.ID == 0 || len(template.Items) < 3 {
 			t.Fatalf("expected builtin scenario template: %s", templateResponse.Body)
 		}
-		template := library.Items[0]
 		item := template.Items[0]
 		reply := do("POST", checks, fmt.Sprintf(`{"assetId":%d,"activityId":%d,"requirementCode":%q,"ownerTeam":"QA","note":"核对证据引用","templateRevisionId":%d,"templateItemKey":%q}`,
 			activity.AssetID, activity.ID, scenario.rule, template.ID, item.Key), cookie, 201)

@@ -14,7 +14,9 @@ import ActivityDetail from './ActivityDetail.vue'
 import TemplatesView from './TemplatesView.vue'
 import TemplateForm from './TemplateForm.vue'
 import ComplianceReportView from './ComplianceReportView.vue'
+import ReportArchiveView from './ReportArchiveView.vue'
 import AutomationView from './AutomationView.vue'
+import ApiSecurityView from './ApiSecurityView.vue'
 
 const pages = [
   { id: 'overview', label: '概览' },
@@ -24,6 +26,7 @@ const pages = [
   { id: 'templates', label: '检查模板' },
   { id: 'reports', label: '合规报告' },
   { id: 'automation', label: '自动采集' },
+  { id: 'api-security', label: 'API 安全' },
   { id: 'integrations', label: '集成与导入' },
 ] as const
 
@@ -200,11 +203,19 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <TemplatesView v-else :key="`${workspace.slug}/${route.recordId}`" :workspace="workspace"
                          :revision-id="route.recordId" @session-expired="sessionExpired" />
         </template>
-        <ComplianceReportView v-else-if="route.page === 'reports'" :key="`${workspace.slug}/${route.recordId}`"
-                              :workspace="workspace" :activity-context="route.recordId" @session-expired="sessionExpired" />
+        <template v-else-if="route.page === 'reports'">
+          <ReportArchiveView v-if="route.recordId === 'archives' && !route.contextId" :key="workspace.slug"
+                             :workspace="workspace" @session-expired="sessionExpired" />
+          <ComplianceReportView v-else :key="`${workspace.slug}/${route.recordId}/${route.contextId}`" :workspace="workspace"
+                                :activity-context="route.recordId === 'archives' ? undefined : route.recordId"
+                                :archive-id="route.recordId === 'archives' ? route.contextId : undefined"
+                                @session-expired="sessionExpired" />
+        </template>
         <AutomationView v-else-if="route.page === 'automation'" :key="`${workspace.slug}/${route.recordId}/${route.contextId}`"
                         :workspace="workspace" :check-context="route.recordId === 'new' ? route.contextId : undefined"
                         @session-expired="sessionExpired" />
+        <ApiSecurityView v-else-if="route.page === 'api-security'" :key="`${workspace.slug}/api-security/${route.recordId}`"
+                         :workspace="workspace" :scan-id="route.recordId" @session-expired="sessionExpired" />
         <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
                        @session-expired="sessionExpired" />
       </main>

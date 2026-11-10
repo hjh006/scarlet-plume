@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -31,7 +32,7 @@ func TestPostgreSQLSensitivity(t *testing.T) {
 		{"voicemail", "text", ""},
 		{"headphone", "text", ""},
 	} {
-		if got := postgresSensitivity(tc.name, tc.kind); got != tc.want {
+		if got := MetadataSensitivity(tc.name, tc.kind); got != tc.want {
 			t.Errorf("%s (%s) classified as %q, want %q", tc.name, tc.kind, got, tc.want)
 		}
 	}
@@ -50,13 +51,14 @@ func TestPostgreSQLDeepCatalog(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = admin.Close(context.Background()) })
 	suffix := fmt.Sprint(time.Now().UnixNano())
-	schema, shared := "deep_"+suffix, "shared_"+suffix
+	schema, shared, restricted := "deep_"+suffix, "shared_"+suffix, "restricted_"+suffix
 	reader, aclRole := "read_"+suffix, "acl_"+suffix
 	const password = "catalog-test-fixture"
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := admin.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE; DROP SCHEMA IF EXISTS "+shared+
+		if _, err := admin.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE; DROP SCHEMA IF EXISTS "+restricted+
+			" CASCADE; DROP SCHEMA IF EXISTS "+shared+
 			" CASCADE; DROP ROLE IF EXISTS "+reader+"; DROP ROLE IF EXISTS "+aclRole); err != nil {
 			t.Error("could not clean PostgreSQL catalog fixtures")
 		}
@@ -64,6 +66,8 @@ func TestPostgreSQLDeepCatalog(t *testing.T) {
 	setup := fmt.Sprintf(`
 CREATE SCHEMA %[1]s;
 CREATE SCHEMA %[2]s;
+CREATE SCHEMA %[6]s;
+CREATE TABLE %[6]s.restricted_table (id bigint);
 CREATE ROLE %[3]s LOGIN PASSWORD '%[5]s';
 CREATE ROLE %[4]s NOLOGIN;
 GRANT USAGE ON SCHEMA %[1]s TO %[3]s;
@@ -80,7 +84,7 @@ CREATE TABLE %[1]s.catalog_columns (id bigint, email_address text);
 GRANT SELECT (email_address) ON %[1]s.catalog_columns TO PUBLIC;
 CREATE TABLE %[2]s.catalog_table (id bigint, category text);
 GRANT SELECT ON %[2]s.catalog_table TO PUBLIC;
-`, schema, shared, reader, aclRole, password)
+`, schema, shared, reader, aclRole, password, restricted)
 	if _, err := admin.Exec(ctx, setup); err != nil {
 		t.Fatalf("could not create catalog fixtures: %v", err)
 	}
@@ -133,7 +137,15 @@ GRANT SELECT ON %[2]s.catalog_table TO PUBLIC;
 	if err != nil || strings.Contains(string(encoded), "never-output") || strings.Contains(string(encoded), "no-catalog") {
 		t.Fatal("catalog response included a source row or column default")
 	}
-	if denied, err := InspectPostgreSQL(ctx, readerURL.String(), []string{schema, schema + "_absent"}, true); err == nil || denied != nil {
-		t.Fatal("catalog returned an incomplete response for an unauthorized schema")
+	for _, unavailable := range []string{schema + "_absent", restricted} {
+		scope := []string{schema, unavailable}
+		denied, err := InspectPostgreSQL(ctx, readerURL.String(), scope, true)
+		if !errors.Is(err, ErrPostgreSQLSchemaUnavailable) || denied != nil {
+			t.Fatalf("deep catalog returned an incomplete response for %s: %v", unavailable, err)
+		}
+		assets, err := PostgreSQL(ctx, readerURL.String(), scope, true)
+		if !errors.Is(err, ErrPostgreSQLSchemaUnavailable) || assets != nil {
+			t.Fatalf("shallow catalog returned an incomplete response for %s: %v", unavailable, err)
+		}
 	}
 }
