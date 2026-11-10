@@ -1,0 +1,64 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: SQLite
+            app_env: development
+            settings: config.settings
+            postgres_image: ''
+          - database: PostgreSQL
+            app_env: production
+            settings: config.ci_postgres
+            postgres_image: postgres:17.11@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
+    env:
+      APP_ENV: ${{ matrix.app_env }}
+      DJANGO_SETTINGS_MODULE: ${{ matrix.settings }}
+      APP_SECRET_KEY: ci-only-ephemeral-key-never-used-outside-workflow-testing
+      APP_ALLOWED_HOSTS: testserver
+      APP_DB_NAME: governance_ci
+      APP_DB_USER: governance_ci
+      APP_DB_PASSWORD: ci-only-postgres-password
+      APP_DB_HOST: 127.0.0.1
+    services:
+      postgres:
+        image: ${{ matrix.postgres_image }}
+        env:
+          POSTGRES_DB: governance_ci
+          POSTGRES_USER: governance_ci
+          POSTGRES_PASSWORD: ci-only-postgres-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U governance_ci -d governance_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements.txt
+      - name: Verify migrations and run tests
+        env:
+          APP_DB_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test

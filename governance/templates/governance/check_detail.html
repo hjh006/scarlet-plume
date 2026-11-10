@@ -1,0 +1,96 @@
+{% extends "governance/base.html" %}
+{% block title %}{{ check.requirement.title }} · {{ workspace.name }} · 赤翎{% endblock %}
+{% block content %}
+  <a class="back-link" href="{% url 'checks' workspace=workspace.slug %}">{% include "governance/icon.html" with name="back" only %}返回控制核验</a>
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">核验记录 <span class="mono">#{{ check.pk }}</span></p>
+      <h1>{{ check.requirement.title }}</h1>
+      <p>{{ check.asset.name }} · {{ check.owner_team|default:"未指定责任团队" }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="button button-secondary" href="{% url 'check_export' workspace=workspace.slug pk=check.pk %}">{% include "governance/icon.html" with name="download" only %}导出 JSON</a>
+      {% if can_submit %}
+        <form method="post" action="{% url 'check_submit' workspace=workspace.slug pk=check.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="button button-primary">提交复核</button>
+        </form>
+      {% endif %}
+      {% if can_review %}
+        <a class="button button-primary" href="{% url 'check_review' workspace=workspace.slug pk=check.pk %}">填写复核结论</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <section class="panel" aria-labelledby="check-summary-title">
+    <div class="panel-heading">
+      <div><h2 id="check-summary-title">核验信息</h2><p>提交后需由另一账号独立复核。</p></div>
+      {% include "governance/check_status.html" with item=check only %}
+    </div>
+    <dl class="detail-list">
+      <div><dt>关联资产</dt><dd>{{ check.asset.name }}</dd></div>
+      <div><dt>责任团队</dt><dd>{{ check.owner_team|default:"—" }}</dd></div>
+      <div><dt>更新时间</dt><dd class="date-text"><time datetime="{{ check.updated_at|date:'c' }}">{{ check.updated_at|date:"Y-m-d H:i" }}</time></dd></div>
+      <div>
+        <dt>要求来源</dt>
+        <dd>
+          {% if check.requirement.source_url %}
+            <a class="source-link" href="{{ check.requirement.source_url }}">{{ check.requirement.citation|default:check.requirement.code }} {% include "governance/icon.html" with name="external" only %}</a>
+          {% else %}
+            {{ check.requirement.citation|default:check.requirement.code }}
+          {% endif %}
+        </dd>
+      </div>
+      {% if check.requirement.summary %}
+        <div class="detail-wide"><dt>要求说明</dt><dd class="text-block">{{ check.requirement.summary }}</dd></div>
+      {% endif %}
+      {% if check.note %}
+        <div class="detail-wide"><dt>核验说明</dt><dd class="text-block">{{ check.note }}</dd></div>
+      {% endif %}
+    </dl>
+  </section>
+
+  <div class="detail-grid">
+    <section class="panel" aria-labelledby="evidence-title">
+      <div class="panel-heading">
+        <div><h2 id="evidence-title">证据记录</h2><p>保留来源系统、记录标识和观察时间，便于复核。</p></div>
+        {% if can_add_evidence %}<a class="button button-secondary" href="{% url 'check_evidence' workspace=workspace.slug pk=check.pk %}">{% include "governance/icon.html" with name="plus" only %}添加证据</a>{% endif %}
+      </div>
+      {% if can_add_evidence and not can_submit and check.status == "needs_work" %}
+        <p class="evidence-guidance">登记新的复测证据后，方可再次提交复核。</p>
+      {% endif %}
+      <div class="evidence-list">
+        {% for evidence in evidence_list %}
+          <article class="evidence">
+            <div class="evidence-heading"><h3>{{ evidence.source_system }}</h3><span class="badge">{{ evidence.get_kind_display }}</span></div>
+            <p class="evidence-ref">记录标识 <span class="mono">{{ evidence.source_record }}</span></p>
+            <p class="text-block">{{ evidence.summary }}</p>
+            <div class="evidence-meta">
+              <span>观察于 <time datetime="{{ evidence.observed_at|date:'c' }}">{{ evidence.observed_at|date:"Y-m-d H:i" }}</time></span>
+              <span>{{ evidence.created_by.get_username|default:"未知账号" }} 登记于 <time datetime="{{ evidence.created_at|date:'c' }}">{{ evidence.created_at|date:"Y-m-d H:i" }}</time></span>
+            </div>
+          </article>
+        {% empty %}
+          <div class="empty-state"><strong>尚无证据</strong><p>登记现有系统的记录标识和摘要，供复核时查找原始证据。</p></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="events-title">
+      <div class="panel-heading"><div><h2 id="events-title">操作历史</h2><p>查看登记、提交和复核记录。</p></div></div>
+      {% if events %}
+        <ol class="timeline">
+          {% for event in events %}
+            <li>
+              <strong>{{ event.get_action_display }}</strong>
+              <div class="event-meta">{{ event.actor.get_username|default:"未知账号" }} · <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"Y-m-d H:i" }}</time></div>
+              {% if event.note %}<p class="text-block">{{ event.note }}</p>{% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="empty-state"><strong>尚无操作记录</strong><p>核验过程中的操作将显示在此处。</p></div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

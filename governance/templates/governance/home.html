@@ -1,0 +1,30 @@
+{% extends "governance/base.html" %}
+{% block title %}工作区 · 赤翎{% endblock %}
+{% block public_content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">工作区</p>
+      <h1>选择工作区</h1>
+      <p>进入已授权的工作区，管理数据资产、处理活动和核验证据。</p>
+    </div>
+  </header>
+  {% if user.is_authenticated %}
+    <div class="panel workspace-list">
+      {% for access in memberships %}
+        <a href="{% url 'dashboard' workspace=access.workspace.slug %}" class="workspace-row">
+          <span class="workspace-symbol">{% include "governance/icon.html" with name="workspace" only %}</span>
+          <span class="workspace-row-name"><strong>{{ access.workspace.name }}</strong><small>{{ access.workspace.slug }}</small></span>
+          <span class="badge">{{ access.get_role_display }}</span>
+          {% include "governance/icon.html" with name="arrow" only %}
+        </a>
+      {% empty %}
+        <div class="empty-state">
+          <strong>暂无可访问的工作区</strong>
+          <p>请联系管理员，将你的账号添加到工作区。</p>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <a class="button button-primary" href="{% url 'login' %}">登录赤翎 {% include "governance/icon.html" with name="arrow" only %}</a>
+  {% endif %}
+{% endblock %}

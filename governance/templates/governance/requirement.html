@@ -1,0 +1,15 @@
+<details class="requirement">
+  <summary>
+    {% include "governance/icon.html" with name="book" only %}
+    <span><strong>{{ requirement.title }}</strong><small class="reference-code mono">{{ requirement.code }}</small></span>
+    {% include "governance/icon.html" with name="chevron" only %}
+  </summary>
+  <div class="requirement-body">
+    {% if requirement.source_url %}
+      <a class="source-link" href="{{ requirement.source_url }}">{{ requirement.citation|default:requirement.code }} {% include "governance/icon.html" with name="external" only %}</a>
+    {% elif requirement.citation %}
+      <p>{{ requirement.citation }}</p>
+    {% endif %}
+    {% if requirement.summary %}<p>{{ requirement.summary }}</p>{% endif %}
+  </div>
+</details>

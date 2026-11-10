@@ -1,0 +1,29 @@
+{% extends "governance/base.html" %}
+{% block title %}控制核验 · {{ workspace.name }} · 赤翎{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">治理工作区 / 控制核验</p>
+      <h1>控制核验</h1>
+      <p>查看要求、资产和核验状态，打开记录可查看证据与操作历史。</p>
+    </div>
+    {% if can_edit %}<a class="button button-primary" href="{% url 'check_new' workspace=workspace.slug %}">{% include "governance/icon.html" with name="plus" only %}新建核验</a>{% endif %}
+  </header>
+  <section class="panel" aria-labelledby="checks-title">
+    <div class="panel-heading"><h2 id="checks-title">核验台账</h2></div>
+    {% if status_options %}
+      <form class="filter-bar" method="get">
+        <label for="status-filter">核验状态</label>
+        <select id="status-filter" name="status">
+          <option value="">全部状态</option>
+          {% for value, label in status_options %}
+            <option value="{{ value }}"{% if value == selected_status %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="button button-secondary">筛选</button>
+        {% if selected_status %}<a class="quiet-link" href="{% url 'checks' workspace=workspace.slug %}">清除筛选</a>{% endif %}
+      </form>
+    {% endif %}
+    {% include "governance/check_table.html" %}
+  </section>
+{% endblock %}

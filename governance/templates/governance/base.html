@@ -1,0 +1,70 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="application-name" content="Scarlet Plume">
+  <title>{% block title %}赤翎 · 数据安全治理{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'governance/app.css' %}">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳至主要内容</a>
+  {% if workspace %}
+    {% with current=request.resolver_match.url_name %}
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="{% url 'home' %}">
+          <span class="brand-mark">{% include "governance/icon.html" with name="mark" only %}</span>
+          <span>赤翎<small lang="en">Scarlet Plume</small></span>
+        </a>
+        <nav class="sidebar-nav" aria-label="工作区导航">
+          <span class="nav-label">治理工作区</span>
+          <a href="{% url 'dashboard' workspace=workspace.slug %}"{% if current == "dashboard" %} aria-current="page"{% endif %}>{% include "governance/icon.html" with name="dashboard" only %}<span>概览</span></a>
+          <a href="{% url 'assets' workspace=workspace.slug %}"{% if current == "assets" or current == "asset_new" %} aria-current="page"{% endif %}>{% include "governance/icon.html" with name="assets" only %}<span>数据资产</span></a>
+          <a href="{% url 'activities' workspace=workspace.slug %}"{% if current == "activities" or current == "activity_new" %} aria-current="page"{% endif %}>{% include "governance/icon.html" with name="activities" only %}<span>处理活动</span></a>
+          <a href="{% url 'checks' workspace=workspace.slug %}"{% if current == "checks" or current == "check_new" or current == "check_detail" or current == "check_evidence" or current == "check_review" %} aria-current="page"{% endif %}>{% include "governance/icon.html" with name="checks" only %}<span>控制核验</span></a>
+        </nav>
+        <div class="sidebar-footer">
+          <a href="{% url 'home' %}">{% include "governance/icon.html" with name="workspace" only %} 切换工作区</a>
+        </div>
+      </aside>
+      <div class="workspace-shell">
+        <header class="topbar">
+          <div class="workspace-name">{% include "governance/icon.html" with name="workspace" only %}<span>{{ workspace.name }}</span></div>
+          <div class="topbar-account">
+            <span class="account-avatar">{% include "governance/icon.html" with name="user" only %}</span>
+            <div class="account-name"><strong>{{ user.get_username }}</strong><small>{{ membership.get_role_display }}</small></div>
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button class="icon-button" type="submit" aria-label="退出登录" title="退出登录">{% include "governance/icon.html" with name="logout" only %}</button>
+            </form>
+          </div>
+        </header>
+        <main id="main-content" class="main-content" tabindex="-1">
+          {% include "governance/messages.html" %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+    {% endwith %}
+  {% else %}
+    <header class="public-header">
+      <a class="brand" href="{% url 'home' %}">
+        <span class="brand-mark">{% include "governance/icon.html" with name="mark" only %}</span>
+        <span>赤翎<small lang="en">Scarlet Plume</small></span>
+      </a>
+      {% if user.is_authenticated %}
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button class="button button-secondary" type="submit">{% include "governance/icon.html" with name="logout" only %}退出登录</button>
+        </form>
+      {% endif %}
+    </header>
+    <main id="main-content" class="public-main" tabindex="-1">
+      {% include "governance/messages.html" %}
+      {% block public_content %}{% endblock %}
+    </main>
+  {% endif %}
+</body>
+</html>
