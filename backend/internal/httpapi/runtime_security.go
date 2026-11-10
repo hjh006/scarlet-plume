@@ -32,6 +32,7 @@ func (s *server) runtimeSecurityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+base+"/sources", s.workspace(true, s.createRuntimeSource))
 	mux.HandleFunc("DELETE "+base+"/sources/{source}", s.workspace(true, s.revokeRuntimeSource))
 	mux.HandleFunc("GET "+base+"/routes", s.workspace(false, s.runtimeRoutes))
+	mux.HandleFunc("GET "+base+"/findings", s.workspace(false, s.runtimeFindings))
 	mux.HandleFunc("POST "+gatewayRuntimePath, s.receiveRuntime("gateway", "application/json", 512<<10, runtimesecurity.ParseGateway))
 	mux.HandleFunc("POST "+otlpRuntimePath, s.receiveRuntime("otlp", "application/x-protobuf", runtimesecurity.MaxOTLPBytes, runtimesecurity.ParseOTLP))
 }
@@ -52,6 +53,15 @@ func (s *server) runtimeRoutes(w http.ResponseWriter, r *http.Request, _ store.U
 		return
 	}
 	respond(w, 200, map[string]any{"items": items})
+}
+
+func (s *server) runtimeFindings(w http.ResponseWriter, r *http.Request, _ store.User, ws store.Workspace) {
+	items, err := s.store.ListRuntimeFindings(r.Context(), ws.ID)
+	if err != nil {
+		storeFailure(w, err)
+		return
+	}
+	respond(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func runtimeSourceFailure(w http.ResponseWriter, err error) {

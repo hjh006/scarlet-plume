@@ -2,6 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
 import Icon from './Icon.vue'
+import RuntimeFindingsPanel from './RuntimeFindingsPanel.vue'
+import type { RuntimeFinding } from './runtime-findings'
 import './api-security-view.css'
 
 const kinds = { gateway: '独立采集 Agent / 网关日志', otlp: '应用探针（OTLP）' }
@@ -13,6 +15,10 @@ const postures = {
   no_baseline: '无匹配契约',
 }
 type RoutePosture = keyof typeof postures
+const findingsWarnings = {
+  scope_limited: '该批次达到发现处理上限',
+  evaluation_failed: '该批次规则检查未完成',
+}
 
 interface RuntimeSource {
   id: number
@@ -22,6 +28,8 @@ interface RuntimeSource {
   createdAt: string
   revokedAt?: string
   lastSeen?: string
+  findingsWarning?: keyof typeof findingsWarnings
+  findingsWarningAt?: string
 }
 
 interface RuntimeRoute {
@@ -41,11 +49,15 @@ interface RuntimeRoute {
 
 const props = defineProps<{ workspace: Workspace }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
-const scanPath = `#/${encodeURIComponent(props.workspace.slug)}/api-security`
+const home = `#/${encodeURIComponent(props.workspace.slug)}`
+const scanPath = home + '/api-security'
 const runtimePath = workspacePath(props.workspace.slug) + '/api-security/runtime'
 const owner = computed(() => props.workspace.role === 'owner')
 const sources = ref<RuntimeSource[]>([])
 const routes = ref<RuntimeRoute[]>([])
+const findings = ref<RuntimeFinding[]>([])
+const findingsLoaded = ref(false)
+const findingsError = ref('')
 const loading = ref(false)
 const loaded = ref(false)
 const loadError = ref('')
@@ -71,7 +83,7 @@ const postureFilter = ref<RoutePosture | ''>('')
 const visibleCount = ref(50)
 const enabledSources = computed(() => sources.value.filter(source => !source.revokedAt))
 const reportingSources = computed(() => enabledSources.value.filter(source => source.lastSeen).length)
-const reviewRoutes = computed(() => routes.value.filter(route => route.posture === 'observed_only' || route.posture === 'deprecated_active').length)
+const openFindings = computed(() => findings.value.filter(finding => finding.checkStatus !== 'verified').length)
 const filteredRoutes = computed(() => routes.value.filter(route =>
   (!kindFilter.value || route.kind === kindFilter.value) && (!postureFilter.value || route.posture === postureFilter.value),
 ))
@@ -90,13 +102,21 @@ async function load() {
   if (loading.value) return
   loading.value = true
   loadError.value = ''
+  findingsError.value = ''
   try {
-    const [sourcePage, routePage] = await Promise.all([
+    const [sourcePage, routePage, findingPage] = await Promise.all([
       request<{ items: RuntimeSource[] }>(runtimePath + '/sources', { signal: active.signal }),
       request<{ items: RuntimeRoute[] }>(runtimePath + '/routes', { signal: active.signal }),
+      request<{ items: RuntimeFinding[] }>(runtimePath + '/findings', { signal: active.signal }).catch(error => {
+        findingsError.value = errorText(error)
+      }),
     ])
     sources.value = sourcePage.items ?? []
     routes.value = routePage.items ?? []
+    if (findingPage) {
+      findings.value = findingPage.items ?? []
+      findingsLoaded.value = true
+    }
     loaded.value = true
   } catch (error) {
     loadError.value = errorText(error)
@@ -302,8 +322,10 @@ onBeforeUnmount(() => {
         <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--blue"><Icon name="integrations" /></span>启用来源</dt><dd>{{ enabledSources.length }}</dd></div>
         <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--teal"><Icon name="automation" /></span>已上报来源</dt><dd>{{ reportingSources }}</dd></div>
         <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--violet"><Icon name="api-security" /></span>观测路由</dt><dd>{{ routes.length }}</dd></div>
-        <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--coral"><Icon name="checks" /></span>待核对路由</dt><dd>{{ reviewRoutes }}</dd></div>
+        <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--coral"><Icon name="checks" /></span>未闭环发现</dt><dd>{{ findingsLoaded ? openFindings : '—' }}</dd></div>
       </dl>
+
+      <RuntimeFindingsPanel :findings="findings" :home="home" :loading="loading" :error="findingsError" />
 
       <section class="panel api-panel" aria-labelledby="runtime-routes-title" :aria-busy="loading">
         <div class="api-panel-heading">
@@ -327,7 +349,7 @@ onBeforeUnmount(() => {
         </div>
         <details class="runtime-help">
           <summary>如何理解契约对照结果</summary>
-          <p>平台按服务别名匹配最新 OpenAPI 契约。已记录表示契约含该方法和路由模板。未记录表示已匹配的契约缺少对应接口。已弃用仍有流量和契约未记录都是待核对线索。没有匹配的契约时标为「无匹配契约」。</p>
+          <p>平台按服务别名匹配最新 OpenAPI 契约。已记录表示契约含该方法和路由模板。未记录表示已匹配的契约缺少对应接口。这里统计各类 HTTP 响应，运行时发现以 HTTP 2xx 成功响应为触发条件。没有匹配的契约时标为「无匹配契约」。</p>
         </details>
         <div v-if="filteredRoutes.length" class="api-table-frame" role="region" tabindex="0" aria-labelledby="runtime-routes-title">
           <table class="api-table runtime-routes-table" role="table">
@@ -383,6 +405,10 @@ onBeforeUnmount(() => {
                   <span class="api-cell-label" aria-hidden="true">最近上报</span>
                   <time v-if="source.lastSeen" :datetime="source.lastSeen">{{ formatDate(source.lastSeen) }}</time>
                   <span v-else>暂无</span>
+                  <span v-if="source.findingsWarning" class="api-secondary runtime-source-warning">
+                    {{ findingsWarnings[source.findingsWarning] }}
+                    <time v-if="source.findingsWarningAt" :datetime="source.findingsWarningAt">{{ formatDate(source.findingsWarningAt) }}</time>
+                  </span>
                 </td>
                 <td v-if="owner" role="cell">
                   <button v-if="!source.revokedAt" type="button" class="button button-secondary" :aria-label="`撤销 ${source.name}`"

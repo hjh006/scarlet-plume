@@ -19,13 +19,15 @@ import (
 var ErrRuntimeLimit = errors.New("runtime telemetry storage limit exceeded")
 
 type RuntimeSource struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Service   string     `json:"service"`
-	Kind      string     `json:"kind"`
-	CreatedAt time.Time  `json:"createdAt"`
-	RevokedAt *time.Time `json:"revokedAt,omitempty"`
-	LastSeen  *time.Time `json:"lastSeen,omitempty"`
+	ID                int64      `json:"id"`
+	Name              string     `json:"name"`
+	Service           string     `json:"service"`
+	Kind              string     `json:"kind"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	RevokedAt         *time.Time `json:"revokedAt,omitempty"`
+	LastSeen          *time.Time `json:"lastSeen,omitempty"`
+	FindingsWarning   string     `json:"findingsWarning,omitempty"`
+	FindingsWarningAt *time.Time `json:"findingsWarningAt,omitempty"`
 }
 
 type RuntimeReceipt struct {
@@ -66,11 +68,12 @@ const (
 	maxRuntimeRoutes        = 1000
 	maxRuntimeReceipts      = 20000
 	maxRuntimePostureRoutes = 1000
-	runtimeSourceColumns    = "id, name, service, kind, created_at, revoked_at, last_seen"
+	runtimeSourceColumns    = "id, name, service, kind, created_at, revoked_at, last_seen, COALESCE(findings_warning, ''), findings_warning_at"
 )
 
 func runtimeSourceFields(source *RuntimeSource) []any {
-	return []any{&source.ID, &source.Name, &source.Service, &source.Kind, &source.CreatedAt, &source.RevokedAt, &source.LastSeen}
+	return []any{&source.ID, &source.Name, &source.Service, &source.Kind, &source.CreatedAt, &source.RevokedAt,
+		&source.LastSeen, &source.FindingsWarning, &source.FindingsWarningAt}
 }
 
 func runtimeOwner(ctx context.Context, tx pgx.Tx, workspaceID, actorID int64) error {
@@ -191,11 +194,12 @@ func (s *Store) DeliverRuntimeBatch(ctx context.Context, kind, tokenDigest, batc
 	receipt := RuntimeReceipt{Accepted: len(observations)}
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		var sourceID, workspaceID, actorID int64
+		var service, sourceName string
 		var retained int
 		err := tx.QueryRow(ctx, `
-			SELECT id, workspace_id, actor_id, receipt_count FROM plume.runtime_security_sources
+			SELECT id, workspace_id, actor_id, service, name, receipt_count FROM plume.runtime_security_sources
 			WHERE token_digest = $1 AND kind = $2 AND revoked_at IS NULL FOR NO KEY UPDATE
-		`, tokenDigest, kind).Scan(&sourceID, &workspaceID, &actorID, &retained)
+		`, tokenDigest, kind).Scan(&sourceID, &workspaceID, &actorID, &service, &sourceName, &retained)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrAutomationUnauthorized
 		}
@@ -253,7 +257,21 @@ func (s *Store) DeliverRuntimeBatch(ctx context.Context, kind, tokenDigest, batc
 			UPDATE plume.runtime_security_sources SET last_seen = GREATEST(last_seen, $2), receipt_count = $3
 			WHERE id = $1
 		`, sourceID, lastSeen, retained+1)
-		return err
+		if err != nil {
+			return err
+		}
+		warning := recordRuntimeFindings(ctx, tx, runtimeFindingBatch{
+			workspaceID: workspaceID, actorID: actorID, sourceID: sourceID, sourceName: sourceName,
+			service: service, kind: kind, batchID: batchID,
+		}, observations)
+		if warning != "" {
+			_, err := tx.Exec(ctx, `
+				UPDATE plume.runtime_security_sources
+				SET findings_warning = $2, findings_warning_at = clock_timestamp() WHERE id = $1
+			`, sourceID, warning)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return RuntimeReceipt{}, storeError(err)

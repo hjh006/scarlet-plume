@@ -194,6 +194,7 @@ onBeforeUnmount(() => active?.abort())
               <td>
                 {{ asset.source || '人工登记' }}
                 <span v-if="asset.sourceProvider === 'openapi'" class="table-secondary">OpenAPI 契约</span>
+                <span v-else-if="asset.sourceProvider === 'runtime-api'" class="table-secondary">API 运行时</span>
                 <span v-if="asset.sourceRef" class="table-secondary mono">{{ asset.sourceRef }}</span>
               </td>
               <td>{{ asset.ownerTeam || '—' }}</td>

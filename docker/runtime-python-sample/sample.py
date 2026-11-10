@@ -14,6 +14,7 @@ from opentelemetry.trace import SpanKind
 ORDER_PATH = re.compile(r"/runtime/python/orders/[0-9]{1,24}")
 ORDER_ROUTE = "/runtime/python/orders/{id}"
 LEGACY_ROUTE = "/runtime/python/legacy"
+LEGACY_STATUS = {"200": 200, "410": 410}[os.getenv("SCARLET_RUNTIME_DEMO_LEGACY_STATUS", "410")]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -25,7 +26,7 @@ class Handler(BaseHTTPRequestHandler):
         if ORDER_PATH.fullmatch(path):
             route, status, body = ORDER_ROUTE, 200, b"synthetic order check complete\n"
         elif path == LEGACY_ROUTE:
-            route, status, body = LEGACY_ROUTE, 410, b"synthetic legacy route\n"
+            route, status, body = LEGACY_ROUTE, LEGACY_STATUS, b"synthetic legacy route\n"
         else:
             self.reply(404, b"not found\n")
             return

@@ -32,6 +32,7 @@
 .runtime-routes-table [data-posture="no_baseline"] { color: var(--api-quiet); background: var(--surface-subtle); }
 .runtime-sources-table th:first-child { width: 27%; }
 .runtime-sources-table tbody button { min-height: 2.75rem; }
+.runtime-source-warning { color: var(--warning); }
 
 @media (max-width: 68rem) {
   .api-runtime .api-masthead { align-items: flex-start; flex-direction: column; }
