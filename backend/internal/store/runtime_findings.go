@@ -19,28 +19,37 @@ const (
 )
 
 type RuntimeFinding struct {
-	ID              int64      `json:"id"`
-	Service         string     `json:"service"`
-	Method          string     `json:"method"`
-	Route           string     `json:"route"`
-	Rule            string     `json:"rule"`
-	SourceID        int64      `json:"sourceId"`
-	Source          string     `json:"source"`
-	BaselineScanID  int64      `json:"baselineScanId"`
-	CheckID         int64      `json:"checkId"`
-	CheckStatus     string     `json:"checkStatus"`
-	FirstSeen       time.Time  `json:"firstSeen"`
-	LastSeen        time.Time  `json:"lastSeen"`
-	PreviousCheckID *int64     `json:"previousCheckId,omitempty"`
-	RetestAt        *time.Time `json:"retestAt,omitempty"`
+	ID              int64        `json:"id"`
+	Service         string       `json:"service"`
+	Method          string       `json:"method"`
+	Route           string       `json:"route"`
+	Rule            string       `json:"rule"`
+	SourceID        int64        `json:"sourceId"`
+	Source          string       `json:"source"`
+	BaselineScanID  int64        `json:"baselineScanId"`
+	CheckID         int64        `json:"checkId"`
+	CheckStatus     string       `json:"checkStatus"`
+	FirstSeen       time.Time    `json:"firstSeen"`
+	LastSeen        time.Time    `json:"lastSeen"`
+	PreviousCheckID *int64       `json:"previousCheckId,omitempty"`
+	RetestAt        *time.Time   `json:"retestAt,omitempty"`
+	Risk            *RuntimeRisk `json:"risk,omitempty"`
 }
 
 func (s *Store) ListRuntimeFindings(ctx context.Context, workspaceID int64) ([]RuntimeFinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT f.id, f.service, f.method, f.route, f.rule, f.source_id, f.source, f.baseline_scan_id,
-		       f.check_id, c.status, f.first_seen, f.last_positive_at, f.previous_check_id, f.retest_at
+		       f.check_id, c.status, f.first_seen, f.last_positive_at, f.previous_check_id, f.retest_at,
+		       risk.metadata
 		FROM plume.runtime_findings f
 		JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
+		LEFT JOIN LATERAL (
+			SELECT jsonb_build_object('revision', t.revision, 'severity', t.severity, 'ownerTeam', t.owner_team,
+			       'dueDate', COALESCE(to_char(t.due_date, 'YYYY-MM-DD'), ''), 'reason', t.reason,
+			       'updatedBy', u.username, 'updatedAt', t.created_at) AS metadata
+			FROM plume.runtime_risk_triage t JOIN plume.users u ON u.id = t.actor_id
+			WHERE t.finding_id = f.id ORDER BY t.revision DESC LIMIT 1
+		) risk ON true
 		WHERE f.workspace_id = $1 ORDER BY f.id DESC LIMIT $2
 	`, workspaceID, maxRuntimeFindingCycles)
 	if err != nil {
@@ -50,7 +59,7 @@ func (s *Store) ListRuntimeFindings(ctx context.Context, workspaceID int64) ([]R
 		var finding RuntimeFinding
 		err := row.Scan(&finding.ID, &finding.Service, &finding.Method, &finding.Route, &finding.Rule,
 			&finding.SourceID, &finding.Source, &finding.BaselineScanID, &finding.CheckID, &finding.CheckStatus,
-			&finding.FirstSeen, &finding.LastSeen, &finding.PreviousCheckID, &finding.RetestAt)
+			&finding.FirstSeen, &finding.LastSeen, &finding.PreviousCheckID, &finding.RetestAt, &finding.Risk)
 		return finding, err
 	})
 }

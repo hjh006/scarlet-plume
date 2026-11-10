@@ -54,10 +54,11 @@ const assetColumns = "id, name, system, owner_team, COALESCE(source_provider, ''
 	"category, business_level, statutory_category, classification_basis, description, created_at"
 const importColumns = "id, provider, source, batch_id, created_count, existing_count, created_at"
 
-func scanAsset(row pgx.Row) (Asset, error) {
+func scanAsset(row pgx.Row, extra ...any) (Asset, error) {
 	var asset Asset
-	err := row.Scan(&asset.ID, &asset.Name, &asset.System, &asset.OwnerTeam, &asset.SourceProvider, &asset.Source, &asset.SourceRef,
-		&asset.Category, &asset.BusinessLevel, &asset.StatutoryCategory, &asset.ClassificationBasis, &asset.Description, &asset.CreatedAt)
+	destinations := []any{&asset.ID, &asset.Name, &asset.System, &asset.OwnerTeam, &asset.SourceProvider, &asset.Source, &asset.SourceRef,
+		&asset.Category, &asset.BusinessLevel, &asset.StatutoryCategory, &asset.ClassificationBasis, &asset.Description, &asset.CreatedAt}
+	err := row.Scan(append(destinations, extra...)...)
 	return asset, storeError(err)
 }
 

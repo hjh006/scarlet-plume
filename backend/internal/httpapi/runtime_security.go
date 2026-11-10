@@ -35,6 +35,7 @@ func (s *server) runtimeSecurityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/findings", s.workspace(false, s.runtimeFindings))
 	mux.HandleFunc("POST "+gatewayRuntimePath, s.receiveRuntime("gateway", "application/json", 512<<10, runtimesecurity.ParseGateway))
 	mux.HandleFunc("POST "+otlpRuntimePath, s.receiveRuntime("otlp", "application/x-protobuf", runtimesecurity.MaxOTLPBytes, runtimesecurity.ParseOTLP))
+	s.runtimeMonitorRoutes(mux)
 }
 
 func (s *server) runtimeSources(w http.ResponseWriter, r *http.Request, _ store.User, ws store.Workspace) {
