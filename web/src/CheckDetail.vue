@@ -108,6 +108,8 @@ onBeforeUnmount(() => active.abort())
           <p>{{ record.assetName }} · {{ record.ownerTeam }}</p>
         </div>
         <div class="page-actions">
+          <a v-if="record.feishuTargetDigest && workspace.role === 'owner'" class="button button-secondary"
+             :href="home + '/automation/new/' + record.id"><Icon name="automation" />配置自动采集</a>
           <a class="button button-secondary" :href="apiUrl + '/export'"><Icon name="download" />导出 JSON</a>
           <button v-if="record.canSubmit" type="button" class="button button-primary"
                   :disabled="actionPending || loading || actionConflict || Boolean(loadError)" @click="saveAction('submit')">提交复核</button>
@@ -166,6 +168,8 @@ onBeforeUnmount(() => active.abort())
         <section class="panel" aria-labelledby="check-evidence-title">
           <div class="panel-heading">
             <div><h2 id="check-evidence-title">证据记录</h2><p>按来源标识和观察时间追溯核验依据。</p></div>
+            <button v-if="record.feishuTargetDigest" type="button" class="button button-secondary"
+                    :disabled="loading || actionPending" @click="load">刷新证据</button>
           </div>
           <div v-if="activityHint" class="activity-guidance">
             <strong>建议核对的证据</strong>
@@ -179,7 +183,7 @@ onBeforeUnmount(() => active.abort())
             <ol v-if="record.feishuTargetDigest" class="remediation-steps">
               <li>在飞书移除指定协作者的直接授权。</li>
               <li>手工登记「整改记录」，关联变更记录。</li>
-              <li>重新采集并导入飞书权限清单。</li>
+              <li>复测权限。已启用的采集任务会在下次运行时登记符合本轮条件的权限证据。</li>
               <li>提交独立复核。</li>
             </ol>
             <p v-else-if="record.canAddEvidence && !record.canSubmit">登记整改后新取得的复测证据，再提交独立复核。</p>
@@ -189,13 +193,22 @@ onBeforeUnmount(() => active.abort())
                              @saved="evidenceSaved" @session-expired="emit('sessionExpired')" />
 
           <article v-for="entry in record.evidence" :key="entry.id" class="evidence">
-            <div class="evidence-heading"><h3>{{ entry.sourceSystem }}</h3><span class="badge">{{ evidenceKindLabels[entry.kind] }}</span></div>
+            <div class="evidence-heading">
+              <h3>{{ entry.sourceSystem }}</h3>
+              <span v-if="entry.automationJobId" class="badge status-verified">自动采集</span>
+              <span class="badge">{{ evidenceKindLabels[entry.kind] }}</span>
+            </div>
             <p class="evidence-ref">记录标识 <span class="mono">{{ entry.sourceRecord }}</span></p>
-            <p v-if="entry.feishu" class="field-hint">客户侧上传 · {{ entry.feishu.memberPresent ? '检出目标协作者的直接授权' : '未检出目标协作者的直接授权' }}</p>
+            <p v-if="entry.automationJobId" class="field-hint">
+              采集任务 #{{ entry.automationJobId }} · 运行批次 <span class="mono">{{ entry.automationRunId }}</span>
+            </p>
+            <p v-if="entry.feishu" class="field-hint">{{ entry.feishu.memberPresent ? '检出目标协作者的直接授权' : '未检出目标协作者的直接授权' }}</p>
             <p class="text-block">{{ entry.summary }}</p>
             <div class="evidence-meta">
               <span>观察于 <time :datetime="entry.observedAt">{{ formatDate(entry.observedAt) }}</time></span>
-              <span>{{ entry.recordedBy }} 登记于 <time :datetime="entry.createdAt">{{ formatDate(entry.createdAt) }}</time></span>
+              <span>{{ entry.automationJobId ? entry.recordedBy + ' 授权的任务登记于' : entry.recordedBy + ' 登记于' }}
+                <time :datetime="entry.createdAt">{{ formatDate(entry.createdAt) }}</time>
+              </span>
             </div>
           </article>
           <div v-if="!record.evidence.length" class="empty-state">
@@ -223,7 +236,7 @@ onBeforeUnmount(() => active.abort())
         </div>
         <form class="evidence-form" @submit.prevent="saveAction('review')">
           <p v-if="record.feishuTargetDigest" class="field-hint page-feedback">
-            客户侧清单由经办人上传。请对照飞书源端权限，并单独核验链接、继承和群组等访问路径。
+            请对照飞书源端权限，并单独核验链接、继承和群组等访问路径。
           </p>
           <p v-if="!record.canVerify" class="message message-warning page-feedback">
             当前飞书清单仍检出目标协作者的直接授权。请记录整改要求。

@@ -40,3 +40,26 @@ func TestConsoleRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalDockerOrigin(t *testing.T) {
+	const localOrigin = "http://127.0.0.1:8890"
+	const containerAddress = "0.0.0.0:8080"
+
+	if secure, err := validateOrigin(localOrigin, containerAddress, true); err != nil || secure {
+		t.Fatalf("local Docker origin rejected: secure=%v err=%v", secure, err)
+	}
+	for _, tc := range []struct {
+		origin string
+		addr   string
+		docker bool
+	}{
+		{localOrigin, containerAddress, false},
+		{localOrigin, "0.0.0.0:80", true},
+		{"https://example.com", containerAddress, true},
+		{"http://example.com", containerAddress, true},
+	} {
+		if _, err := validateOrigin(tc.origin, tc.addr, tc.docker); err == nil {
+			t.Errorf("unexpectedly allowed origin %s with address %s and Docker=%v", tc.origin, tc.addr, tc.docker)
+		}
+	}
+}

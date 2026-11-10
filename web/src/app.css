@@ -136,3 +136,25 @@
   .template-catalog-meta .wide-date { display: none; }
   .template-field-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
+
+.automation-form { max-width: 46rem; margin-bottom: 1.15rem; }
+.automation-form > h2 { margin-bottom: .75rem; }
+.automation-panel-body { padding: .95rem 1.1rem; }
+.automation-panel-body .form-actions { margin-top: .9rem; }
+.automation-connect { margin: .65rem 0 0; }
+.automation-connect > div { display: grid; grid-template-columns: minmax(9rem, auto) minmax(0, 1fr); gap: .5rem; padding-block: .22rem; }
+.automation-connect dt { color: var(--secondary); }
+.automation-connect dd { margin: 0; overflow-wrap: anywhere; }
+.automation-setup { margin-top: .75rem; padding: .65rem .75rem; background: var(--surface-subtle); border-radius: .4rem; }
+.automation-setup summary { color: var(--accent); cursor: pointer; }
+.automation-setup p, .automation-setup pre { margin-top: .45rem; overflow-wrap: anywhere; }
+.automation-setup pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.automation-feedback { margin: .75rem 1.1rem; }
+.automation-table { min-width: 34rem; }
+.automation-table th, .automation-table td, .check-record .field-hint { overflow-wrap: anywhere; }
+.automation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.automation-history { margin-top: 1.15rem; }
+
+@media (max-width: 43.99rem) {
+  .automation-connect > div { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
+}

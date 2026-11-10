@@ -296,6 +296,49 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 	do("POST", workspace+"/templates", customTemplate, cookie, 409)
 	do("GET", activities+"?kind=invalid", "", cookie, 400)
 	do("GET", checks+"?activityId=-1", "", cookie, 400)
+	jobs := workspace + "/automation/jobs"
+	const jobInput = `{"provider":"postgresql","source":"定时目录"}`
+	do("POST", jobs, jobInput, reviewerCookie, 403)
+	jobResponse := do("POST", jobs, jobInput, cookie, 201)
+	var createdJob struct {
+		Job   store.AutomationJob
+		Token string
+	}
+	if err := json.Unmarshal(jobResponse.Body.Bytes(), &createdJob); err != nil ||
+		createdJob.Job.ID == 0 || !strings.HasPrefix(createdJob.Token, "spl_") {
+		t.Fatal("could not create a scoped automation job")
+	}
+	observedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	delivery := fmt.Sprintf(`{"runId":"verify-run","provider":"postgresql","observedAt":%q,"assets":{"version":1,"provider":"postgresql","source":"定时目录","batchId":"local-verify","assets":[{"name":"自动采集表","sourceRef":"public.automatic"}]}}`, observedAt)
+	send := func(token string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest("POST", automationRunPath, strings.NewReader(delivery))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != status {
+			t.Fatalf("automation run got HTTP %d, want %d: %s", w.Code, status, w.Body)
+		}
+		return w
+	}
+	send("", 401)
+	run := send(createdJob.Token, 200)
+	replay := send(createdJob.Token, 200)
+	if !strings.Contains(run.Body.String(), `"createdCount":1`) ||
+		!strings.Contains(replay.Body.String(), `"replayed":true`) {
+		t.Fatal("automatic asset delivery did not import once")
+	}
+	list := do("GET", jobs, "", reviewerCookie, 200)
+	if strings.Contains(list.Body.String(), createdJob.Token) {
+		t.Fatal("list disclosed the automation credential")
+	}
+	jobPath := fmt.Sprintf("%s/%d", jobs, createdJob.Job.ID)
+	do("GET", jobPath+"/runs", "", reviewerCookie, 200)
+	do("DELETE", jobPath, "", cookie, 204)
+	send(createdJob.Token, 401)
 	if _, err := pool.Exec(ctx, `UPDATE plume.memberships AS m SET role = 'viewer'
 		FROM plume.workspaces AS w WHERE m.workspace_id = w.id AND w.slug = $1`, a); err != nil {
 		t.Fatal(err)

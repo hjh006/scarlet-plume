@@ -43,6 +43,7 @@ func New(st *store.Store, origin string, secure bool) http.Handler {
 	s.activityRoutes(mux)
 	s.templateRoutes(mux)
 	s.reportRoutes(mux)
+	s.automationRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})
@@ -51,7 +52,7 @@ func New(st *store.Store, origin string, secure bool) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("Origin") != s.origin {
+			r.Header.Get("Origin") != s.origin && !(r.Method == http.MethodPost && r.URL.Path == automationRunPath) {
 			fail(w, http.StatusForbidden, "请求来源不受信任。")
 			return
 		}
@@ -84,16 +85,20 @@ func storeFailure(w http.ResponseWriter, err error) {
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, target any) bool {
+	return readJSONLimit(w, r, target, maxRequestBytes)
+}
+
+func readJSONLimit(w http.ResponseWriter, r *http.Request, target any, limit int64) bool {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		fail(w, http.StatusUnsupportedMediaType, "请提交 JSON。")
 		return false
 	}
-	if r.ContentLength > maxRequestBytes {
-		fail(w, http.StatusRequestEntityTooLarge, "导入文件超过 512 KiB。")
+	if r.ContentLength > limit {
+		fail(w, http.StatusRequestEntityTooLarge, "提交内容超过大小限制。")
 		return false
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	err = decoder.Decode(target)
 	if err == nil {
@@ -105,7 +110,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	}
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
-		fail(w, http.StatusRequestEntityTooLarge, "导入文件超过 512 KiB。")
+		fail(w, http.StatusRequestEntityTooLarge, "提交内容超过大小限制。")
 	} else {
 		fail(w, http.StatusBadRequest, "JSON 格式或字段无效。")
 	}

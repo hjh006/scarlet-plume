@@ -9,11 +9,8 @@ import (
 )
 
 func (s *Store) AddEvidence(ctx context.Context, workspaceID, actorID, checkID int64, input EvidenceInput) error {
-	input.ObservedAt = input.ObservedAt.Truncate(time.Microsecond)
-	if !validCheckText(input.SourceSystem, 100) || !validCheckText(input.SourceRecord, 160) ||
-		!validCheckText(input.Summary, 600) || input.ObservedAt.IsZero() ||
-		input.ObservedAt.After(time.Now().Add(5*time.Minute)) {
-		return ErrInvalid
+	if err := validateEvidence(&input); err != nil {
+		return err
 	}
 
 	return pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
@@ -22,57 +19,77 @@ func (s *Store) AddEvidence(ctx context.Context, workspaceID, actorID, checkID i
 			return err
 		}
 
-		var snapshotDigest, permission *string
-		var memberPresent *bool
-		if feishu := input.Feishu; feishu != nil {
-			if check.FeishuTargetDigest == "" || feishu.TargetDigest != check.FeishuTargetDigest ||
-				!digestPattern.MatchString(feishu.SnapshotDigest) || !validFeishuPermission(*feishu) {
-				return ErrInvalid
-			}
-			snapshotDigest, memberPresent = &feishu.SnapshotDigest, &feishu.MemberPresent
-			if feishu.Permission != "" {
-				permission = &feishu.Permission
-			}
-			if check.Status == "draft" {
-				input.Kind = "observation"
-			} else {
-				input.Kind = "retest"
-				change, err := latestCheckEvent(ctx, tx, checkID, "changes")
-				if err != nil {
-					return err
-				}
-				if change.ID == 0 || !input.ObservedAt.After(change.CreatedAt) {
-					return ErrEvidenceRequired
-				}
-			}
-		}
-
-		var label string
-		switch input.Kind {
-		case "observation":
-			label = "检查记录"
-		case "remediation":
-			label = "整改记录"
-		case "retest":
-			label = "复测记录"
-		default:
-			return ErrInvalid
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO plume.check_evidence (
-				check_id, kind, source_system, source_record, summary, observed_at, created_by,
-				feishu_snapshot_digest, feishu_member_present, feishu_permission
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, checkID, input.Kind, input.SourceSystem, input.SourceRecord, input.Summary,
-			input.ObservedAt, actorID, snapshotDigest, memberPresent, permission); err != nil {
-			return storeError(err)
-		}
-		if err := recordCheckEvent(ctx, tx, checkID, actorID, "evidence", label); err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx, "UPDATE plume.checks SET updated_at = clock_timestamp() WHERE id = $1", checkID)
+		_, err = addEvidenceTx(ctx, tx, check, actorID, input, false)
 		return err
 	})
+}
+
+func validateEvidence(input *EvidenceInput) error {
+	input.ObservedAt = input.ObservedAt.Truncate(time.Microsecond)
+	if !validCheckText(input.SourceSystem, 100) || !validCheckText(input.SourceRecord, 160) ||
+		!validCheckText(input.Summary, 600) || input.ObservedAt.IsZero() ||
+		input.ObservedAt.After(time.Now().Add(5*time.Minute)) {
+		return ErrInvalid
+	}
+
+	return nil
+}
+
+func addEvidenceTx(ctx context.Context, tx pgx.Tx, check Check, actorID int64, input EvidenceInput, automated bool) (int64, error) {
+	var snapshotDigest, permission *string
+	var memberPresent *bool
+	if feishu := input.Feishu; feishu != nil {
+		if check.FeishuTargetDigest == "" || feishu.TargetDigest != check.FeishuTargetDigest ||
+			!digestPattern.MatchString(feishu.SnapshotDigest) || !validFeishuPermission(*feishu) {
+			return 0, ErrInvalid
+		}
+		snapshotDigest, memberPresent = &feishu.SnapshotDigest, &feishu.MemberPresent
+		if feishu.Permission != "" {
+			permission = &feishu.Permission
+		}
+		if check.Status == "draft" {
+			input.Kind = "observation"
+		} else {
+			input.Kind = "retest"
+			change, err := latestCheckEvent(ctx, tx, check.ID, "changes")
+			if err != nil {
+				return 0, err
+			}
+			if change.ID == 0 || !input.ObservedAt.After(change.CreatedAt) {
+				return 0, ErrEvidenceRequired
+			}
+		}
+	}
+
+	var label string
+	switch input.Kind {
+	case "observation":
+		label = "检查记录"
+	case "remediation":
+		label = "整改记录"
+	case "retest":
+		label = "复测记录"
+	default:
+		return 0, ErrInvalid
+	}
+	var evidenceID int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO plume.check_evidence (
+			check_id, kind, source_system, source_record, summary, observed_at, created_by,
+			feishu_snapshot_digest, feishu_member_present, feishu_permission
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
+	`, check.ID, input.Kind, input.SourceSystem, input.SourceRecord, input.Summary,
+		input.ObservedAt, actorID, snapshotDigest, memberPresent, permission).Scan(&evidenceID); err != nil {
+		return 0, storeError(err)
+	}
+	if automated {
+		label = "自动采集 · " + label
+	}
+	if err := recordCheckEvent(ctx, tx, check.ID, actorID, "evidence", label); err != nil {
+		return 0, err
+	}
+	_, err := tx.Exec(ctx, "UPDATE plume.checks SET updated_at = clock_timestamp() WHERE id = $1", check.ID)
+	return evidenceID, err
 }
 
 func validFeishuPermission(feishu FeishuObservation) bool {
@@ -113,6 +130,22 @@ func latestFeishuEvidence(ctx context.Context, tx pgx.Tx, checkID int64) (Eviden
 	return evidence, present, err
 }
 
+func feishuRemediationAt(ctx context.Context, tx pgx.Tx, checkID int64, change CheckEvent) (time.Time, error) {
+	if change.ID == 0 {
+		return time.Time{}, nil
+	}
+	var remediatedAt time.Time
+	err := tx.QueryRow(ctx, `
+		SELECT GREATEST(observed_at, created_at) FROM plume.check_evidence
+		WHERE check_id = $1 AND kind = 'remediation' AND observed_at > $2 AND created_at > $2
+		ORDER BY id DESC LIMIT 1
+	`, checkID, change.CreatedAt).Scan(&remediatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	return remediatedAt, err
+}
+
 func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error) {
 	if check.FeishuTargetDigest != "" {
 		evidence, present, err := latestFeishuEvidence(ctx, tx, check.ID)
@@ -126,23 +159,14 @@ func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error
 			return false, nil
 		}
 		change, err := latestCheckEvent(ctx, tx, check.ID, "changes")
-		if err != nil || change.ID == 0 {
-			return false, err
-		}
-		// A snapshot from before the current remediation cannot qualify by being uploaded again.
-		var remediatedAt time.Time
-		err = tx.QueryRow(ctx, `
-			SELECT GREATEST(observed_at, created_at) FROM plume.check_evidence
-			WHERE check_id = $1 AND kind = 'remediation' AND observed_at > $2 AND created_at > $2
-			ORDER BY id DESC LIMIT 1
-		`, check.ID, change.CreatedAt).Scan(&remediatedAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
 		if err != nil {
 			return false, err
 		}
-		return evidence.ObservedAt.After(remediatedAt) && evidence.CreatedAt.After(remediatedAt), nil
+		remediatedAt, err := feishuRemediationAt(ctx, tx, check.ID, change)
+		if err != nil {
+			return false, err
+		}
+		return !remediatedAt.IsZero() && evidence.ObservedAt.After(remediatedAt) && evidence.CreatedAt.After(remediatedAt), nil
 	}
 	var exists bool
 	if check.Status == "draft" {
@@ -199,7 +223,20 @@ func verificationAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, err
 		return true, nil
 	}
 	evidence, present, err := latestFeishuEvidence(ctx, tx, check.ID)
-	return evidence.ID != 0 && !present, err
+	if err != nil || evidence.ID == 0 || present {
+		return false, err
+	}
+	var newerPresent bool
+	err = tx.QueryRow(ctx, `
+		SELECT r.member_present FROM plume.automation_runs r JOIN plume.automation_jobs j ON j.id = r.job_id
+		WHERE j.check_id = $1 AND r.observed_at > $2 AND r.member_present IS NOT NULL
+		  AND r.code IS DISTINCT FROM 'stale_observation'
+		ORDER BY r.observed_at DESC, r.id DESC LIMIT 1
+	`, check.ID, evidence.ObservedAt).Scan(&newerPresent)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	return !newerPresent, err
 }
 
 func (s *Store) ReviewCheck(ctx context.Context, workspaceID, actorID, checkID, revision int64, decision, note string) error {

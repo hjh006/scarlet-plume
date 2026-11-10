@@ -123,59 +123,66 @@ func (s *Store) ImportAssets(
 			return ErrNotFound
 		}
 
-		err := tx.QueryRow(ctx, `
-			INSERT INTO plume.import_runs (workspace_id, actor_id, provider, source, batch_id, payload_digest)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (workspace_id, provider, source, batch_id) DO NOTHING
-			RETURNING `+importColumns, workspaceID, userID, provider, source, batchID, digest).
-			Scan(&run.ID, &run.Provider, &run.Source, &run.BatchID, &run.Created, &run.Existing, &run.CreatedAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			var existingDigest string
-			if err := tx.QueryRow(ctx, "SELECT "+importColumns+`, payload_digest FROM plume.import_runs
-				WHERE workspace_id = $1 AND provider = $2 AND source = $3 AND batch_id = $4
-			`, workspaceID, provider, source, batchID).
-				Scan(&run.ID, &run.Provider, &run.Source, &run.BatchID, &run.Created, &run.Existing, &run.CreatedAt, &existingDigest); err != nil {
-				return err
-			}
-			if existingDigest != digest {
-				return ErrConflict
-			}
-			run.Replayed = true
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		refs := make([]string, len(assets))
-		names := make([]string, len(assets))
-		for i, asset := range assets {
-			refs[i], names[i] = asset.SourceRef, asset.Name
-		}
-		// Sort by reference so overlapping batches take uniqueness locks in the
-		// same order. Within one batch the first label wins for each reference.
-		inserted, err := tx.Exec(ctx, `
-			WITH incoming AS (
-				SELECT DISTINCT ON (source_ref) source_ref, name
-				FROM unnest($4::text[], $5::text[]) WITH ORDINALITY AS input(source_ref, name, position)
-				ORDER BY source_ref, position
-			)
-			INSERT INTO plume.assets (workspace_id, name, system, source_provider, source, source_ref)
-			SELECT $1, name, $3, $2, $3, source_ref FROM incoming ORDER BY source_ref
-			ON CONFLICT (workspace_id, source_provider, source, source_ref) DO NOTHING
-		`, workspaceID, provider, source, refs, names)
-		if err != nil {
-			return err
-		}
-		run.Created = int(inserted.RowsAffected())
-		run.Existing = len(assets) - run.Created
-		_, err = tx.Exec(ctx, `
-			UPDATE plume.import_runs SET created_count = $2, existing_count = $3 WHERE id = $1
-		`, run.ID, run.Created, run.Existing)
+		var err error
+		run, err = importAssetsTx(ctx, tx, workspaceID, userID, provider, source, batchID, digest, assets)
 		return err
 	})
 	if err != nil {
 		return ImportRun{}, storeError(err)
 	}
 	return run, nil
+}
+
+func importAssetsTx(ctx context.Context, tx pgx.Tx, workspaceID, userID int64, provider, source, batchID, digest string, assets []CollectedAsset) (ImportRun, error) {
+	var run ImportRun
+	err := tx.QueryRow(ctx, `
+		INSERT INTO plume.import_runs (workspace_id, actor_id, provider, source, batch_id, payload_digest)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (workspace_id, provider, source, batch_id) DO NOTHING
+		RETURNING `+importColumns, workspaceID, userID, provider, source, batchID, digest).
+		Scan(&run.ID, &run.Provider, &run.Source, &run.BatchID, &run.Created, &run.Existing, &run.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var existingDigest string
+		if err := tx.QueryRow(ctx, "SELECT "+importColumns+`, payload_digest FROM plume.import_runs
+			WHERE workspace_id = $1 AND provider = $2 AND source = $3 AND batch_id = $4
+		`, workspaceID, provider, source, batchID).
+			Scan(&run.ID, &run.Provider, &run.Source, &run.BatchID, &run.Created, &run.Existing, &run.CreatedAt, &existingDigest); err != nil {
+			return ImportRun{}, err
+		}
+		if existingDigest != digest {
+			return ImportRun{}, ErrConflict
+		}
+		run.Replayed = true
+		return run, nil
+	}
+	if err != nil {
+		return ImportRun{}, err
+	}
+
+	refs := make([]string, len(assets))
+	names := make([]string, len(assets))
+	for i, asset := range assets {
+		refs[i], names[i] = asset.SourceRef, asset.Name
+	}
+	// Sort by reference so overlapping batches take uniqueness locks in the
+	// same order. Within one batch the first label wins for each reference.
+	inserted, err := tx.Exec(ctx, `
+		WITH incoming AS (
+			SELECT DISTINCT ON (source_ref) source_ref, name
+			FROM unnest($4::text[], $5::text[]) WITH ORDINALITY AS input(source_ref, name, position)
+			ORDER BY source_ref, position
+		)
+		INSERT INTO plume.assets (workspace_id, name, system, source_provider, source, source_ref)
+		SELECT $1, name, $3, $2, $3, source_ref FROM incoming ORDER BY source_ref
+		ON CONFLICT (workspace_id, source_provider, source, source_ref) DO NOTHING
+	`, workspaceID, provider, source, refs, names)
+	if err != nil {
+		return ImportRun{}, err
+	}
+	run.Created = int(inserted.RowsAffected())
+	run.Existing = len(assets) - run.Created
+	_, err = tx.Exec(ctx, `
+		UPDATE plume.import_runs SET created_count = $2, existing_count = $3 WHERE id = $1
+	`, run.ID, run.Created, run.Existing)
+	return run, err
 }

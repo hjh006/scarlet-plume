@@ -144,8 +144,10 @@ func readReportChecks(ctx context.Context, tx pgx.Tx, workspaceID, activityID in
 func readReportEvidence(ctx context.Context, tx pgx.Tx, ids []int64, positions map[int64]int, report *ComplianceReport) error {
 	rows, err := tx.Query(ctx, `
 		SELECT e.check_id, e.id, e.kind, e.source_system, e.source_record, e.summary, e.observed_at,
-			e.created_at, u.username, e.feishu_snapshot_digest, e.feishu_member_present, COALESCE(e.feishu_permission, '')
+			e.created_at, u.username, e.feishu_snapshot_digest, e.feishu_member_present, COALESCE(e.feishu_permission, ''),
+		       r.job_id, COALESCE(r.run_id, '')
 		FROM plume.check_evidence e JOIN plume.users u ON u.id = e.created_by
+		LEFT JOIN plume.automation_runs r ON r.evidence_id = e.id
 		WHERE e.check_id = ANY($1) ORDER BY e.check_id, e.id DESC LIMIT $2
 	`, ids, ReportTimelineLimit+1)
 	if err != nil {
@@ -163,7 +165,8 @@ func readReportEvidence(ctx context.Context, tx pgx.Tx, ids []int64, positions m
 		var permission string
 		if err := rows.Scan(&checkID, &evidence.ID, &evidence.Kind, &evidence.SourceSystem, &evidence.SourceRecord,
 			&evidence.Summary, &evidence.ObservedAt, &evidence.CreatedAt, &evidence.RecordedBy,
-			&snapshotDigest, &present, &permission); err != nil {
+			&snapshotDigest, &present, &permission,
+			&evidence.AutomationJobID, &evidence.AutomationRunID); err != nil {
 			return err
 		}
 		entry := &report.Checks[positions[checkID]]

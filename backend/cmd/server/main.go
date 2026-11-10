@@ -49,6 +49,7 @@ func run() error {
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	web := flag.String("web", "", "path to built Vue dist (optional)")
 	allowLoopback := flag.Bool("allow-insecure-loopback", false, "allow plaintext PostgreSQL on literal loopback only")
+	localDocker := flag.Bool("local-docker", false, "use the loopback-published Docker preview and its private database")
 	flag.Parse()
 	switch *mode {
 	case "serve", "migrate", "bootstrap", "add-reviewer":
@@ -56,7 +57,23 @@ func run() error {
 		return errors.New("mode must be serve, migrate, bootstrap, or add-reviewer")
 	}
 
-	poolConfig, err := store.PostgresConfig(os.Getenv("SCARLET_DB_DSN"), *allowLoopback)
+	origin := envDefault("SCARLET_ORIGIN", "http://127.0.0.1:5173")
+	var secure bool
+	var err error
+	if *mode == "serve" || *localDocker {
+		secure, err = validateOrigin(origin, *addr, *localDocker)
+		if err != nil {
+			return err
+		}
+	}
+
+	dsn := os.Getenv("SCARLET_DB_DSN")
+	var poolConfig *pgxpool.Config
+	if *localDocker {
+		poolConfig, err = store.LocalDockerPostgresConfig(dsn)
+	} else {
+		poolConfig, err = store.PostgresConfig(dsn, *allowLoopback)
+	}
 	if err != nil {
 		return err
 	}
@@ -87,7 +104,7 @@ func run() error {
 	case "add-reviewer":
 		return addReviewer(ctx, st)
 	default:
-		return serve(st, *addr, *web)
+		return serve(st, *addr, *web, origin, secure)
 	}
 }
 
@@ -139,21 +156,26 @@ func addReviewer(ctx context.Context, st *store.Store) error {
 	return nil
 }
 
-func serve(st *store.Store, addr, web string) error {
-	origin := envDefault("SCARLET_ORIGIN", "http://127.0.0.1:5173")
+func validateOrigin(origin, addr string, localDocker bool) (bool, error) {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" ||
 		u.ForceQuery || u.Fragment != "" || (u.Scheme != "https" && (u.Scheme != "http" || !loopback(u.Hostname()))) {
-		return errors.New("SCARLET_ORIGIN must be a single HTTPS origin or a literal loopback development origin")
+		return false, errors.New("SCARLET_ORIGIN must be a single HTTPS origin or a literal loopback development origin")
+	}
+	if localDocker && (u.Scheme != "http" || u.Hostname() != "127.0.0.1") {
+		return false, errors.New("local Docker requires an HTTP origin on 127.0.0.1")
 	}
 	if u.Scheme == "http" {
 		host, _, err := net.SplitHostPort(addr)
-		if err != nil || !loopback(host) {
-			return errors.New("development HTTP may listen only on loopback")
+		if err != nil || (!loopback(host) && !(localDocker && addr == "0.0.0.0:8080")) {
+			return false, errors.New("development HTTP may listen only on loopback or the Compose container port")
 		}
 	}
+	return u.Scheme == "https", nil
+}
 
-	handler, err := newHandler(httpapi.New(st, origin, u.Scheme == "https"), web)
+func serve(st *store.Store, addr, web, origin string, secure bool) error {
+	handler, err := newHandler(httpapi.New(st, origin, secure), web)
 	if err != nil {
 		return err
 	}

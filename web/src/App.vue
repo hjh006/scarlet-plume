@@ -13,6 +13,7 @@ import ActivityDetail from './ActivityDetail.vue'
 import TemplatesView from './TemplatesView.vue'
 import TemplateForm from './TemplateForm.vue'
 import ComplianceReportView from './ComplianceReportView.vue'
+import AutomationView from './AutomationView.vue'
 
 const pages = [
   { id: 'overview', label: '概览' },
@@ -21,6 +22,7 @@ const pages = [
   { id: 'checks', label: '监管检查' },
   { id: 'templates', label: '检查模板' },
   { id: 'reports', label: '合规报告' },
+  { id: 'automation', label: '自动采集' },
   { id: 'integrations', label: '集成与导入' },
 ] as const
 
@@ -196,6 +198,9 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
         </template>
         <ComplianceReportView v-else-if="route.page === 'reports'" :key="`${workspace.slug}/${route.recordId}`"
                               :workspace="workspace" :activity-context="route.recordId" @session-expired="sessionExpired" />
+        <AutomationView v-else-if="route.page === 'automation'" :key="`${workspace.slug}/${route.recordId}/${route.contextId}`"
+                        :workspace="workspace" :check-context="route.recordId === 'new' ? route.contextId : undefined"
+                        @session-expired="sessionExpired" />
         <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"
                        @session-expired="sessionExpired" />
       </main>
