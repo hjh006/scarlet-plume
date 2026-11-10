@@ -40,6 +40,7 @@ func New(st *store.Store, origin string, secure bool) http.Handler {
 	mux.HandleFunc("GET /api/v1/workspaces/{slug}/integrations", s.workspace(false, s.listIntegrations))
 	mux.HandleFunc("POST /api/v1/workspaces/{slug}/imports", s.workspace(true, s.importAssets))
 	s.checkRoutes(mux)
+	s.activityRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})
@@ -168,7 +169,7 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Username = strings.TrimSpace(input.Username)
-	if !validText(input.Username, 80) || len(input.Password) == 0 || len(input.Password) > 128 {
+	if !validText(input.Username, 150) || len(input.Password) == 0 || len(input.Password) > 128 {
 		fail(w, http.StatusUnauthorized, "账号或密码不正确。")
 		return
 	}

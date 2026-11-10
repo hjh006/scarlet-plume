@@ -66,6 +66,9 @@ jobs:
           node-version: '26'
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
       - name: Start PostgreSQL
         run: |
           password="$(openssl rand -hex 24)"
@@ -73,7 +76,22 @@ jobs:
           echo "::add-mask::$password"
           echo "::add-mask::$dsn"
           echo "PLUME_STORE_TEST_DSN=$dsn" >> "$GITHUB_ENV"
+          echo "APP_DB_PASSWORD=$password" >> "$GITHUB_ENV"
           APP_DB_PASSWORD="$password" docker compose up -d --wait --wait-timeout 90 db
+      - name: Create Django history fixture
+        env:
+          APP_ENV: development
+        run: |
+          docker compose exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" createdb -h 127.0.0.1 -U "$POSTGRES_USER" scarlet_plume_legacy_ci'
+          export APP_DB_NAME=scarlet_plume_legacy_ci
+          dsn="postgres://${APP_DB_USER}:$APP_DB_PASSWORD@${APP_DB_HOST}:${APP_DB_PORT}/${APP_DB_NAME}?sslmode=disable"
+          echo "::add-mask::$dsn"
+          echo "PLUME_LEGACY_TEST_DSN=$dsn" >> "$GITHUB_ENV"
+          python -m pip install -r requirements.txt
+          python manage.py migrate --noinput
+          APP_PROVISION_PASSWORD="$(openssl rand -hex 24)" python manage.py provision_workspace Django_History 'Django import fixture' legacy-import-owner
+          APP_PROVISION_PASSWORD="$(openssl rand -hex 24)" python manage.py provision_workspace Django_History 'Django import fixture' legacy-import-reviewer --role reviewer
+          python manage.py seed_demo Django_History
       - name: Verify Go backend and connectors
         working-directory: backend
         run: |

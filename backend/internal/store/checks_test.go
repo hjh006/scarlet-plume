@@ -158,6 +158,101 @@ func TestPostgreSQLChecks(t *testing.T) {
 		}
 	})
 
+	t.Run("activity scoped sharing, cross-border, and AI checks", func(t *testing.T) {
+		registered, err := repo.Asset(ctx, ws.ID, asset.ID)
+		want(t, err, nil)
+		if registered.Category != "unknown" || registered.BusinessLevel != "unknown" || registered.StatutoryCategory != "unknown" {
+			t.Fatalf("unexpected default asset classification: %+v", registered)
+		}
+		_, err = repo.Asset(ctx, foreign.ID, asset.ID)
+		want(t, err, store.ErrNotFound)
+
+		activityInput := store.ActivityInput{AssetID: asset.ID, Name: "Activity", Kind: "internal", Purpose: "Service operation"}
+		_, err = repo.CreateActivity(ctx, ws.ID, viewer, activityInput)
+		want(t, err, store.ErrForbidden)
+		foreignInput := activityInput
+		foreignInput.AssetID = foreignAsset.ID
+		_, err = repo.CreateActivity(ctx, ws.ID, owner.ID, foreignInput)
+		want(t, err, store.ErrNotFound)
+		missingDestination := activityInput
+		missingDestination.Kind = "cross_border"
+		_, err = repo.CreateActivity(ctx, ws.ID, operator, missingDestination)
+		want(t, err, store.ErrInvalid)
+		internal, err := repo.CreateActivity(ctx, ws.ID, operator, activityInput)
+		want(t, err, nil)
+
+		activityInput.Recipient = "Approved test supplier"
+		activityInput.Region = "Test destination"
+		activityInput.RetentionPolicy = "Retain only during testing"
+		activityInput.TransferPath = "Pending business review"
+		activityInput.Safeguards = "Scoped access"
+		for _, scenario := range []struct{ kind, code string }{{"sharing", "T01"}, {"cross_border", "T03"}, {"ai", "X01"}} {
+			t.Run(scenario.kind, func(t *testing.T) {
+				activityInput.Kind = scenario.kind
+				created, err := repo.CreateActivity(ctx, ws.ID, operator, activityInput)
+				want(t, err, nil)
+				fetched, err := repo.Activity(ctx, ws.ID, created.ID)
+				want(t, err, nil)
+				if fetched.ActivityInput != activityInput || fetched.AssetName != asset.Name {
+					t.Fatalf("activity fields were not retained: %+v", fetched)
+				}
+				_, err = repo.Activity(ctx, foreign.ID, created.ID)
+				want(t, err, store.ErrNotFound)
+				_, err = repo.ListActivityChecks(ctx, foreign.ID, created.ID, "", 0, 10)
+				want(t, err, store.ErrNotFound)
+
+				otherAsset, err := repo.CreateAsset(ctx, ws.ID, "Mismatched "+scenario.kind, "Test", "")
+				want(t, err, nil)
+				linked := input
+				linked.RequirementCode = scenario.code
+				linked.ActivityID = &created.ID
+				linked.AssetID = otherAsset.ID
+				_, err = repo.CreateCheck(ctx, ws.ID, operator, linked)
+				want(t, err, store.ErrNotFound)
+				linked.AssetID = foreignAsset.ID
+				_, err = repo.CreateCheck(ctx, foreign.ID, other.ID, linked)
+				want(t, err, store.ErrNotFound)
+
+				linked.AssetID = asset.ID
+				check, err := repo.CreateCheck(ctx, ws.ID, operator, linked)
+				want(t, err, nil)
+				if check.Activity == nil || check.Activity.ID != created.ID || check.Activity.Kind != scenario.kind {
+					t.Fatalf("missing check activity: %+v", check)
+				}
+				want(t, repo.AddEvidence(ctx, ws.ID, operator, check.ID, manual("observation", time.Now())), nil)
+				want(t, repo.SubmitCheck(ctx, ws.ID, operator, check.ID), nil)
+				review := detail(t, reviewer, check.ID)
+				want(t, repo.ReviewCheck(ctx, ws.ID, reviewer, check.ID, review.ReviewRevision, "changes", "Correct test control"), nil)
+				changed := detail(t, operator, check.ID).Events[0].CreatedAt
+				want(t, repo.AddEvidence(ctx, ws.ID, operator, check.ID, manual("remediation", changed.Add(time.Second))), nil)
+				want(t, repo.AddEvidence(ctx, ws.ID, operator, check.ID, manual("retest", changed.Add(2*time.Second))), nil)
+				want(t, repo.SubmitCheck(ctx, ws.ID, operator, check.ID), nil)
+				review = detail(t, reviewer, check.ID)
+				want(t, repo.ReviewCheck(ctx, ws.ID, reviewer, check.ID, review.ReviewRevision, "verified", "Retest accepted"), nil)
+				checks, err := repo.ListActivityChecks(ctx, ws.ID, created.ID, "verified", 0, 10)
+				want(t, err, nil)
+				if len(checks) != 1 || checks[0].ID != check.ID {
+					t.Fatalf("unexpected activity checks: %+v", checks)
+				}
+				checks, err = repo.ListActivityChecks(ctx, ws.ID, internal.ID, "", 0, 10)
+				want(t, err, nil)
+				if len(checks) != 0 {
+					t.Fatalf("unexpected checks on unrelated activity: %+v", checks)
+				}
+			})
+		}
+		activities, err := repo.ListActivities(ctx, ws.ID, "cross_border", asset.ID, 0, 1)
+		want(t, err, nil)
+		if len(activities) != 1 || activities[0].Kind != "cross_border" {
+			t.Fatalf("unexpected activity filter: %+v", activities)
+		}
+		activities, err = repo.ListActivities(ctx, ws.ID, "cross_border", asset.ID, activities[0].ID, 1)
+		want(t, err, nil)
+		if len(activities) != 0 {
+			t.Fatalf("unexpected activity cursor results: %+v", activities)
+		}
+	})
+
 	t.Run("Feishu scoped evidence and fresh absence", func(t *testing.T) {
 		input := input
 		target := strings.Repeat("a", 64)

@@ -239,6 +239,45 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		!strings.Contains(export.Body.String(), `"action":"verified"`) {
 		t.Fatalf("invalid audit export: %s", export.Body)
 	}
+	activities := workspace + "/activities"
+	for _, scenario := range []struct {
+		kind string
+		rule string
+	}{
+		{"sharing", "T01"},
+		{"cross_border", "T03"},
+		{"ai", "X01"},
+	} {
+		input := fmt.Sprintf(`{"assetId":%d,"name":%q,"kind":%q,"purpose":"核验处理边界","recipient":"测试接收方","region":"测试地域","retentionPolicy":"按审批期限"}`,
+			page.Items[0].ID, scenario.kind, scenario.kind)
+		do("POST", activities, input, reviewerCookie, 403)
+		createdActivity := do("POST", activities, input, cookie, 201)
+		var activity store.Activity
+		if err := json.Unmarshal(createdActivity.Body.Bytes(), &activity); err != nil || activity.ID < 1 {
+			t.Fatalf("activity was not created: %s", createdActivity.Body)
+		}
+		do("GET", fmt.Sprintf("%s/%d", activities, activity.ID), "", reviewerCookie, 200)
+		do("GET", fmt.Sprintf("%s/activities/%d", otherWorkspace, activity.ID), "", cookie, 404)
+		reply := do("POST", checks, fmt.Sprintf(`{"assetId":%d,"activityId":%d,"requirementCode":%q,"ownerTeam":"QA","note":"核对证据引用"}`,
+			activity.AssetID, activity.ID, scenario.rule), cookie, 201)
+		var linked store.Check
+		if err := json.Unmarshal(reply.Body.Bytes(), &linked); err != nil || linked.Activity == nil || linked.Activity.ID != activity.ID {
+			t.Fatalf("activity link was not returned: %s", reply.Body)
+		}
+		result := do("GET", fmt.Sprintf("%s?activityId=%d&status=draft", checks, activity.ID), "", reviewerCookie, 200)
+		var scoped struct{ Items []store.Check }
+		if err := json.Unmarshal(result.Body.Bytes(), &scoped); err != nil || len(scoped.Items) != 1 || scoped.Items[0].ID != linked.ID {
+			t.Fatalf("unexpected linked check list: %s", result.Body)
+		}
+		download := do("GET", fmt.Sprintf("%s/%d/export", checks, linked.ID), "", reviewerCookie, 200)
+		var exported struct{ Activity store.Activity }
+		if err := json.Unmarshal(download.Body.Bytes(), &exported); err != nil ||
+			exported.Activity.ID != activity.ID || exported.Activity.Recipient != "测试接收方" {
+			t.Fatalf("activity was not preserved in export: %s", download.Body)
+		}
+	}
+	do("GET", activities+"?kind=invalid", "", cookie, 400)
+	do("GET", checks+"?activityId=-1", "", cookie, 400)
 	if _, err := pool.Exec(ctx, `UPDATE plume.memberships AS m SET role = 'viewer'
 		FROM plume.workspaces AS w WHERE m.workspace_id = w.id AND w.slug = $1`, a); err != nil {
 		t.Fatal(err)

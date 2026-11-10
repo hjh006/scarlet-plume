@@ -4,7 +4,7 @@ import { ApiError, describeError, formatDate, request, workspacePath, type Works
 import { canManageChecks, checkStatusLabels, type Check, type CheckPage } from './workflow'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ workspace: Workspace }>()
+const props = defineProps<{ workspace: Workspace; activityId?: number }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const pageUrl = `#/${encodeURIComponent(props.workspace.slug)}/checks`
 const apiUrl = workspacePath(props.workspace.slug) + '/checks'
@@ -26,6 +26,7 @@ async function load(append = false) {
     cursor.value = null
   }
   const params = new URLSearchParams()
+  if (props.activityId) params.set('activityId', String(props.activityId))
   if (status.value) params.set('status', status.value)
   if (append && cursor.value !== null) params.set('before', String(cursor.value))
   try {
@@ -47,7 +48,7 @@ onBeforeUnmount(() => active?.abort())
 </script>
 
 <template>
-  <header class="page-header">
+  <header v-if="!activityId" class="page-header">
     <div>
       <p class="eyebrow">治理工作区 / 监管检查</p>
       <h1>监管检查</h1>
@@ -58,8 +59,8 @@ onBeforeUnmount(() => active?.abort())
     </a>
   </header>
 
-  <section class="panel" aria-labelledby="checks-title" :aria-busy="loading">
-    <div class="panel-heading"><h2 id="checks-title">检查台账</h2></div>
+  <section class="panel" :class="{ 'activity-related': activityId }" aria-labelledby="checks-title" :aria-busy="loading">
+    <div class="panel-heading"><h2 id="checks-title">{{ activityId ? '关联检查' : '检查台账' }}</h2></div>
     <div class="filter-bar">
       <label for="check-status">检查状态</label>
       <select id="check-status" v-model="status" @change="load()">
@@ -82,6 +83,7 @@ onBeforeUnmount(() => active?.abort())
             <th scope="row">
               <a class="table-link" :href="pageUrl + '/' + check.id">{{ check.requirement.title }}</a>
               <span class="table-secondary">{{ check.requirement.code }} · {{ check.assetName }}</span>
+              <span v-if="!activityId && check.activity" class="table-secondary">{{ check.activity.name }}</span>
               <time class="table-secondary compact-date" :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time>
             </th>
             <td>{{ check.ownerTeam }}</td>
@@ -94,7 +96,8 @@ onBeforeUnmount(() => active?.abort())
     <div v-if="!loading && !errorMessage && !items.length" class="empty-state">
       <strong>{{ status ? '没有符合条件的检查' : '尚未登记监管检查' }}</strong>
       <p v-if="status">选择其他状态可查看相应记录。</p>
-      <p v-else>检查记录按工作区管理，可关联已登记的数据资产。</p>
+      <p v-else-if="activityId">关联后可在检查中登记批准依据、实际配置和整改复测证据。</p>
+      <p v-else>检查可关联已登记的数据资产及处理活动。</p>
     </div>
     <div v-if="cursor !== null && !errorMessage" class="panel-footer">
       <button class="button button-secondary" type="button" :disabled="loading" @click="load(true)">

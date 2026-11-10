@@ -17,6 +17,11 @@ export interface Asset {
   source: string
   sourceRef: string
   ownerTeam: string
+  category?: string
+  businessLevel?: string
+  statutoryCategory?: string
+  classificationBasis?: string
+  description?: string
   createdAt: string
 }
 

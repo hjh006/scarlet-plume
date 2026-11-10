@@ -5,7 +5,7 @@
 社区版以 Apache 2.0 开放自部署。仓库当前提供开发预览。
 
 - 数据资产可分别记录业务敏感级、个人信息类别和法定重要／核心数据属性。
-- 处理活动覆盖内部处理、对外共享或委托，以及 AI 使用。AI 活动可登记模型服务、处理地域、留存和训练条款。
+- 处理活动覆盖内部处理、对外共享或委托、数据出境及 AI 使用。AI 活动可登记模型服务、处理地域、留存和训练条款。
 - 检查单记录证据来源和脱敏摘要，支持提交、复核、整改复测和导出 JSON。检查创建人、提交人和证据作者需要回避复核。
 
 ## 产品目标
@@ -16,7 +16,7 @@
 
 ## Go 与 Vue 开发预览
 
-新栈采用 Go 1.27、Vue 3 / TypeScript、Node.js 26 LTS 和 PostgreSQL 18。已提供工作区、资产清单、监管检查、证据登记、整改复测、独立复核和 JSON 导出。检查沿用 Django 基线的 14 条规则。处理活动和 Django 历史记录仍由原预览提供。 [架构与迁移顺序](docs/architecture.md)
+新栈采用 Go 1.27、Vue 3 / TypeScript、Node.js 26 LTS 和 PostgreSQL 18。已提供工作区、资产清单、处理活动、监管检查、证据登记、整改复测、独立复核和 JSON 导出。检查沿用 Django 基线的 14 条规则。 [架构与迁移顺序](docs/architecture.md)
 
 先按下文的本地数据库步骤启动 PostgreSQL。示例连接串使用 `openssl rand -hex 32` 生成的本地数据库密码。生产连接使用 `sslmode=verify-full`。
 
@@ -55,9 +55,13 @@ go run ./cmd/collector -provider postgresql -source CRM -schema public -allow-in
 
 OpenMetadata 连接器通过 `SCARLET_OPENMETADATA_URL` 和 `SCARLET_OPENMETADATA_TOKEN` 接收客户侧配置，执行 `go run ./cmd/collector -provider openmetadata -source Catalog -service crm`。令牌由源系统的最小权限身份提供。清单只包含表名与源端标识。当前导入是增量发现，后续盘点缺项不会删除现有资产。
 
-### 监管检查与飞书联调
+### 处理活动、历史数据与监管检查
 
-升级现有 Go 预览时，先执行 `go run ./cmd/server -mode migrate -allow-insecure-loopback`。该迁移在 `plume` schema 内增加规则库、检查、证据和审计事件。Django 表中的历史检查仍可在原应用中查询。
+对外共享、数据出境和 AI 使用均可从活动详情创建关联检查。证据、整改复测和独立复核沿用同一工作流，JSON 导出包含对应的活动范围。 [场景操作与验收示例](docs/activities.md)
+
+原 Django 用户可使用一次性命令将工作区、资产分级、处理活动、检查、证据及审计事件导入同一 PostgreSQL 数据库的 `plume` schema。命令默认只预检，正式导入使用 `-apply`，迁入账号默认停用并按需设置新密码。 [Django 迁移手册](docs/django-migration.md)
+
+升级现有 Go 预览时，先执行 `go run ./cmd/server -mode migrate -allow-insecure-loopback`。该命令更新 Go 数据库结构。迁入 Django 历史数据时，按迁移手册另行执行导入。
 
 从 `backend/` 为工作区创建独立复核账号。请在本机为 `SCARLET_REVIEWER_PASSWORD` 设置单独的密码，并在执行后清除环境变量。重复执行会保留已有复核账号密码。
 
@@ -69,7 +73,7 @@ unset SCARLET_REVIEWER_PASSWORD
 
 经办人可以在「监管检查」关联资产与规则、登记脱敏证据并提交。创建人、当前提交人和证据登记人都需要回避复核。飞书 G03 检查可绑定指定的直接协作者，要求整改后登记整改记录、重新采集同一目标，再由独立复核人核对。采集器通过模拟飞书接口测试，Go、PostgreSQL 与 Vue 通过合成清单跑通完整流程，真实飞书租户联调待进行。 [联调步骤与验收口径](docs/feishu.md)
 
-运行 `go test -race ./...` 时，可为 `PLUME_STORE_TEST_DSN` 配置专用的测试 PostgreSQL 数据库以执行持久化和授权集成测试。GitHub Actions 为两个开发栈分别启动 PostgreSQL 18。
+运行 `go test -race ./...` 时，可为 `PLUME_STORE_TEST_DSN` 配置专用的测试 PostgreSQL 数据库以执行持久化和授权集成测试。GitHub Actions 在 PostgreSQL 18 验证两个开发栈，并使用由 Django 演示命令生成的独立数据库测试历史导入。
 
 ## Django 基线本地运行
 

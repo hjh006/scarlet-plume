@@ -57,14 +57,13 @@ func (s *server) listRequirements(w http.ResponseWriter, r *http.Request, _ stor
 }
 
 func (s *server) listChecks(w http.ResponseWriter, r *http.Request, _ store.User, workspace store.Workspace) {
-	var before int64
-	if raw := r.URL.Query().Get("before"); raw != "" {
-		var err error
-		before, err = strconv.ParseInt(raw, 10, 64)
-		if err != nil || before < 1 {
-			fail(w, http.StatusBadRequest, "分页参数无效。")
-			return
-		}
+	before, ok := optionalQueryID(w, r, "before")
+	if !ok {
+		return
+	}
+	activityID, ok := optionalQueryID(w, r, "activityId")
+	if !ok {
+		return
 	}
 	status := r.URL.Query().Get("status")
 	switch status {
@@ -74,7 +73,13 @@ func (s *server) listChecks(w http.ResponseWriter, r *http.Request, _ store.User
 		return
 	}
 	const limit = 50
-	items, err := s.store.ListChecks(r.Context(), workspace.ID, status, before, limit+1)
+	var items []store.Check
+	var err error
+	if activityID != 0 {
+		items, err = s.store.ListActivityChecks(r.Context(), workspace.ID, activityID, status, before, limit+1)
+	} else {
+		items, err = s.store.ListChecks(r.Context(), workspace.ID, status, before, limit+1)
+	}
 	if err != nil {
 		checkFailure(w, err)
 		return
@@ -128,12 +133,21 @@ func (s *server) exportCheck(w http.ResponseWriter, r *http.Request, user store.
 	if !ok {
 		return
 	}
-	w.Header().Set("Content-Disposition", `attachment; filename="control-`+strconv.FormatInt(detail.ID, 10)+`.json"`)
-	respond(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"workspace": workspace.Slug, "exportedAt": time.Now().UTC(),
 		"check": detail.Check, "requirement": detail.Requirement,
 		"evidence": detail.Evidence, "events": detail.Events,
-	})
+	}
+	if detail.Activity != nil {
+		activity, err := s.store.Activity(r.Context(), workspace.ID, detail.Activity.ID)
+		if err != nil {
+			checkFailure(w, err)
+			return
+		}
+		payload["activity"] = activity
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="control-`+strconv.FormatInt(detail.ID, 10)+`.json"`)
+	respond(w, http.StatusOK, payload)
 }
 
 func checkMutationResult(w http.ResponseWriter, err error) {

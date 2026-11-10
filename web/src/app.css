@@ -63,3 +63,26 @@
 .check-record .form-feedback { margin-top: .85rem; }
 .check-record .evidence-guidance .text-block { margin-top: .35rem; }
 .remediation-steps { margin: .4rem 0 0; padding-inline-start: 1.35rem; }
+
+.activity-table th, .activity-table td,
+.activity-record .detail-list dd, .asset-metadata dd { overflow-wrap: anywhere; }
+.activity-purpose-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.activity-related { margin-top: 1.25rem; }
+.activity-guidance { padding: .75rem 1.1rem; color: var(--secondary); background: var(--surface-subtle); font-size: .84rem; }
+.activity-guidance p { margin-top: .3rem; }
+.asset-metadata { max-width: 24rem; margin-top: .25rem; }
+.asset-metadata summary { padding-block: .55rem; color: var(--accent); cursor: pointer; font-size: .82rem; }
+.asset-metadata dl { margin: .1rem 0 .3rem; font-size: .78rem; font-weight: 450; }
+.asset-metadata dt { margin-top: .4rem; color: var(--secondary); }
+.asset-metadata dd { margin: .08rem 0 0; }
+
+@media (max-width: 43.99rem) {
+  .sidebar-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .sidebar-nav a { text-align: center; }
+  .activity-table .activity-purpose { display: none; }
+}
