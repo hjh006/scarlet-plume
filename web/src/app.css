@@ -82,7 +82,7 @@
 .asset-metadata dd { margin: .08rem 0 0; }
 
 @media (max-width: 43.99rem) {
-  .sidebar-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sidebar-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sidebar-nav a { text-align: center; }
   .activity-table .activity-purpose { display: none; }
 }
@@ -130,6 +130,9 @@
 .report-timestamp, .report-feedback { margin: .75rem 1.1rem; }
 .report-results { margin-top: 1.15rem; }
 .report-table { min-width: 32rem; }
+.report-archive-table th, .report-archive-table td { overflow-wrap: anywhere; }
+.api-operation-list { margin: 0; padding-inline-start: 1.1rem; }
+.api-operation-list li + li { margin-top: .25rem; }
 
 @media (max-width: 43.99rem) {
   .template-catalog-link { gap: .4rem; padding-inline: .8rem; }
@@ -165,6 +168,7 @@
 .managed-pg-pair > .field { margin-top: 0; }
 .managed-pg-schedule { align-items: end; }
 .field .managed-pg-check { display: flex; align-items: center; gap: .45rem; min-height: 2.75rem; }
+.managed-pg-automation { margin: .95rem 0 0; }
 .managed-pg-feedback { margin-top: .95rem; }
 
 @media (max-width: 43.99rem) {
@@ -177,6 +181,7 @@
 .postgres-table { min-width: 29rem; }
 .postgres-grants { min-width: 40rem; }
 .postgres-evidence-meta { margin-block: .45rem; }
+.postgres-assessment { margin-bottom: .45rem; }
 .postgres-evidence-details > div + div { margin-top: .55rem; }
 .postgres-evidence-details ul { margin: .18rem 0; padding-inline-start: 1.25rem; }
 .postgres-binding { display: grid; gap: .4rem; justify-items: start; padding: .75rem 1.1rem; border-bottom: 1px solid var(--line); }

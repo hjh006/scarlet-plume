@@ -15,10 +15,12 @@ export const automationRunStatuses = {
 const resultLabels: Record<string, string> = {
   collection_failed: '采集端未能读取来源。请查看采集端日志，核对来源配置和权限。',
   collection_timeout: '采集超时。请查看采集端网络和来源服务状态。',
+  collection_schema_unavailable: '至少一个指定的 schema 不存在，或采集账号缺少该 schema 的 USAGE 权限。',
   check_closed: '检查当前阶段已锁定证据。',
   unchanged: '采集结果与本轮已登记的证据一致。',
   awaiting_remediation: '已读取权限结果，等待可用于复测的整改记录。',
   stale_observation: '观察时间不满足本轮复测要求。',
+  automation_scope_limit: '本次采集范围超过自动检查的表数上限。请缩小任务配置中的 schema 范围。',
 }
 
 export interface AutomationRun {
@@ -44,6 +46,8 @@ export interface ManagedPostgresConfig {
   schemas: string[]
   intervalMinutes: number
   enabled: boolean
+  autoChecks: boolean
+  autoReports: boolean
   revision: number
   nextRunAt?: string
   queued: boolean

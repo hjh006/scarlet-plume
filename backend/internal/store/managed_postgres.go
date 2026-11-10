@@ -19,6 +19,8 @@ type ManagedPostgresInput struct {
 	Schemas           []string `json:"schemas"`
 	IntervalMinutes   int      `json:"intervalMinutes"`
 	Enabled           bool     `json:"enabled"`
+	AutoChecks        bool     `json:"autoChecks"`
+	AutoReports       bool     `json:"autoReports"`
 	EncryptedPassword []byte   `json:"-"`
 }
 
@@ -39,15 +41,19 @@ type ManagedPostgresClaim struct {
 	claimedAt time.Time
 }
 
+const ManagedPostgresAutoCheckTableLimit = 100
+const ManagedPostgresSchemaUnavailableCode = "collection_schema_unavailable"
+
 const managedPostgresFields = `
 	mp.host, mp.port, mp.database_name, mp.username, mp.schemas, mp.encrypted_password,
-	mp.interval_minutes, mp.enabled, mp.revision, mp.next_run_at, mp.requested_at IS NOT NULL,
+	mp.interval_minutes, mp.enabled, mp.auto_checks, mp.auto_reports, mp.revision, mp.next_run_at, mp.requested_at IS NOT NULL,
 	COALESCE(mp.lease_until > clock_timestamp(), false)`
 
 const managedPostgresPublicJSON = `
 	CASE WHEN mp.job_id IS NOT NULL THEN jsonb_build_object(
 		'host', mp.host, 'port', mp.port, 'database', mp.database_name, 'user', mp.username,
 		'schemas', mp.schemas, 'intervalMinutes', mp.interval_minutes, 'enabled', mp.enabled AND j.revoked_at IS NULL,
+		'autoChecks', mp.auto_checks, 'autoReports', mp.auto_reports,
 		'revision', mp.revision, 'nextRunAt', CASE WHEN j.revoked_at IS NULL THEN mp.next_run_at END,
 		'queued', j.revoked_at IS NULL AND mp.requested_at IS NOT NULL,
 		'running', j.revoked_at IS NULL AND COALESCE(mp.lease_until > clock_timestamp(), false)
@@ -56,7 +62,7 @@ const managedPostgresPublicJSON = `
 func managedPostgresScan(c *ManagedPostgresConfig) []any {
 	return []any{
 		&c.Host, &c.Port, &c.Database, &c.User, &c.Schemas, &c.EncryptedPassword,
-		&c.IntervalMinutes, &c.Enabled, &c.Revision, &c.NextRunAt, &c.Queued, &c.Running,
+		&c.IntervalMinutes, &c.Enabled, &c.AutoChecks, &c.AutoReports, &c.Revision, &c.NextRunAt, &c.Queued, &c.Running,
 	}
 }
 
@@ -123,10 +129,11 @@ func (s *Store) CreateManagedPostgresJob(ctx context.Context, workspaceID, actor
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO plume.managed_postgres_jobs
-				(job_id, host, port, database_name, username, schemas, encrypted_password, interval_minutes, enabled, next_run_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9 THEN clock_timestamp() END)`,
+				(job_id, host, port, database_name, username, schemas, encrypted_password, interval_minutes,
+				 enabled, auto_checks, auto_reports, next_run_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $9 THEN clock_timestamp() END)`,
 			id, input.Host, input.Port, input.Database, input.User, input.Schemas, input.EncryptedPassword,
-			input.IntervalMinutes, input.Enabled); err != nil {
+			input.IntervalMinutes, input.Enabled, input.AutoChecks, input.AutoReports); err != nil {
 			return err
 		}
 		var err error
@@ -193,11 +200,12 @@ func (s *Store) UpdateManagedPostgresJob(ctx context.Context, workspaceID, actor
 		if _, err := tx.Exec(ctx, `
 			UPDATE plume.managed_postgres_jobs
 			SET host = $2, port = $3, database_name = $4, username = $5, schemas = $6,
-				encrypted_password = $7, interval_minutes = $8, enabled = $9, revision = revision + 1,
+				encrypted_password = $7, interval_minutes = $8, enabled = $9, auto_checks = $10, auto_reports = $11,
+				revision = revision + 1,
 				next_run_at = CASE WHEN $9 THEN clock_timestamp() + make_interval(mins => $8) END
 			WHERE job_id = $1`,
 			jobID, input.Host, input.Port, input.Database, input.User, input.Schemas,
-			input.EncryptedPassword, input.IntervalMinutes, input.Enabled); err != nil {
+			input.EncryptedPassword, input.IntervalMinutes, input.Enabled, input.AutoChecks, input.AutoReports); err != nil {
 			return err
 		}
 		if current.actorID != actorID {
@@ -259,10 +267,11 @@ func (s *Store) ClaimManagedPostgresJob(ctx context.Context, runID string, lease
 }
 
 func (s *Store) FinishManagedPostgresJob(ctx context.Context, claim ManagedPostgresClaim, input AutomationDelivery) (AutomationRun, error) {
+	validFailureCode := validCollectionFailure(input.FailureCode) || input.FailureCode == ManagedPostgresSchemaUnavailableCode
 	if claim.JobID < 1 || claim.claimedAt.IsZero() || !automationRunID.MatchString(claim.RunID) ||
 		!digestPattern.MatchString(input.Digest) || input.ObservedAt.IsZero() || input.ObservedAt.After(time.Now().Add(5*time.Minute)) ||
 		input.Evidence != nil || (input.FailureCode == "" && (input.Assets == nil || len(input.Assets) > 1000)) ||
-		(input.FailureCode != "" && (!validCollectionFailure(input.FailureCode) || input.Assets != nil || input.PostgresTables != nil)) ||
+		(input.FailureCode != "" && (!validFailureCode || input.Assets != nil || input.PostgresTables != nil)) ||
 		(input.PostgresTables != nil && !validPostgresTables(input.PostgresTables, input.Assets)) {
 		return AutomationRun{}, ErrInvalid
 	}
@@ -314,16 +323,28 @@ func (s *Store) FinishManagedPostgresJob(ctx context.Context, claim ManagedPostg
 		}
 
 		run = AutomationRun{JobID: job.ID, RunID: claim.RunID, ObservedAt: input.ObservedAt, Status: "success"}
-		if input.FailureCode != "" {
+		switch {
+		case input.FailureCode != "":
 			run.Status, run.Code = "error", input.FailureCode
-		} else if err := importAutomationAssets(ctx, tx, job, input.Digest, input.Assets, &run); err != nil {
-			return err
+		case claim.Config.AutoChecks && len(input.PostgresTables) > ManagedPostgresAutoCheckTableLimit:
+			run.Status, run.Code = "error", "automation_scope_limit"
+		default:
+			if err := importAutomationAssets(ctx, tx, job, input.Digest, input.Assets, &run); err != nil {
+				return err
+			}
 		}
 		if err := recordAutomationRun(ctx, tx, input.Digest, &run); err != nil {
 			return err
 		}
-		if err := persistPostgresInspections(ctx, tx, job, claim.Config, run, input.PostgresTables); err != nil {
-			return err
+		if run.Status == "success" && input.PostgresTables != nil {
+			if err := persistPostgresInspections(ctx, tx, job, claim.Config, run, input.PostgresTables); err != nil {
+				return err
+			}
+			if claim.Config.AutoReports {
+				if err := archiveManagedPostgresReport(ctx, tx, job, claim.Config, run, input.PostgresTables); err != nil {
+					return err
+				}
+			}
 		}
 		_, err = tx.Exec(ctx, `
 			UPDATE plume.managed_postgres_jobs

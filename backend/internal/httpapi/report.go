@@ -16,6 +16,10 @@ func (s *server) reportRoutes(mux *http.ServeMux) {
 	const path = "/api/v1/workspaces/{slug}/reports/compliance"
 	mux.HandleFunc("GET "+path, s.workspace(false, s.reportPreview))
 	mux.HandleFunc("GET "+path+"/export", s.workspace(false, s.reportExport))
+	const archives = "/api/v1/workspaces/{slug}/reports/archives"
+	mux.HandleFunc("GET "+archives, s.workspace(false, s.reportArchives))
+	mux.HandleFunc("GET "+archives+"/{archive}", s.workspace(false, s.reportArchivePreview))
+	mux.HandleFunc("GET "+archives+"/{archive}/export", s.workspace(false, s.reportArchiveExport))
 }
 
 func (s *server) loadReport(w http.ResponseWriter, r *http.Request, user store.User, workspace store.Workspace) (store.ComplianceReport, bool) {
@@ -42,17 +46,27 @@ func (s *server) reportPreview(w http.ResponseWriter, r *http.Request, user stor
 }
 
 func (s *server) reportExport(w http.ResponseWriter, r *http.Request, user store.User, workspace store.Workspace) {
-	format := r.URL.Query().Get("format")
-	switch format {
-	case "", "html", "json":
-	default:
-		fail(w, http.StatusBadRequest, "请选择 HTML 或 JSON 报告格式。")
-		return
-	}
-	report, ok := s.loadReport(w, r, user, workspace)
+	format, ok := reportExportFormat(w, r)
 	if !ok {
 		return
 	}
+	if report, ok := s.loadReport(w, r, user, workspace); ok {
+		writeReportExport(w, report, format)
+	}
+}
+
+func reportExportFormat(w http.ResponseWriter, r *http.Request) (string, bool) {
+	format := r.URL.Query().Get("format")
+	switch format {
+	case "", "html", "json":
+		return format, true
+	default:
+		fail(w, http.StatusBadRequest, "请选择 HTML 或 JSON 报告格式。")
+		return "", false
+	}
+}
+
+func writeReportExport(w http.ResponseWriter, report store.ComplianceReport, format string) {
 	if format == "json" {
 		w.Header().Set("Content-Disposition", `attachment; filename="scarlet-compliance-report.json"`)
 		respond(w, http.StatusOK, report)
@@ -79,6 +93,10 @@ var reportLabels = map[string]string{
 	"email":            "邮箱", "phone": "电话号码", "national_id": "身份标识", "financial_account": "金融账号",
 	"credential": "凭据", "personal_name": "个人姓名", "address": "地址", "ip_address": "IP 地址",
 	"sharing": "对外共享或委托", "cross_border": "数据出境", "ai": "AI 使用", "internal": "内部处理",
+	"review_required": "待人工核实", "no_signal": "未发现规则信号",
+	"sensitive_candidate": "发现疑似敏感字段", "no_sensitive_candidate": "未识别疑似敏感字段",
+	"public_select": "发现 PUBLIC 直接 SELECT 授权", "named_select": "发现非所有者具名 SELECT 授权",
+	"no_non_owner_select": "未观察到非所有者直接 SELECT 授权",
 }
 
 var reportClock = time.FixedZone("CST", 8*60*60)
@@ -125,7 +143,13 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 </header>
 <section class="panel">
 <h2>报告范围</h2>
-{{with .Scope.Activity}}
+{{with .Scope.Source}}
+<dl class="facts">
+<dt>采集来源</dt><dd class="wrap">{{.Source}} · 任务 #{{.JobID}}</dd>
+<dt>采集运行</dt><dd class="wrap">{{.RunID}}</dd>
+<dt>观测时间</dt><dd>{{date .ObservedAt}}（北京时间）</dd>
+</dl>
+{{else with .Scope.Activity}}
 <p>处理活动 {{.Name}} · {{label .Kind}} · 编号 #{{.ID}}</p>
 <dl class="facts">
 <dt>关联资产</dt><dd>{{.AssetName}} · {{.AssetSystem}}</dd>
@@ -139,6 +163,18 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 {{else}}<p>工作区内已创建的全部检查</p>{{end}}
 <p class="muted">{{.Scope.Basis}}</p>
 </section>
+{{with .Identification}}
+<section class="panel">
+<h2>本次自动识别</h2>
+<dl class="summary">
+<div><dt>表</dt><dd>{{.Tables}}</dd></div><div><dt>字段</dt><dd>{{.Columns}}</dd></div>
+<div><dt>疑似敏感字段</dt><dd>{{.SensitiveCandidates}}</dd></div><div><dt>涉及表</dt><dd>{{.TablesWithCandidates}}</dd></div>
+<div><dt>PUBLIC 表级 SELECT</dt><dd>{{.PublicTableSelect}} 张表</dd></div>
+<div><dt>PUBLIC 字段级 SELECT</dt><dd>{{.PublicColumnSelect}} 个字段</dd></div>
+</dl>
+<p class="muted">识别依据为字段名、数据类型和 PostgreSQL 目录中的直接授权。本次采集未读取业务记录。</p>
+</section>
+{{end}}
 <section class="panel">
 <h2>执行概况</h2>
 <dl class="summary">
@@ -173,6 +209,11 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <dt>验收标准</dt><dd class="wrap">{{.Item.AcceptanceCriteria}}</dd>
 </dl>
 {{else}}<p class="muted">未关联模板</p>{{end}}
+{{with .AutomaticEvaluation}}
+<h3>本次自动判定</h3>
+<p><strong>{{label .Assessment}}</strong>{{range .AssessmentReasons}} · {{label .}}{{end}}</p>
+<p class="wrap muted">{{.Scope}}</p>
+{{end}}
 <h3>证据记录</h3>
 {{if .Evidence}}<ul class="records">{{range .Evidence}}
 <li><strong>{{label .Kind}} · {{.SourceSystem}}</strong><br>
@@ -182,6 +223,7 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 {{with .Feishu}}<div class="wrap">飞书目标摘要 {{.TargetDigest}} · 快照摘要 {{.SnapshotDigest}} · {{if .MemberPresent}}存在直接授权 {{.Permission}}{{else}}未观察到指定直接授权{{end}}</div>{{end}}
 {{with .Postgres}}
 <div class="wrap">PostgreSQL 目录观测 · {{.Database}} · {{.SourceRef}}</div>
+{{if .Assessment}}<div>自动判定 {{label .Assessment}}{{range .AssessmentReasons}} · {{label .}}{{end}}</div>{{end}}
 <div class="wrap">{{.Scope}}</div>
 <div>字段 {{.ColumnCount}} 个 · 疑似敏感 {{.SensitiveCandidateCount}} 个 · 直接 ACL {{.GrantCount}} 项</div>
 <div>PUBLIC 表级 SELECT {{if .PublicSelect}}已观察到{{else}}未观察到{{end}} · PUBLIC 列级 SELECT {{.PublicSelectColumnCount}} 列 · PUBLIC schema USAGE {{if .PublicSchemaUsage}}已观察到{{else}}未观察到{{end}}</div>

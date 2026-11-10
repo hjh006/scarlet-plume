@@ -209,6 +209,9 @@ func (m *Manager) test(ctx context.Context, c Connection, password string) (int,
 	defer cancel()
 	tables, err := m.inspect(ctx, c, password)
 	if err != nil {
+		if errors.Is(err, collector.ErrPostgreSQLSchemaUnavailable) {
+			return 0, err
+		}
 		return 0, ErrConnection
 	}
 	return len(tables), nil

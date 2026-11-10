@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, documentationUrl, formatDate, request, workspacePath, type Workspace } from './api'
 import { activityCheckHints, activityKindLabels } from './activity'
-import { postgresPermissionScope, postgresPublicSelect, postgresSensitivityLabel } from './postgresql'
+import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPermissionScope, postgresPublicSelect, postgresSensitivityLabel } from './postgresql'
 import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } from './workflow'
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
 import Icon from './Icon.vue'
@@ -244,6 +244,12 @@ onBeforeUnmount(() => active.abort())
             <p v-if="entry.feishu" class="field-hint">{{ entry.feishu.memberPresent ? '检出目标协作者的直接授权' : '未检出目标协作者的直接授权' }}</p>
             <p class="text-block">{{ entry.summary }}</p>
             <div v-if="entry.postgres" class="postgres-evidence-meta">
+              <div v-if="entry.postgres.assessment" class="postgres-assessment">
+                <span class="badge" :class="entry.postgres.assessment === 'review_required' ? 'status-needs_work' : 'status-draft'">
+                  自动检查 · {{ postgresAssessmentLabels[entry.postgres.assessment] }}
+                </span>
+                <p v-if="entry.postgres.assessmentReasons?.length" class="field-hint">{{ postgresAssessmentReasons(entry.postgres.assessmentReasons) }}</p>
+              </div>
               <p class="field-hint">
                 <span v-if="entry.postgres.database" class="mono">{{ entry.postgres.database }} · </span>
                 <span class="mono">{{ entry.postgres.sourceRef }}</span>

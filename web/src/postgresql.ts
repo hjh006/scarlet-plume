@@ -46,10 +46,29 @@ export interface PostgresEvidence {
   publicSchemaUsage: boolean
   publicSelect: boolean
   publicSelectColumnCount: number
+  assessment?: 'review_required' | 'no_signal'
+  assessmentReasons?: string[]
   sensitiveFields?: { name: string; sensitivity: string }[]
   selectGrants?: Pick<PostgresGrant, 'grantee' | 'public' | 'column' | 'schemaUsage'>[]
   sensitiveFieldsOmitted?: number
   selectGrantsOmitted?: number
+}
+
+export const postgresAssessmentLabels = {
+  review_required: '检出线索 · 待核对',
+  no_signal: '本次未检出线索',
+}
+
+const assessmentReasonLabels: Record<string, string> = {
+  sensitive_candidate: '检出疑似敏感字段',
+  no_sensitive_candidate: '未检出疑似敏感字段',
+  public_select: '检出 PUBLIC 直接 SELECT 授权',
+  named_select: '检出表所有者之外的具名角色直接 SELECT 授权',
+  no_non_owner_select: '未检出表所有者之外的直接 SELECT 授权',
+}
+
+export function postgresAssessmentReasons(reasons: string[] = []) {
+  return reasons.map(reason => assessmentReasonLabels[reason] || reason).join(' · ')
 }
 
 export const postgresPermissionScope = '权限范围为表和字段直接授权及 PUBLIC 权限。角色成员关系、权限继承和行级策略需单独核验。'

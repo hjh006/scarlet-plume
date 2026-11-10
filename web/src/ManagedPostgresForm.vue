@@ -19,6 +19,8 @@ const password = ref('')
 const schemaText = ref(original?.schemas.join(', ') ?? 'public')
 const intervalMinutes = ref<number | ''>(original?.intervalMinutes ?? 15)
 const enabled = ref(original?.enabled ?? true)
+const autoChecks = ref(original?.autoChecks ?? !original)
+const autoReports = ref(original?.autoReports ?? !original)
 const heading = ref<HTMLElement | null>(null)
 const pending = ref<'test' | 'save' | ''>('')
 const feedback = ref<{ kind: 'success' | 'error'; message: string }>()
@@ -88,6 +90,7 @@ async function save() {
       body: JSON.stringify({
         ...body, source: props.job ? undefined : source.value.trim(),
         revision: original?.revision, intervalMinutes: intervalMinutes.value, enabled: enabled.value,
+        autoChecks: autoChecks.value, autoReports: autoReports.value,
       }),
       signal: lifecycle.signal,
     })
@@ -161,6 +164,22 @@ onBeforeUnmount(() => {
             </label>
           </div>
         </div>
+        <fieldset class="template-fieldset managed-pg-automation">
+          <legend>采集后的自动化</legend>
+          <p class="field-hint">每次采集都会按字段名称和类型识别疑似敏感字段。</p>
+          <div class="field">
+            <label class="managed-pg-check" for="managed-pg-auto-checks">
+              <input id="managed-pg-auto-checks" v-model="autoChecks" type="checkbox" aria-describedby="managed-pg-auto-checks-hint"> 自动检查与取证
+            </label>
+            <p id="managed-pg-auto-checks-hint" class="field-hint">核对疑似敏感字段与直接 SELECT 授权，登记依据和待核对线索。</p>
+          </div>
+          <div class="field">
+            <label class="managed-pg-check" for="managed-pg-auto-reports">
+              <input id="managed-pg-auto-reports" v-model="autoReports" type="checkbox" aria-describedby="managed-pg-auto-reports-hint"> 自动归档报告
+            </label>
+            <p id="managed-pg-auto-reports-hint" class="field-hint">采集成功后保存本次识别和关联检查快照，可导出 HTML 或 JSON。</p>
+          </div>
+        </fieldset>
       </fieldset>
       <p v-if="feedback" class="message managed-pg-feedback" :class="'message-' + feedback.kind"
          :role="feedback.kind === 'error' ? 'alert' : 'status'">{{ feedback.message }}</p>

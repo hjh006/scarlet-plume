@@ -425,6 +425,7 @@ onBeforeUnmount(() => {
       <div><h2 id="automation-jobs-heading">采集任务</h2><p>查看任务授权和最近一次运行。</p></div>
       <div class="automation-actions">
         <a class="button button-secondary" :href="home + '/assets'">查看资产台账</a>
+        <a class="button button-secondary" :href="home + '/reports/archives'">自动报告归档</a>
         <button type="button" class="button button-secondary" :disabled="loading" @click="loadJobs()">刷新任务</button>
       </div>
     </div>
@@ -439,7 +440,12 @@ onBeforeUnmount(() => {
               <a v-if="job.checkId" class="table-link" :href="home + '/checks/' + job.checkId">{{ jobLabel(job) }}</a>
               <span v-else>{{ jobLabel(job) }}</span>
               <span class="table-secondary">{{ automationProviders[job.provider] }} · 任务 #{{ job.id }}</span>
-              <span v-if="job.managed" class="table-secondary">平台采集 · 每 {{ job.managed.intervalMinutes }} 分钟</span>
+              <template v-if="job.managed">
+                <span class="table-secondary">平台采集 · 每 {{ job.managed.intervalMinutes }} 分钟</span>
+                <span class="table-secondary">字段识别 · 自动执行</span>
+                <span class="table-secondary">自动检查 · {{ job.managed.autoChecks ? '开启' : '关闭' }}</span>
+                <span class="table-secondary">报告归档 · {{ job.managed.autoReports ? '开启' : '关闭' }}</span>
+              </template>
             </th>
             <td>
               <span class="badge" :class="job.revokedAt || job.managed?.enabled === false ? 'status-draft' : 'status-verified'">{{ jobState(job) }}</span>

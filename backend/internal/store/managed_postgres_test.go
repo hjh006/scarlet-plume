@@ -146,6 +146,20 @@ func TestManagedPostgresScheduling(t *testing.T) {
 		t.Fatalf("recovered run created duplicates: %+v", imported)
 	}
 	want(repo.QueueManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID), nil)
+	claim, err = repo.ClaimManagedPostgresJob(ctx, "run-schema-unavailable", time.Minute)
+	want(err, nil)
+	if claim == nil {
+		t.Fatal("schema failure run was not claimed")
+	}
+	failed, err := repo.FinishManagedPostgresJob(ctx, *claim, store.AutomationDelivery{
+		Digest: strings.Repeat("b", 64), ObservedAt: time.Now(),
+		FailureCode: store.ManagedPostgresSchemaUnavailableCode,
+	})
+	want(err, nil)
+	if failed.Status != "error" || failed.Code != store.ManagedPostgresSchemaUnavailableCode || failed.ImportID != nil {
+		t.Fatalf("unexpected unavailable schema outcome: %+v", failed)
+	}
+	want(repo.QueueManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID), nil)
 	claim, err = repo.ClaimManagedPostgresJob(ctx, "run-revoked", time.Minute)
 	want(err, nil)
 	if claim == nil {
