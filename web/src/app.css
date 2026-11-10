@@ -158,3 +158,15 @@
 @media (max-width: 43.99rem) {
   .automation-connect > div { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
 }
+
+.managed-pg-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.managed-pg-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.managed-pg-fields > .managed-pg-pair, .managed-pg-fields > .managed-pg-pair + .field { margin-top: .95rem; }
+.managed-pg-pair > .field { margin-top: 0; }
+.managed-pg-schedule { align-items: end; }
+.field .managed-pg-check { display: flex; align-items: center; gap: .45rem; min-height: 2.75rem; }
+.managed-pg-feedback { margin-top: .95rem; }
+
+@media (max-width: 43.99rem) {
+  .managed-pg-pair { grid-template-columns: minmax(0, 1fr); gap: .95rem; }
+}

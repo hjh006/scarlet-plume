@@ -25,6 +25,8 @@ services:
     environment:
       SCARLET_DB_DSN: postgresql://scarlet_plume:${SCARLET_LOCAL_DB_PASSWORD:?Set SCARLET_LOCAL_DB_PASSWORD to a random hexadecimal value}@db:5432/scarlet_plume?sslmode=disable
       SCARLET_ORIGIN: http://127.0.0.1:${SCARLET_LOCAL_PORT:-8890}
+      SCARLET_MANAGED_PG_KEY: ${SCARLET_MANAGED_PG_KEY:-}
+      SCARLET_MANAGED_PG_HOSTS: ${SCARLET_MANAGED_PG_HOSTS:-}
     ports:
       - "127.0.0.1:${SCARLET_LOCAL_PORT:-8890}:8080"
     depends_on:

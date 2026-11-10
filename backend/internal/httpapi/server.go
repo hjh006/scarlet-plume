@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/managed"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 )
 
@@ -22,6 +23,7 @@ const (
 )
 
 type server struct {
+	managed    *managed.Manager
 	store      *store.Store
 	origin     string
 	secure     bool
@@ -29,7 +31,11 @@ type server struct {
 }
 
 func New(st *store.Store, origin string, secure bool) http.Handler {
-	s := &server{store: st, origin: origin, secure: secure, loginSlots: make(chan struct{}, 4)}
+	return NewWithManaged(st, origin, secure, nil)
+}
+
+func NewWithManaged(st *store.Store, origin string, secure bool, manager *managed.Manager) http.Handler {
+	s := &server{store: st, managed: manager, origin: origin, secure: secure, loginSlots: make(chan struct{}, 4)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/session", s.getSession)
 	mux.HandleFunc("POST /api/v1/session", s.signIn)
@@ -44,6 +50,7 @@ func New(st *store.Store, origin string, secure bool) http.Handler {
 	s.templateRoutes(mux)
 	s.reportRoutes(mux)
 	s.automationRoutes(mux)
+	s.managedRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})

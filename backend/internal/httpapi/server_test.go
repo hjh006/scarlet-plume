@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/managed"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -107,7 +108,11 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	const origin = "https://example.invalid"
-	handler := New(repo, origin, true)
+	manager, err := managed.New(repo, strings.Repeat("01", 32), "managed.example", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithManaged(repo, origin, true, manager)
 	do := func(method, path, body string, cookie *http.Cookie, expected int) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, path, bytes.NewBufferString(body))
@@ -339,6 +344,22 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 	do("GET", jobPath+"/runs", "", reviewerCookie, 200)
 	do("DELETE", jobPath, "", cookie, 204)
 	send(createdJob.Token, 401)
+	managedPath := workspace + "/automation/managed"
+	const managedInput = `{"source":"PostgreSQL managed fixture","host":"managed.example","port":5432,"database":"inventory","user":"metadata_reader","password":"fixture-only-password","schemas":["inventory"],"intervalMinutes":5,"enabled":false}`
+	do("POST", managedPath+"/jobs", managedInput, reviewerCookie, 403)
+	do("POST", managedPath+"/jobs", strings.ReplaceAll(managedInput, "managed.example", "unapproved.example"), cookie, 400)
+	jobRecord := do("POST", managedPath+"/jobs", managedInput, cookie, 201)
+	var configured store.AutomationJob
+	if err := json.Unmarshal(jobRecord.Body.Bytes(), &configured); err != nil || configured.Managed == nil ||
+		configured.Managed.IntervalMinutes != 5 || strings.Contains(jobRecord.Body.String(), "fixture-only-password") {
+		t.Fatal("managed task did not save a safe configuration")
+	}
+	queuedPath := fmt.Sprintf("%s/jobs/%d/run", managedPath, configured.ID)
+	do("POST", queuedPath, "", reviewerCookie, 403)
+	queued := do("POST", queuedPath, "", cookie, 202)
+	if !strings.Contains(queued.Body.String(), `"queued":true`) {
+		t.Fatal("managed task did not acknowledge a queued run")
+	}
 	if _, err := pool.Exec(ctx, `UPDATE plume.memberships AS m SET role = 'viewer'
 		FROM plume.workspaces AS w WHERE m.workspace_id = w.id AND w.slug = $1`, a); err != nil {
 		t.Fatal(err)

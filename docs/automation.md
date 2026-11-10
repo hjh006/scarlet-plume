@@ -10,7 +10,32 @@
 
 源系统凭据在采集端配置。原始文档、协作者列表、表内记录和应用密钥留在源端。资产按工作区、提供方、来源别名和源端标识去重，后续清单的缺项保留为未观察到。飞书整改登记后，采集器会自动提交同一目标的新权限观测。已提交或已验证的检查保留证据历史，新的权限观测仍可在任务记录查看。复核期间检测到较新且仍有直接授权的观测会阻止通过，撤权和独立复核由具备权限的人员执行。飞书的观测范围是指定协作者的直接授权。 [飞书协作者权限接口](https://open.feishu.cn/document/server-docs/docs/permission/permission-member/list)
 
-## 配置一个任务
+## 在工作台管理 PostgreSQL 采集
+
+启用了托管采集的实例中，负责人可选择「新建 PostgreSQL 采集」，填写主机、端口、数据库、只读用户、密码及 schema。先点「测试连接」查看可采集表的数量，再保存。频率可设为 1 至 1,440 分钟。暂停后仍可点击「立即采集」。在任务行可查看最近结果、下一次运行和历史。
+
+密码加密保存在平台数据库，编辑时留空可继续使用已保存的密码。修改主机、端口、数据库或用户时，需重新填写密码。部署端通过 `SCARLET_MANAGED_PG_KEY` 设置 32 字节随机密钥的十六进制表示，并用逗号分隔的 `SCARLET_MANAGED_PG_HOSTS` 配置允许的主机。请保存原密钥以便重启和升级后解密已有任务。正式连接使用 TLS 主机名校验。
+
+本机 Docker 样例使用隔离网络中的 `sample-db:5432`。从仓库根目录执行，保留 `.env.scarlet-local` 中已有的数据库密码，以下配置仅在首次启用样例时加入。
+
+```sh
+umask 077
+for key in SCARLET_MANAGED_PG_KEY SCARLET_SAMPLE_DB_PASSWORD SCARLET_SAMPLE_READER_PASSWORD; do
+  if ! grep -q "^$key=" .env.scarlet-local; then
+    printf '%s=%s\n' "$key" "$(openssl rand -hex 32)" >> .env.scarlet-local
+  fi
+done
+
+scarlet() { docker compose --env-file .env.scarlet-local -f compose.local.yaml -f compose.sample.yaml "$@"; }
+scarlet build app sample-db
+scarlet up -d --wait db sample-db
+scarlet run --rm -T app -local-docker -mode migrate
+scarlet up -d --wait app
+```
+
+新建任务时，主机填写 `sample-db`，数据库填写 `scarlet_sample`，用户填写 `sample_reader`，schema 填写 `inventory`。密码使用本机 `.env.scarlet-local` 中的 `SCARLET_SAMPLE_READER_PASSWORD`。样例采集账号具备 schema 访问权限，可以采集三张合成表的目录。样例库与平台库使用独立卷，两个数据库端口均留在 Docker 内。
+
+## 配置客户侧采集器
 
 1. 在控制台选择连接器并创建任务。资产任务的来源别名应与下文 `-source` 一致。飞书任务从已绑定飞书目标的 G03 检查进入。
 2. 在采集机通过受控环境变量设置 `SCARLET_AGENT_TOKEN` 以及所需源凭据。工作台的一次性令牌用于采集任务，源凭据无需输入工作台。

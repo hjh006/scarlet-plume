@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hjh006/scarlet-plume/backend/internal/httpapi"
+	"github.com/hjh006/scarlet-plume/backend/internal/managed"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 )
 
@@ -104,7 +105,14 @@ func run() error {
 	case "add-reviewer":
 		return addReviewer(ctx, st)
 	default:
-		return serve(st, *addr, *web, origin, secure)
+		var manager *managed.Manager
+		if key := os.Getenv("SCARLET_MANAGED_PG_KEY"); key != "" {
+			manager, err = managed.New(st, key, os.Getenv("SCARLET_MANAGED_PG_HOSTS"), *localDocker)
+			if err != nil {
+				return err
+			}
+		}
+		return serve(st, *addr, *web, origin, secure, manager)
 	}
 }
 
@@ -174,8 +182,8 @@ func validateOrigin(origin, addr string, localDocker bool) (bool, error) {
 	return u.Scheme == "https", nil
 }
 
-func serve(st *store.Store, addr, web, origin string, secure bool) error {
-	handler, err := newHandler(httpapi.New(st, origin, secure), web)
+func serve(st *store.Store, addr, web, origin string, secure bool, manager *managed.Manager) error {
+	handler, err := newHandler(httpapi.NewWithManaged(st, origin, secure, manager), web)
 	if err != nil {
 		return err
 	}
@@ -185,6 +193,9 @@ func serve(st *store.Store, addr, web, origin string, secure bool) error {
 	}
 	shutdown, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if manager != nil {
+		go manager.Run(shutdown)
+	}
 	go func() {
 		<-shutdown.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)

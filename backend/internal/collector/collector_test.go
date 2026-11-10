@@ -214,3 +214,25 @@ func TestOpenMetadataTransportDoesNotFollowRedirects(t *testing.T) {
 		t.Fatal("plaintext loopback must require an explicit flag")
 	}
 }
+
+func TestPostgreSQLDockerSampleConnectionPolicy(t *testing.T) {
+	t.Setenv("PGSERVICE", "")
+	const dsn = "postgresql://reader:sample@sample-db:5432/catalog?sslmode=disable"
+	config, err := parsePostgresConfig(dsn, false, true)
+	if err != nil || config.Host != "sample-db" || config.Port != 5432 || config.TLSConfig != nil ||
+		len(config.Fallbacks) != 0 {
+		t.Fatal("scoped Docker sample connection was rejected")
+	}
+	if _, err := postgresConfig(dsn, true); err == nil {
+		t.Fatal("normal collector allowed plaintext to the Docker sample host")
+	}
+	for _, unsafe := range []string{
+		"postgresql://reader:sample@sample-db:5433/catalog?sslmode=disable",
+		"postgresql://reader:sample@db:5432/catalog?sslmode=disable",
+		"postgresql://reader:sample@sample-db:5432/catalog?sslmode=disable&host=remote.example",
+	} {
+		if _, err := parsePostgresConfig(unsafe, false, true); err == nil {
+			t.Fatal("sample collector accepted an unexpected destination")
+		}
+	}
+}

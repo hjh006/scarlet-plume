@@ -24,18 +24,34 @@ ORDER BY n.nspname, c.relname
 LIMIT $2`
 
 func PostgreSQL(ctx context.Context, dsn string, schemas []string, allowInsecureLoopback bool) ([]Asset, error) {
+	return collectPostgreSQL(ctx, dsn, schemas, allowInsecureLoopback, false)
+}
+
+// PostgreSQLDockerSample permits the explicitly scoped local sample service.
+func PostgreSQLDockerSample(ctx context.Context, dsn string, schemas []string) ([]Asset, error) {
+	return collectPostgreSQL(ctx, dsn, schemas, false, true)
+}
+
+func ValidatePostgreSQLSchemas(schemas []string) error {
 	if len(schemas) == 0 || len(schemas) > maxAssets {
-		return nil, errors.New("请明确指定要采集的非系统 schema")
+		return errors.New("请明确指定要采集的非系统 schema")
 	}
 	for _, schema := range schemas {
 		if !validText(schema, 128) || strings.HasPrefix(schema, "pg_") || schema == "information_schema" {
-			return nil, errors.New("采集范围包含无效或系统 schema")
+			return errors.New("采集范围包含无效或系统 schema")
 		}
+	}
+	return nil
+}
+
+func collectPostgreSQL(ctx context.Context, dsn string, schemas []string, allowInsecureLoopback, dockerSample bool) ([]Asset, error) {
+	if err := ValidatePostgreSQLSchemas(schemas); err != nil {
+		return nil, err
 	}
 	schemas = slices.Clone(schemas)
 	slices.Sort(schemas)
 	schemas = slices.Compact(schemas)
-	config, err := postgresConfig(dsn, allowInsecureLoopback)
+	config, err := parsePostgresConfig(dsn, allowInsecureLoopback, dockerSample)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +105,10 @@ WHERE nspname::text = ANY ($1::text[])
 }
 
 func postgresConfig(dsn string, allowInsecureLoopback bool) (*pgx.ConnConfig, error) {
+	return parsePostgresConfig(dsn, allowInsecureLoopback, false)
+}
+
+func parsePostgresConfig(dsn string, allowInsecureLoopback, dockerSample bool) (*pgx.ConnConfig, error) {
 	invalidDSN := errors.New("请提供指向单个 TCP 主机的有效 PostgreSQL URL")
 	if os.Getenv("PGSERVICE") != "" {
 		return nil, errors.New("采集连接由 SCARLET_PG_DSN 指定，请清除 PGSERVICE")
@@ -115,6 +135,9 @@ func postgresConfig(dsn string, allowInsecureLoopback bool) (*pgx.ConnConfig, er
 	host := u.Hostname()
 	loopback := loopbackIP(host)
 	mode := query.Get("sslmode")
+	if dockerSample && (host != "sample-db" || u.Port() != "5432" || mode != "disable") {
+		return nil, errors.New("本地 Docker 样例源仅允许连接 sample-db:5432")
+	}
 	if mode == "" {
 		mode = "verify-full"
 		if allowInsecureLoopback && loopback != nil && !query.Has("sslrootcert") && !query.Has("sslcert") {
@@ -128,7 +151,7 @@ func postgresConfig(dsn string, allowInsecureLoopback bool) (*pgx.ConnConfig, er
 			port = "5432"
 		}
 		u.Host = net.JoinHostPort(host, port)
-	} else if mode != "verify-full" {
+	} else if mode != "verify-full" && !dockerSample {
 		return nil, errors.New("PostgreSQL 连接要求 sslmode=verify-full")
 	}
 	query.Set("sslmode", mode)
