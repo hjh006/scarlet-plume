@@ -112,7 +112,7 @@ func Select(id, levelCode, ruleID, statutoryCategory string) (*Reference, error)
 		ID: standard.ID, Code: standard.Code, Title: standard.Title,
 		Industry: standard.Industry, Kind: standard.Kind, URL: standard.URL,
 	}
-	if len(standard.Levels) > 0 {
+	if levelCode != "" {
 		i := slices.IndexFunc(standard.Levels, func(level Level) bool { return level.Code == levelCode })
 		if i < 0 {
 			return nil, ErrSelection
@@ -123,7 +123,7 @@ func Select(id, levelCode, ruleID, statutoryCategory string) (*Reference, error)
 		}
 		reference.LevelCode, reference.LevelLabel = level.Code, level.Label
 		reference.StatutoryCategory = level.StatutoryCategory
-	} else if levelCode != "" {
+	} else if len(standard.Levels) > 0 && statutoryCategory != "unknown" {
 		return nil, ErrSelection
 	}
 	if len(standard.Rules) > 0 {

@@ -2,18 +2,20 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   ApiError, assetBusinessLevelLabels, assetCategoryLabels, describeError, documentationUrl, formatDate, providerLabel, request,
-  workspacePath, type Asset, type Workspace,
+  workspacePath, type Workspace,
 } from './api'
 import { postgresSensitivityLabel } from './postgresql'
-import { isReferencePublication, standardKindLabels, standardsByIndustry, type ClassificationStandards, type ClassificationStandardSnapshot } from './classification-standards'
+import { classificationOriginLabels, isReferencePublication, standardKindLabels, standardsByIndustry, type ClassificationStandards, type ClassificationStandardSnapshot, type ClassificationRecord } from './classification-standards'
+import { automationRunDetail, type AutomationJob } from './automation'
+import ClassificationEvaluation from './ClassificationEvaluation.vue'
 import Icon from './Icon.vue'
 
 interface Candidate {
   name: string; category: string; source: 'postgresql' | 'openapi'; location?: string
   observedAt: string; runId?: string; scanId?: number
 }
-interface Classification {
-  asset: Asset; revision: number; candidates: Candidate[]; candidateCount: number
+interface Classification extends ClassificationRecord {
+  candidates: Candidate[]; candidateCount: number
   suggestedCategory?: string; suggestedBusinessLevel?: string
   standard?: ClassificationStandardSnapshot
 }
@@ -22,9 +24,10 @@ interface History extends Values {
   id: number; revision: number; actor: string; createdAt: string
   previousCategory: string; previousBusinessLevel: string; previousStatutoryCategory: string; previousBasis: string
   standard?: ClassificationStandardSnapshot
+  origin?: 'manual' | 'automatic'
 }
 interface Detail extends Classification { history: History[]; historyTruncated?: boolean }
-interface Counts { total: number; pending: number; reviewed: number; importantOrCore: number }
+interface Counts { total: number; pending: number; reviewed: number; automatic?: number; importantOrCore: number }
 interface Page { items: Classification[]; nextCursor?: number | null; counts: Counts }
 
 const props = defineProps<{ workspace: Workspace; assetId?: string }>()
@@ -43,6 +46,10 @@ const conflict = ref(false)
 const loadError = ref('')
 const saveError = ref('')
 const notice = ref('')
+const collecting = ref(false)
+const collectionError = ref('')
+const collectionNotice = ref('')
+let collectionTimer: number | undefined
 const standardCatalog = ref<ClassificationStandards>()
 const standardsLoading = ref(false)
 const standardsError = ref('')
@@ -59,7 +66,8 @@ const statutory: Record<string, string> = { unknown: '待认定', general: '一�
 const locations: Record<string, string> = { parameter: '参数', request: '请求体', response: '响应体' }
 const metrics = [
   { key: 'total', label: '资产总数' }, { key: 'pending', label: '待确认' },
-  { key: 'reviewed', label: '已确认' }, { key: 'importantOrCore', label: '重要或核心数据' },
+  { key: 'reviewed', label: '人工确认' }, { key: 'automatic', label: '自动识别' },
+  { key: 'importantOrCore', label: '重要或核心数据' },
 ] as const
 const standardOptions = computed(() => standardCatalog.value?.items.filter(item => item.status === 'effective' || isReferencePublication(item)) ?? [])
 const standardOptionGroups = computed(() => standardsByIndustry(standardOptions.value))
@@ -77,7 +85,7 @@ const statutorySelection = computed({
   set: (value: string) => { draft.statutoryCategory = value },
 })
 const validStandard = computed(() => selectedStandard.value &&
-  (!selectedStandard.value.levels?.length || selectedLevel.value) &&
+  (!selectedStandard.value.levels?.length || selectedLevel.value || !levelCode.value && statutorySelection.value === 'unknown') &&
   (!selectedStandard.value.rules?.length || selectedRule.value),
 )
 
@@ -126,6 +134,54 @@ function changeLevel() {
   if (!selectedRule.value) ruleId.value = ''
 }
 
+function trackCollection(jobId: number, previousRunId: string, startedAt: number) {
+  collectionTimer = window.setTimeout(async () => {
+    if (active.signal.aborted) return
+    try {
+      const page = await request<{ items: AutomationJob[] }>(workspacePath(props.workspace.slug) + '/automation/jobs', { signal: active.signal })
+      const job = page.items.find(item => item.id === jobId)
+      if (!job || job.revokedAt) {
+        collecting.value = false
+        collectionError.value = '采集任务已撤销或不可访问，请在自动采集中检查任务。'
+        return
+      }
+      if (job.latestRun && job.latestRun.runId !== previousRunId && !job.managed?.running && !job.managed?.queued) {
+        collecting.value = false
+        if (job.latestRun.status === 'error') collectionError.value = automationRunDetail(job.latestRun, true)
+        await load()
+        if (!collectionError.value) collectionNotice.value = '本次采集已完成，分类记录已刷新。'
+        return
+      }
+      if (Date.now() - startedAt < 45_000) trackCollection(jobId, previousRunId, startedAt)
+      else {
+        collecting.value = false
+        collectionNotice.value = '采集仍在处理中，可在自动采集页面查看进度。'
+      }
+    } catch (error) {
+      collecting.value = false
+      collectionError.value = errorText(error)
+    }
+  }, 1000)
+}
+
+async function collect() {
+  const automatic = detail.value?.automatic
+  if (props.workspace.role !== 'owner' || !automatic || collecting.value || loading.value || saving.value) return
+  collecting.value = true
+  collectionError.value = ''
+  collectionNotice.value = ''
+  notice.value = ''
+  try {
+    await request(workspacePath(props.workspace.slug) + '/automation/managed/jobs/' + automatic.jobId + '/run', {
+      method: 'POST', signal: active.signal,
+    })
+    if (!active.signal.aborted) trackCollection(automatic.jobId, automatic.runId, Date.now())
+  } catch (error) {
+    collecting.value = false
+    collectionError.value = errorText(error)
+  }
+}
+
 async function load(append = false) {
   if (loading.value || saving.value) return
   loading.value = true
@@ -162,7 +218,7 @@ function fillSuggestions() {
 }
 
 async function save() {
-  if (!detail.value || !canEdit.value || loading.value || saving.value || conflict.value) return
+  if (!detail.value || !canEdit.value || loading.value || saving.value || collecting.value || conflict.value) return
   saveError.value = ''
   notice.value = ''
   if (!validStandard.value) {
@@ -202,7 +258,10 @@ onMounted(() => {
   void load()
   if (detailPath && canEdit.value) void loadStandards()
 })
-onBeforeUnmount(() => active.abort())
+onBeforeUnmount(() => {
+  window.clearTimeout(collectionTimer)
+  active.abort()
+})
 </script>
 
 <template>
@@ -215,6 +274,7 @@ onBeforeUnmount(() => active.abort())
         <p>{{ assetId ? '核对自动识别线索，记录分类决定和判定依据。' : '查看采集器的字段识别线索、已确认分类和变更历史。' }}</p>
       </div>
       <div class="page-actions">
+        <button v-if="assetId && detail" type="button" class="button button-secondary" :disabled="loading || saving || collecting" @click="load()">刷新结果</button>
         <a class="button button-secondary" :href="home + '/classification/standards'">标准库</a>
         <a v-if="assetId && detail?.asset.sourceProvider === 'postgresql'" class="button button-secondary" :href="home + '/assets/' + assetId">查看字段与权限</a>
         <a v-if="!assetId" class="button button-secondary" :href="home + '/assets'">查看数据资产</a>
@@ -223,10 +283,12 @@ onBeforeUnmount(() => active.abort())
     <p v-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }}</p>
     <p v-if="assetId && loading && !detail" class="empty-state" role="status">正在读取资产分类…</p>
     <button v-if="assetId && loadError" type="button" class="button button-secondary" :disabled="loading" @click="load()">重新读取</button>
+    <p v-if="collectionError" class="message message-error page-feedback" role="alert">{{ collectionError }}</p>
+    <p v-if="collectionNotice" class="message message-success page-feedback" role="status">{{ collectionNotice }}</p>
 
     <template v-if="!assetId">
       <dl v-if="page" class="panel report-counts classification-counts" aria-label="工作区分类总览">
-        <div v-for="metric in metrics" :key="metric.key"><dt>{{ metric.label }}</dt><dd>{{ page.counts[metric.key] }}</dd></div>
+        <div v-for="metric in metrics" :key="metric.key"><dt>{{ metric.label }}</dt><dd>{{ page.counts[metric.key] ?? 0 }}</dd></div>
       </dl>
       <section class="panel" aria-labelledby="classification-list-title" :aria-busy="loading">
         <div class="panel-heading">
@@ -235,7 +297,7 @@ onBeforeUnmount(() => active.abort())
         <form class="filter-bar classification-filter" @submit.prevent="load()">
           <label for="classification-filter-status">确认状态</label>
           <select id="classification-filter-status" v-model="status" :disabled="loading">
-            <option value="">全部</option><option value="pending">待确认</option><option value="reviewed">已确认</option>
+            <option value="">全部</option><option value="pending">待确认</option><option value="reviewed">人工确认</option><option value="automatic">自动识别</option>
           </select>
           <label for="classification-filter-statutory">法定类别</label>
           <select id="classification-filter-statutory" v-model="statutoryFilter" :disabled="loading">
@@ -260,7 +322,9 @@ onBeforeUnmount(() => active.abort())
                 <td>{{ categories[item.asset.category || 'unknown'] }}<span class="table-secondary">{{ levels[item.asset.businessLevel || 'unknown'] }}</span></td>
                 <td>{{ statutory[item.asset.statutoryCategory || 'unknown'] }}</td>
                 <td>
-                  <span class="badge" :class="item.revision ? 'status-verified' : 'status-draft'">{{ item.revision ? '已确认' : '待确认' }}</span>
+                  <span class="badge" :class="item.revision ? item.origin === 'automatic' ? 'status-in_review' : 'status-verified' : 'status-draft'">
+                    {{ item.revision ? classificationOriginLabels[item.origin || 'manual'] : '待确认' }}
+                  </span>
                   <span v-if="item.revision" class="table-secondary">版本 {{ item.revision }}</span>
                   <span v-if="item.standard" class="table-secondary">{{ item.standard.code }}<template v-if="item.standard.levelLabel"> · {{ item.standard.levelLabel }}</template></span>
                 </td>
@@ -279,8 +343,8 @@ onBeforeUnmount(() => active.abort())
       <section class="panel" aria-labelledby="classification-current-title">
         <div class="panel-heading">
           <div><h2 id="classification-current-title">当前分类</h2><p>{{ detail.asset.system }}<template v-if="detail.asset.sourceProvider"> · {{ providerLabel(detail.asset.sourceProvider) }}</template></p></div>
-          <span class="badge" :class="detail.revision ? 'status-verified' : 'status-draft'">
-            {{ detail.revision ? '已确认 · 版本 ' + detail.revision : '待确认' }}
+          <span class="badge" :class="!detail.revision ? 'status-draft' : detail.origin === 'automatic' ? 'status-in_review' : 'status-verified'">
+            {{ detail.revision ? classificationOriginLabels[detail.origin || 'manual'] + ' · 版本 ' + detail.revision : '待确认' }}
           </span>
         </div>
         <dl class="detail-list">
@@ -300,6 +364,19 @@ onBeforeUnmount(() => active.abort())
           <div class="detail-wide"><dt>判定依据</dt><dd class="text-block">{{ detail.asset.classificationBasis || '—' }}</dd></div>
         </dl>
         <p v-if="!detail.revision" class="field-hint classification-note">已有分类值可来自资产历史记录。完成本页确认后，平台开始记录分类版本。</p>
+      </section>
+
+      <section class="panel" aria-labelledby="classification-automatic-title">
+        <div class="panel-heading">
+          <div><h2 id="classification-automatic-title">自动判定快照</h2><p>查看本次采集事实与标准条款的对应结果。</p></div>
+          <div class="page-actions">
+            <button v-if="workspace.role === 'owner' && detail.automatic" type="button" class="button button-secondary"
+                    :disabled="loading || saving || collecting" @click="collect">{{ collecting ? '正在采集…' : '重新采集' }}</button>
+            <a v-if="detail.asset.sourceProvider === 'postgresql'" class="button button-secondary" :href="home + '/automation'">查看采集任务</a>
+          </div>
+        </div>
+        <div v-if="detail.automatic" class="classification-automatic-body"><ClassificationEvaluation :automatic="detail.automatic" /></div>
+        <p v-else class="empty-state">暂无自动判定快照。支持的来源完成采集后，这里会显示事实、条款结果和待补条件。</p>
       </section>
 
       <section class="panel" aria-labelledby="classification-candidates-title">
@@ -339,7 +416,7 @@ onBeforeUnmount(() => active.abort())
         <div class="panel-heading">
           <div><h2 id="classification-form-title">确认分类</h2><p>依据组织采用的分类规则填写。保存后会记录经办人、依据和版本。</p></div>
           <button v-if="detail.suggestedCategory || detail.suggestedBusinessLevel" type="button" class="button button-secondary"
-                  :disabled="loading || saving || conflict" @click="fillSuggestions">填入识别建议</button>
+                  :disabled="loading || saving || collecting || conflict" @click="fillSuggestions">填入识别建议</button>
         </div>
         <form class="classification-form" @submit.prevent="save">
           <p v-if="standardsLoading" class="field-hint" role="status">正在读取可选标准…</p>
@@ -348,7 +425,7 @@ onBeforeUnmount(() => active.abort())
             <button type="button" class="button button-secondary" @click="loadStandards">重新读取标准</button>
           </div>
           <fieldset v-if="standardCatalog" class="classification-fields classification-standard-fields"
-                    :disabled="loading || saving || conflict || standardsLoading">
+                    :disabled="loading || saving || collecting || conflict || standardsLoading">
             <div class="field">
               <label for="classification-standard">采用标准</label>
               <select id="classification-standard" v-model="standardId" required @change="changeStandard">
@@ -364,15 +441,16 @@ onBeforeUnmount(() => active.abort())
             </div>
             <div v-if="selectedStandard?.levels?.length" class="field">
               <label for="classification-standard-level">标准等级</label>
-              <select id="classification-standard-level" v-model="levelCode" required @change="changeLevel">
-                <option value="" disabled>请选择等级</option>
+              <select id="classification-standard-level" v-model="levelCode" @change="changeLevel">
+                <option value="">等级待评定（先确认数据属性）</option>
                 <option v-for="level in selectedStandard.levels" :key="level.code" :value="level.code">{{ level.label }}</option>
               </select>
+              <p v-if="!selectedLevel" class="field-hint">等级待评定时，法定类别请选择待认定。</p>
             </div>
             <div v-if="selectedStandard?.rules?.length" class="field">
               <label for="classification-standard-rule">采用规则</label>
-              <select id="classification-standard-rule" v-model="ruleId" :disabled="Boolean(selectedStandard.levels?.length && !selectedLevel)" required>
-                <option value="" disabled>{{ selectedStandard.levels?.length && !selectedLevel ? '请先选择等级' : '请选择规则' }}</option>
+              <select id="classification-standard-rule" v-model="ruleId" required>
+                <option value="" disabled>请选择适用规则</option>
                 <option v-for="rule in ruleOptions" :key="rule.id" :value="rule.id">{{ rule.clause }} · {{ rule.title }}</option>
               </select>
             </div>
@@ -387,7 +465,7 @@ onBeforeUnmount(() => active.abort())
             <a v-if="documentationUrl(selectedStandard.url)" class="table-link" :href="documentationUrl(selectedStandard.url)"
                target="_blank" rel="noopener noreferrer">查看官方来源</a>
           </details>
-          <fieldset class="classification-fields" :disabled="loading || saving || conflict">
+          <fieldset class="classification-fields" :disabled="loading || saving || collecting || conflict">
             <div class="field">
               <label for="classification-category">数据属性</label>
               <select id="classification-category" v-model="draft.category"><option v-for="(label, value) in categories" :key="value" :value="value">{{ label }}</option></select>
@@ -406,13 +484,13 @@ onBeforeUnmount(() => active.abort())
           </fieldset>
           <div class="field">
             <label for="classification-basis">判定依据</label>
-            <textarea id="classification-basis" v-model="draft.basis" required maxlength="400" :disabled="loading || saving || conflict" aria-describedby="classification-basis-hint"></textarea>
+            <textarea id="classification-basis" v-model="draft.basis" required maxlength="400" :disabled="loading || saving || collecting || conflict" aria-describedby="classification-basis-hint"></textarea>
             <p id="classification-basis-hint" class="field-hint">填写规则编号、审批记录或脱敏判定摘要。</p>
           </div>
           <p v-if="notice" class="message message-success classification-feedback" role="status">{{ notice }}</p>
           <p v-if="saveError" class="message message-error classification-feedback" role="alert">{{ saveError }}</p>
           <div class="form-actions">
-            <button type="submit" class="button button-primary" :disabled="loading || saving || conflict || !validStandard">{{ saving ? '正在保存…' : '保存分类' }}</button>
+            <button type="submit" class="button button-primary" :disabled="loading || saving || collecting || conflict || !validStandard">{{ saving ? '正在保存…' : '保存分类' }}</button>
             <button v-if="conflict" type="button" class="button button-secondary" :disabled="loading" @click="load()">读取最新版本</button>
           </div>
         </form>
@@ -424,6 +502,7 @@ onBeforeUnmount(() => active.abort())
         <ol v-if="detail.history.length" class="timeline">
           <li v-for="entry in detail.history" :key="entry.id">
             <strong>版本 {{ entry.revision }}</strong>
+            <span class="badge" :class="entry.origin === 'automatic' ? 'status-in_review' : 'status-verified'">{{ classificationOriginLabels[entry.origin || 'manual'] }}</span>
             <div class="event-meta">{{ entry.actor }} · <time :datetime="entry.createdAt">{{ formatDate(entry.createdAt) }}</time></div>
             <p>{{ categories[entry.category] }} · {{ levels[entry.businessLevel] }} · {{ statutory[entry.statutoryCategory] }}</p>
             <p v-if="entry.standard" class="classification-history-standard">
@@ -459,6 +538,7 @@ onBeforeUnmount(() => active.abort())
 .classification-counts div { border-bottom: 0; }
 .classification-filter select { min-width: 0; }
 .classification-detail { display: grid; gap: 1rem; }
+.classification-automatic-body { padding: .85rem 1.1rem; }
 .classification-note { margin: .7rem 1.1rem; }
 .classification-table { min-width: 35rem; }
 .classification-candidates { min-width: 33rem; }

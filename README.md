@@ -81,7 +81,7 @@ go run ./cmd/server -web ../web/dist -allow-insecure-loopback
 
 打开 [赤翎 Go 与 Vue 控制台](http://127.0.0.1:8080)，用首次初始化时生成的账号密码登录。再次执行初始化会保留已建立的账号。开发时也可用 `npm run dev --prefix web`，并将 Go API 的 `SCARLET_ORIGIN` 设为 `http://127.0.0.1:5173`。
 
-工作台的「自动采集」支持 PostgreSQL、OpenMetadata 和飞书权限定期采集。平台托管的 PostgreSQL 任务可自动识别疑似敏感字段、采集直接 ACL，并按任务配置生成 G02/G03 检查证据和合规报告快照。 [自动采集、检查与报告](docs/automation.md)
+工作台的「自动采集」支持 PostgreSQL、OpenMetadata 和飞书权限定期采集。托管 PostgreSQL 可采集结构、注释、约束、权限和源内有界格式统计，自动判定数据属性并保存采用的标准与事实，按任务配置生成 G02/G03 证据、整改复测和合规报告快照。 [自动采集、检查与报告](docs/automation.md)
 
 「API 安全」可扫描 OpenAPI 3.0 或 3.1 JSON，自动登记接口资产，将鉴权与疑似敏感字段等契约风险接入检查和取证流程，并导出扫描结果。 [API 安全与能力对照](docs/api-security.md)、[API 运行时观测与 HTTPS 接入](docs/runtime-security.md)
 

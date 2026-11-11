@@ -135,6 +135,9 @@ func TestPostgreSQLAutomaticReportArchives(t *testing.T) {
 	if classification.Check.ID == 0 {
 		t.Fatal("archive omitted the classification check")
 	}
+	if automatic := classification.AutomaticEvaluation.Classification; automatic == nil || automatic.Comparison != "insufficient" || automatic.Evaluation.AutoApplicable || automatic.Evaluation.Standard.ID == "" || len(automatic.Evaluation.Rules) == 0 || len(automatic.Evaluation.MissingConditions) == 0 {
+		t.Fatal("metadata-only classification omitted the selected standard, rules or unobserved conditions")
+	}
 	checkErr(repo.SubmitCheck(ctx, workspace.ID, owner.ID, classification.Check.ID))
 	table.Columns[0].Sensitivity = ""
 	second := collect("second")
@@ -142,9 +145,15 @@ func TestPostgreSQLAutomaticReportArchives(t *testing.T) {
 	checkErr(json.Unmarshal(get(fmt.Sprintf("%s/%d", path, second.ID), true, 200).Body.Bytes(), &updated))
 	for _, entry := range updated.Checks {
 		if entry.Check.ID == classification.Check.ID && (entry.AutomaticEvaluation == nil ||
-			entry.AutomaticEvaluation.Assessment != "no_signal" || entry.Check.Status != "in_review" ||
+			entry.AutomaticEvaluation.Assessment != "review_required" || entry.Check.Status != "in_review" ||
 			len(entry.Evidence) != 1 || entry.Evidence[0].AutomationRunID != "first") {
 			t.Fatalf("current evaluation was conflated with review or historical evidence: %+v", entry)
+		}
+		if entry.Check.ID == classification.Check.ID {
+			automatic := entry.AutomaticEvaluation.Classification
+			if automatic == nil || automatic.RunID != second.RunID || automatic.Comparison != "insufficient" || automatic.Evaluation.AutoApplicable || len(automatic.Evaluation.MissingConditions) == 0 || automatic.Evaluation.Standard.ID == "" || entry.AutomaticEvaluation.SensitiveCandidateCount != 0 || entry.Evidence[0].Postgres == nil || entry.Evidence[0].Postgres.SensitiveCandidateCount != 1 {
+				t.Fatal("latest metadata observation overwrote historical evidence or claimed complete classification")
+			}
 		}
 	}
 	if updated.Identification == nil || updated.Identification.SensitiveCandidates != 0 ||

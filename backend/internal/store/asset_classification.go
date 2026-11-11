@@ -34,6 +34,8 @@ type AssetClassificationItem struct {
 	SuggestedCategory      string                             `json:"suggestedCategory,omitempty"`
 	SuggestedBusinessLevel string                             `json:"suggestedBusinessLevel,omitempty"`
 	Standard               *classificationstandards.Reference `json:"standard,omitempty"`
+	Origin                 string                             `json:"origin"`
+	Automatic              *AutomaticClassification           `json:"automatic,omitempty"`
 }
 
 type AssetClassificationHistory struct {
@@ -50,6 +52,7 @@ type AssetClassificationHistory struct {
 	PreviousStatutoryCategory string                             `json:"previousStatutoryCategory"`
 	PreviousBasis             string                             `json:"previousBasis"`
 	Standard                  *classificationstandards.Reference `json:"standard,omitempty"`
+	Origin                    string                             `json:"origin"`
 }
 
 type AssetClassificationDetail struct {
@@ -62,6 +65,7 @@ type AssetClassificationCounts struct {
 	Total           int64 `json:"total"`
 	Pending         int64 `json:"pending"`
 	Reviewed        int64 `json:"reviewed"`
+	Automatic       int64 `json:"automatic"`
 	ImportantOrCore int64 `json:"importantOrCore"`
 }
 
@@ -114,12 +118,12 @@ func validClassification(input AssetClassificationInput) bool {
 func scanClassificationAsset(row pgx.Row) (AssetClassificationItem, error) {
 	item := AssetClassificationItem{Candidates: make([]ClassificationCandidate, 0)}
 	var err error
-	item.Asset, err = scanAsset(row, &item.Revision, &item.Standard)
+	item.Asset, err = scanAsset(row, &item.Revision, &item.Standard, &item.Origin)
 	return item, err
 }
 
 func (s *Store) ListAssetClassifications(ctx context.Context, workspaceID, actorID int64, filter AssetClassificationFilter) (AssetClassificationPage, error) {
-	if filter.After < 0 || filter.Status != "" && filter.Status != "pending" && filter.Status != "reviewed" ||
+	if filter.After < 0 || filter.Status != "" && filter.Status != "pending" && filter.Status != "reviewed" && filter.Status != "automatic" ||
 		filter.StatutoryCategory != "" && !validStatutoryCategory(filter.StatutoryCategory) {
 		return AssetClassificationPage{}, ErrInvalid
 	}
@@ -130,16 +134,18 @@ func (s *Store) ListAssetClassifications(ctx context.Context, workspaceID, actor
 		}
 		if err := tx.QueryRow(ctx, `
 			SELECT count(*), count(*) FILTER (WHERE classification_revision = 0),
-			       count(*) FILTER (WHERE classification_revision > 0),
+			       count(*) FILTER (WHERE classification_revision > 0 AND classification_origin = 'manual'),
+			       count(*) FILTER (WHERE classification_revision > 0 AND classification_origin = 'automatic'),
 			       count(*) FILTER (WHERE statutory_category IN ('important', 'core'))
 			FROM plume.assets WHERE workspace_id = $1
-		`, workspaceID).Scan(&page.Counts.Total, &page.Counts.Pending, &page.Counts.Reviewed, &page.Counts.ImportantOrCore); err != nil {
+		`, workspaceID).Scan(&page.Counts.Total, &page.Counts.Pending, &page.Counts.Reviewed, &page.Counts.Automatic, &page.Counts.ImportantOrCore); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard
+		rows, err := tx.Query(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard, classification_origin
 			FROM plume.assets WHERE workspace_id = $1 AND id > $2
 			  AND CASE $3::text WHEN 'pending' THEN classification_revision = 0
-			                    WHEN 'reviewed' THEN classification_revision > 0 ELSE true END
+			                    WHEN 'reviewed' THEN classification_revision > 0 AND classification_origin = 'manual'
+			                    WHEN 'automatic' THEN classification_revision > 0 AND classification_origin = 'automatic' ELSE true END
 			  AND ($4::text = '' OR statutory_category = $4)
 			ORDER BY id LIMIT $5
 		`, workspaceID, filter.After, filter.Status, filter.StatutoryCategory, classificationPageLimit+1)
@@ -168,7 +174,7 @@ func (s *Store) GetAssetClassification(ctx context.Context, workspaceID, actorID
 		if _, err := checkRole(ctx, tx, workspaceID, actorID, false); err != nil {
 			return err
 		}
-		item, err := scanClassificationAsset(tx.QueryRow(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard
+		item, err := scanClassificationAsset(tx.QueryRow(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard, classification_origin
 			FROM plume.assets WHERE workspace_id = $1 AND id = $2`, workspaceID, assetID))
 		if err != nil {
 			return err
@@ -203,7 +209,7 @@ func (s *Store) UpdateAssetClassification(ctx context.Context, workspaceID, acto
 		if !checkEditor(role) {
 			return ErrForbidden
 		}
-		previous, err := scanClassificationAsset(tx.QueryRow(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard
+		previous, err := scanClassificationAsset(tx.QueryRow(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard, classification_origin
 			FROM plume.assets WHERE workspace_id = $1 AND id = $2 FOR NO KEY UPDATE`, workspaceID, assetID))
 		if err != nil {
 			return err
@@ -221,9 +227,9 @@ func (s *Store) UpdateAssetClassification(ctx context.Context, workspaceID, acto
 		item, err := scanClassificationAsset(tx.QueryRow(ctx, `
 			UPDATE plume.assets
 			SET category = $3, business_level = $4, statutory_category = $5, classification_basis = $6,
-			    classification_revision = classification_revision + 1, classification_standard = $7
+			    classification_revision = classification_revision + 1, classification_standard = $7, classification_origin = 'manual'
 			WHERE workspace_id = $1 AND id = $2
-			RETURNING `+assetColumns+", classification_revision, classification_standard",
+			RETURNING `+assetColumns+", classification_revision, classification_standard, classification_origin",
 			workspaceID, assetID, input.Category, input.BusinessLevel, input.StatutoryCategory, input.Basis, reference))
 		if err != nil {
 			return err
@@ -251,7 +257,7 @@ func classificationDetail(ctx context.Context, tx pgx.Tx, workspaceID int64, ite
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT h.id, h.revision, u.username, h.created_at, h.category, h.business_level, h.statutory_category, h.basis,
-		       h.previous_category, h.previous_business_level, h.previous_statutory_category, h.previous_basis, h.standard_reference
+			       h.previous_category, h.previous_business_level, h.previous_statutory_category, h.previous_basis, h.standard_reference, h.origin
 		FROM plume.asset_classification_history h JOIN plume.users u ON u.id = h.actor_id
 		WHERE h.workspace_id = $1 AND h.asset_id = $2 ORDER BY h.revision DESC LIMIT $3
 	`, workspaceID, item.Asset.ID, classificationHistoryLimit+1)
@@ -262,7 +268,7 @@ func classificationDetail(ctx context.Context, tx pgx.Tx, workspaceID int64, ite
 		var record AssetClassificationHistory
 		err := row.Scan(&record.ID, &record.Revision, &record.Actor, &record.CreatedAt,
 			&record.Category, &record.BusinessLevel, &record.StatutoryCategory, &record.Basis,
-			&record.PreviousCategory, &record.PreviousBusinessLevel, &record.PreviousStatutoryCategory, &record.PreviousBasis, &record.Standard)
+			&record.PreviousCategory, &record.PreviousBusinessLevel, &record.PreviousStatutoryCategory, &record.PreviousBasis, &record.Standard, &record.Origin)
 		return record, err
 	})
 	if err != nil {
@@ -362,5 +368,9 @@ func loadClassificationCandidates(ctx context.Context, tx pgx.Tx, workspaceID in
 			item.SuggestedBusinessLevel = "internal"
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	return loadAutomaticClassifications(ctx, tx, workspaceID, items)
 }
