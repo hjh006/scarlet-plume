@@ -182,6 +182,7 @@ onBeforeUnmount(() => {
   activityOperation?.abort()
   templateOperation?.abort()
 })
+function scrollField(id: string) { document.getElementById(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }
 </script>
 
 <template>
@@ -201,7 +202,7 @@ onBeforeUnmount(() => {
     <a class="button button-primary" :href="`#/${encodeURIComponent(workspace.slug)}/assets`">前往数据资产</a>
   </section>
   <p v-else-if="!requirements.length" class="message message-warning" role="status">当前暂无可关联的监管要求。</p>
-  <form v-else class="panel form-panel" @submit.prevent="createCheck">
+  <div v-else class="check-create-workbench"><nav class="panel check-create-outline" aria-label="检查配置步骤"><h2>配置步骤</h2><button type="button" @click="scrollField('check-asset')">1. 关联范围</button><button type="button" @click="scrollField('check-requirement')">2. 采用要求</button><button type="button" @click="scrollField('check-owner')">3. 责任与备注</button></nav><form class="panel form-panel" @submit.prevent="createCheck">
     <p v-if="formError" class="message message-error page-feedback" role="alert">{{ formError }}</p>
     <div v-if="linkedActivity" class="field">
       <strong>{{ linkedActivity.name }}</strong>
@@ -287,5 +288,10 @@ onBeforeUnmount(() => {
       <button type="submit" class="button button-primary" :disabled="saving || loading">{{ saving ? '正在创建…' : '创建检查' }}</button>
       <a class="button button-secondary" :href="cancelUrl">取消</a>
     </div>
-  </form>
+  </form><aside class="section-stack check-create-summary"><section class="panel"><div class="panel-heading"><h2>采用范围</h2></div><dl><div><dt>工作区</dt><dd>{{workspace.name}}</dd></div><div><dt>关联资产</dt><dd>{{linkedActivity?.assetName || assets.find(item=>String(item.id)===assetId)?.name || '待选择'}}</dd></div><div><dt>处理活动</dt><dd>{{selectedActivity?.name || '未关联'}}</dd></div><div><dt>监管要求</dt><dd>{{effectiveRequirementCode || '待选择'}}</dd></div><div><dt>采用模板</dt><dd>{{selectedTemplate ? selectedTemplate.title + ' · v' + selectedTemplate.version : '手动选择要求'}}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h2>核验提示</h2></div><p>适用条件、证据和验收标准分别留存。创建检查仅登记采用范围，不表示已取得证据或通过独立复核。</p></section></aside></div>
 </template>
+<style scoped>
+.check-create-workbench{display:grid;grid-template-columns:180px minmax(0,1fr) 280px;gap:16px;align-items:start}.check-create-outline{padding:19px;display:grid;gap:22px;font-size:12px}.check-create-outline h2{font-size:16px}.check-create-workbench .form-panel{width:auto;max-width:none;margin:0;padding:22px}.check-create-summary{display:grid;gap:16px}.check-create-summary dl{margin:0;padding:5px 18px;font-size:11px}.check-create-summary dl>div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.check-create-summary dt{color:var(--secondary)}.check-create-summary dd{margin:0;overflow-wrap:anywhere}.check-create-summary p{padding:18px;font-size:12px;color:var(--secondary)}.check-create-workbench .form-actions{border-top:1px solid var(--line);padding-top:16px;justify-content:flex-end}@media(max-width:1320px){.check-create-workbench{grid-template-columns:150px minmax(0,1fr) 240px}.check-create-workbench .form-panel{padding:18px}}
+</style>
+
+<style scoped>nav button { display:block; width:100%; text-align:left; border:0; background:transparent; color:var(--muted); padding:10px 8px; cursor:pointer; font:inherit; border-radius:6px }nav button:hover { color:var(--blue); background:var(--surface-muted) }</style>

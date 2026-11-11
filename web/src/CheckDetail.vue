@@ -27,6 +27,8 @@ const actionConflict = ref(false)
 const formVersion = ref(0)
 const decision = ref<'verified' | 'changes' | ''>('')
 const reviewNote = ref('')
+const detailTab = ref<'evidence' | 'basis' | 'history'>('evidence')
+const evidenceCount = (kind: string) => record.value?.evidence.filter(entry => entry.kind === kind).length ?? 0
 const active = new AbortController()
 
 const changes = computed(() => record.value?.status === 'needs_work'
@@ -129,7 +131,7 @@ onBeforeUnmount(() => active.abort())
     <template v-if="record">
       <header class="page-header">
         <div>
-          <p class="eyebrow">检查记录 <span class="mono">#{{ record.id }}</span></p>
+          <p class="eyebrow">检查与独立复核 <span class="mono">#{{ record.id }}</span></p>
           <h1>{{ record.template?.item.title || record.requirement.title }}</h1>
           <p>{{ record.assetName }} · {{ record.ownerTeam }}</p>
         </div>
@@ -150,7 +152,16 @@ onBeforeUnmount(() => active.abort())
         <button v-if="actionConflict" type="button" class="button button-secondary" :disabled="loading" @click="load">刷新检查记录</button>
       </div>
 
-      <section class="panel" aria-labelledby="check-summary-title">
+      <ol class="workflow-spine check-workflow" aria-label="检查进度">
+        <li class="is-recorded"><span>1</span><strong>发现</strong><small>检查 #{{ record.id }} · {{ formatDate(record.updatedAt) }}</small></li>
+        <li :class="{ 'is-recorded': record.evidence.length }"><span>2</span><strong>取证</strong><small>{{ record.evidence.length ? record.evidence.length + ' 条记录已留存' : '尚未取证' }}</small></li>
+        <li :class="{ 'is-recorded': evidenceCount('remediation') }"><span>3</span><strong>整改与复测</strong><small>{{ evidenceCount('remediation') }} 条整改 · {{ evidenceCount('retest') }} 条复测</small></li>
+        <li :class="{ 'is-recorded': record.status === 'verified', 'is-current': record.status === 'in_review' }"><span>4</span><strong>独立复核</strong><small>{{ checkStatusLabels[record.status] }}</small></li>
+      </ol>
+      <div class="check-detail-tabs" role="tablist" aria-label="检查详情内容">
+        <button v-for="tab in ([['evidence','证据记录'],['basis','检查依据'],['history','复核历史']] as const)" :key="tab[0]" type="button" role="tab" :aria-selected="detailTab === tab[0]" :class="{active:detailTab === tab[0]}" @click="detailTab = tab[0]">{{ tab[1] }}</button>
+      </div>
+      <section v-show="detailTab === 'basis'" class="panel" aria-labelledby="check-summary-title">
         <div class="panel-heading">
           <div><h2 id="check-summary-title">检查信息</h2><p>提交后由具备权限且未参与经办的账号独立复核。</p></div>
           <span class="badge status" :class="'status-' + record.status">{{ checkStatusLabels[record.status] }}</span>
@@ -193,7 +204,7 @@ onBeforeUnmount(() => active.abort())
         </dl>
       </section>
 
-      <section v-if="record.classification" class="panel current-classification" aria-labelledby="check-classification-title">
+      <section v-if="record.classification" v-show="detailTab === 'basis'" class="panel current-classification" aria-labelledby="check-classification-title">
         <div class="panel-heading">
           <div><h2 id="check-classification-title">当前分类与自动判定</h2><p>查看资产当前记录，并在证据中追溯各次采集快照。</p></div>
           <a class="button button-secondary" :href="home + '/classification/' + record.assetId">查看资产分类</a>
@@ -207,7 +218,7 @@ onBeforeUnmount(() => active.abort())
         </div>
       </section>
 
-      <div class="detail-grid">
+      <div v-show="detailTab === 'evidence'" class="detail-grid check-evidence-workbench">
         <section class="panel" aria-labelledby="check-evidence-title">
           <div class="panel-heading">
             <div><h2 id="check-evidence-title">证据记录</h2><p>按来源标识和观察时间追溯核验依据。</p></div>
@@ -278,7 +289,7 @@ onBeforeUnmount(() => active.abort())
 
           <article v-for="entry in record.evidence" :key="entry.id" class="evidence">
             <div class="evidence-heading">
-              <h3>{{ entry.sourceSystem }}</h3>
+              <h3><span class="evidence-kind-label">{{ evidenceKindLabels[entry.kind] }}</span>{{ entry.sourceSystem }}</h3>
               <span v-if="entry.automationJobId" class="badge status-verified">自动采集</span>
               <span class="badge">{{ evidenceKindLabels[entry.kind] }}</span>
             </div>
@@ -347,19 +358,8 @@ onBeforeUnmount(() => active.abort())
           </div>
         </section>
 
-        <section class="panel" aria-labelledby="check-events-title">
-          <div class="panel-heading"><div><h2 id="check-events-title">操作历史</h2><p>查看登记、提交和复核记录。</p></div></div>
-          <ol v-if="record.events.length" class="timeline">
-            <li v-for="event in record.events" :key="event.id">
-              <strong>{{ eventLabels[event.action] }}</strong>
-              <div class="event-meta">{{ event.actor }} · <time :datetime="event.createdAt">{{ formatDate(event.createdAt) }}</time></div>
-              <p v-if="event.note" class="text-block">{{ event.note }}</p>
-            </li>
-          </ol>
-          <div v-else class="empty-state"><p>尚无操作记录。</p></div>
-        </section>
-      </div>
-
+        <aside class="check-review-rail">
+          <section class="panel"><div class="panel-heading"><h2>复核要点</h2></div><ul class="review-scope-list"><li>同一来源、目标和规则范围</li><li>新复测晚于本轮整改记录</li><li>原始、整改与复测分别保留</li><li>复核人回避经办与证据登记</li></ul><p class="review-callout">执行回执、来源复测与独立通过分别记录，不能自动等同。</p></section>
       <section v-if="record.canReview" class="panel review-panel" aria-labelledby="check-review-title">
         <div class="panel-heading">
           <div><h2 id="check-review-title">独立复核</h2><p>核对本次提交的证据，说明核验结果或待整改事项。</p></div>
@@ -396,6 +396,22 @@ onBeforeUnmount(() => active.abort())
           </div>
         </form>
       </section>
+          <section v-if="!record.canReview" class="panel"><div class="panel-heading"><h2>当前复核状态</h2></div><div class="review-readonly"><span class="badge status" :class="'status-' + record.status">{{ checkStatusLabels[record.status] }}</span><p>{{ record.status === 'verified' ? '当前检查已完成独立复核，原采用证据保持留存。' : record.status === 'in_review' ? '当前账号不能独立复核本次提交，请由符合回避要求的人员核验。' : '完成来源取证和必要整改后，再提交独立复核。' }}</p></div></section>
+        </aside>
+      </div>
+
+
+        <section v-show="detailTab !== 'basis'" class="panel check-audit-trail" aria-labelledby="check-events-title">
+          <div class="panel-heading"><div><h2 id="check-events-title">操作历史</h2><p>查看登记、提交和复核记录。</p></div></div>
+          <ol v-if="record.events.length" class="timeline">
+            <li v-for="event in record.events" :key="event.id">
+              <strong>{{ eventLabels[event.action] }}</strong>
+              <div class="event-meta">{{ event.actor }} · <time :datetime="event.createdAt">{{ formatDate(event.createdAt) }}</time></div>
+              <p v-if="event.note" class="text-block">{{ event.note }}</p>
+            </li>
+          </ol>
+          <div v-else class="empty-state"><p>尚无操作记录。</p></div>
+        </section>
     </template>
   </div>
 </template>
@@ -412,4 +428,6 @@ onBeforeUnmount(() => active.abort())
 .check-classification-body { padding: .8rem 1.1rem; }
 .check-classification-snapshot { margin-block: .65rem; }
 .check-classification-snapshot > summary { min-height: 2.5rem; padding-block: .5rem; cursor: pointer; }
+
+.check-workflow{list-style:none;margin:28px 0 24px;padding:0 20px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.check-workflow li{position:relative;display:grid;justify-items:center;gap:6px;font-size:12px;text-align:center}.check-workflow li::before{content:"";position:absolute;top:14px;height:1px;background:var(--line);left:-50%;right:50%}.check-workflow li:first-child::before{display:none}.check-workflow li>span{z-index:1;display:grid;place-items:center;width:29px;height:29px;border:1px solid #bfcfe2;border-radius:50%;background:white;color:#738aa8}.check-workflow .is-recorded>span{background:var(--teal);border-color:var(--teal);color:white}.check-workflow .is-current>span{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 4px #e4f0fa}.check-workflow small{color:var(--secondary);font-size:11px;max-width:230px}.check-detail-tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}.check-detail-tabs button{border:0;border-bottom:2px solid transparent;background:none;padding:12px 17px;color:var(--secondary);font-size:12px}.check-detail-tabs button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}.check-record .check-evidence-workbench{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}.check-review-rail{display:grid;gap:16px;min-width:0;position:sticky;top:16px}.check-review-rail .review-panel{margin:0}.review-scope-list{list-style:none;padding:18px;margin:0;display:grid;gap:17px;font-size:12px}.review-scope-list li::before{content:"";display:inline-block;width:10px;height:10px;border:1px solid #99abc2;margin-right:10px;vertical-align:middle}.review-callout{font-size:11px;background:#f0f7fc;margin:0 18px 18px;padding:12px;color:#456079;border-radius:6px}.review-readonly{padding:18px;display:grid;gap:12px;font-size:12px}.check-record .evidence{margin:16px;padding:17px;border:1px solid var(--line);border-radius:8px;background:white}.evidence-kind-label{display:inline-block;color:var(--secondary);font-size:11px;margin-right:10px}.evidence-heading h3{font-size:13px}.check-audit-trail{margin-top:16px}.check-audit-trail .timeline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;padding:20px;max-height:400px;overflow:auto}.check-audit-trail .timeline li{margin:0;padding-bottom:0}.check-review-rail .evidence-form{padding:18px}@media(max-width:1320px){.check-record .check-evidence-workbench{grid-template-columns:minmax(0,1fr) 300px}}
 </style>

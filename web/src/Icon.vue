@@ -4,7 +4,8 @@ defineProps<{ name: string }>()
 
 <template>
   <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-    <template v-if="name === 'mark'">
+    <template v-if="name === 'search'"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></template>
+    <template v-else-if="name === 'mark'">
       <path d="M3.1 18.8C1.7 12.1 5 7.1 11.4 5.3 16.1 4 19.2 3.5 21.5 1c.2 6.2-1.9 10.1-6.1 12.8-3.9 2.4-8 3.1-12.3 5Z" fill="currentColor" stroke="none" />
       <path d="M2 22c3-5.6 7.5-9.4 15.5-16.2" stroke="currentColor" stroke-width="1.2" />
       <path d="m7 15-.2-4.4m3.2 2.2.1-5m2.9 2.2 4.1-.4m-8.5 5.3 4.5-.2" stroke="white" stroke-width=".65" />

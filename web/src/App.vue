@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ApiError, describeError, request, roleLabels, sessionPath, type Session } from './api'
 import Brand from './Brand.vue'
+import FeatherMotif from './FeatherMotif.vue'
 import Icon from './Icon.vue'
 import WorkspaceView from './WorkspaceView.vue'
 import PostgresInspectionView from './PostgresInspectionView.vue'
@@ -92,6 +93,25 @@ const mainContent = ref<HTMLElement | null>(null)
 const menuButton = ref<HTMLButtonElement | null>(null)
 const menuOpen = ref(false)
 const activePage = computed(() => pages.find(item => item.id === route.value.page)?.label ?? '概览')
+const navigationDialog = ref<HTMLDialogElement | null>(null)
+const navigationInput = ref<HTMLInputElement | null>(null)
+const navigationQuery = ref('')
+const navigationMatches = computed(() => pages.filter(item => `${item.label} ${item.id}`.toLowerCase().includes(navigationQuery.value.trim().toLowerCase())))
+const activeGroup = computed(() => pageGroups.find(group => group.items.some(item => item.id === route.value.page))?.label || '数据治理')
+
+async function openNavigation() {
+  navigationQuery.value = ''
+  navigationDialog.value?.showModal()
+  await nextTick()
+  navigationInput.value?.focus()
+}
+function closeNavigation() { navigationDialog.value?.close() }
+function navigationShortcut(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && workspace.value) {
+    event.preventDefault()
+    void openNavigation()
+  }
+}
 
 function closeMenu() {
   if (!menuOpen.value) return
@@ -139,7 +159,7 @@ async function signIn() {
     session.value = current
     routeToWorkspace(current)
     await nextTick()
-    mainContent.value?.focus()
+    mainContent.value?.focus({ preventScroll: true })
   } catch (error) {
     actionError.value = error instanceof ApiError && error.status === 401
       ? '账号或密码不正确。'
@@ -167,12 +187,13 @@ async function signOut() {
 }
 
 function sessionExpired() {
+  closeNavigation()
   session.value = null
   actionError.value = '登录已失效，请重新登录。'
 }
 
 function focusMain() {
-  mainContent.value?.focus()
+  mainContent.value?.focus({ preventScroll: true })
 }
 
 watch(route, async () => {
@@ -189,15 +210,19 @@ watch([workspace, route, session, initializing], () => {
 
 onMounted(() => {
   window.addEventListener('hashchange', syncRoute)
+  window.addEventListener('keydown', navigationShortcut)
   void loadSession()
 })
 
-onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
+onUnmounted(() => {
+  window.removeEventListener('hashchange', syncRoute)
+  window.removeEventListener('keydown', navigationShortcut)
+})
 </script>
 
 <template>
   <a class="skip-link" href="#main-content" @click.prevent="focusMain">跳至主要内容</a>
-  <div v-if="session && workspace" class="app-shell">
+  <div v-if="session && workspace" class="app-shell desktop-design">
     <aside class="sidebar" :class="{ 'sidebar-open': menuOpen }" @keydown.esc.stop="closeMenu">
       <Brand />
       <button ref="menuButton" class="mobile-menu button button-secondary" type="button" aria-controls="workspace-navigation"
@@ -213,10 +238,11 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
             <Icon :name="'icon' in item ? item.icon : item.id" /><span>{{ item.label }}</span>
           </a>
         </div>
-        <div class="sidebar-footer">
-          <a href="#/"><Icon name="workspace" /><span>切换工作区</span><Icon name="chevron" /></a>
-        </div>
       </nav>
+      <div class="sidebar-footer">
+        <a href="#/" class="sidebar-workspace"><Icon name="workspace" /><span><strong>{{ workspace.name }}</strong><small>{{ workspace.slug }} · 切换工作区</small></span><Icon name="chevron" /></a>
+        <div class="sidebar-identity"><span class="account-avatar"><Icon name="user" /></span><span><strong>{{ session.username }}</strong><small>{{ roleLabels[workspace.role] || workspace.role }}</small></span></div>
+      </div>
     </aside>
     <div class="workspace-shell">
       <header class="topbar">
@@ -225,8 +251,9 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <Icon class="breadcrumb-divider" name="chevron" />
           <span class="workspace-crumb">{{ workspace.name }}</span>
           <span class="breadcrumb-divider" aria-hidden="true">/</span>
-          <span class="page-crumb">{{ activePage }}</span>
+          <span class="page-crumb">{{ activeGroup }}</span><span class="breadcrumb-divider" aria-hidden="true">/</span><strong class="page-crumb-current">{{ activePage }}</strong>
         </div>
+        <button type="button" class="navigation-trigger" @click="openNavigation"><Icon name="search" /><span>查找功能或模块</span><kbd>⌘ / Ctrl K</kbd></button>
         <div class="topbar-account">
           <span class="account-avatar"><Icon name="user" /></span>
           <div class="account-name">
@@ -236,6 +263,12 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
                   :disabled="busy" @click="signOut"><Icon name="logout" /></button>
         </div>
       </header>
+      <dialog ref="navigationDialog" class="navigation-dialog" aria-labelledby="navigation-dialog-title" @click="event => event.target === navigationDialog && closeNavigation()">
+        <div class="navigation-dialog-heading"><h2 id="navigation-dialog-title">查找功能</h2><button class="icon-button" type="button" aria-label="关闭功能查找" @click="closeNavigation"><Icon name="close" /></button></div>
+        <label class="visually-hidden" for="navigation-query">模块名称</label>
+        <input id="navigation-query" ref="navigationInput" v-model="navigationQuery" placeholder="输入模块名称" autocomplete="off">
+        <nav aria-label="功能查找结果"><a v-for="item in navigationMatches" :key="item.id" :href="`#/${encodeURIComponent(workspace.slug)}/${item.id}`" @click="closeNavigation"><Icon :name="'icon' in item ? item.icon : item.id" /><span>{{ item.label }}</span><Icon name="arrow" /></a><p v-if="!navigationMatches.length" class="empty-state">没有符合名称的功能，请调整查找内容。</p></nav>
+      </dialog>
       <main id="main-content" ref="mainContent" class="main-content" tabindex="-1">
         <p v-if="actionError" class="message message-error page-feedback" role="alert">{{ actionError }}</p>
         <template v-if="route.page === 'activities'">
@@ -311,13 +344,13 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
   </div>
 
   <template v-else>
-    <header class="public-header">
+    <header v-if="session || initializing || initialError" class="public-header">
       <Brand />
       <button v-if="session" type="button" class="button button-secondary" :disabled="busy" @click="signOut">
         <Icon name="logout" />退出登录
       </button>
     </header>
-    <main id="main-content" ref="mainContent" class="public-main" tabindex="-1">
+    <main id="main-content" ref="mainContent" class="public-main" :class="{ 'public-main-login': !session && !initializing && !initialError }" tabindex="-1">
       <p v-if="initializing" class="message" role="status">正在连接工作台…</p>
       <section v-else-if="initialError" class="panel empty-state">
         <h1>暂时无法打开工作台</h1>
@@ -348,12 +381,12 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
       </template>
       <div v-else class="login-layout">
         <section class="login-intro" aria-labelledby="login-intro-title">
-          <span class="brand-mark"><Icon name="mark" /></span>
-          <p class="eyebrow">SCARLET PLUME / 数据安全治理</p>
-          <h1 id="login-intro-title">让数据来源可追溯</h1>
-          <p>在授权的工作区查看数据资产、检查和证据。</p>
+          <Brand />
+          <div class="login-proposition"><h1 id="login-intro-title">数据关系可追溯<br>检查证据可核验</h1><p>从来源观察到整改复测，保留每一步的范围与依据。</p></div>
+          <FeatherMotif />
+          <p class="login-scope">授权工作区 · 数据资产 · 证据与复核</p>
         </section>
-        <section class="panel login-panel" aria-labelledby="login-title">
+        <div class="login-form-region"><section class="panel login-panel" aria-labelledby="login-title">
           <h2 id="login-title">登录赤翎</h2>
           <p class="login-description">使用管理员分配的工作区账号。</p>
           <p v-if="actionError" class="message message-error page-feedback" role="alert">{{ actionError }}</p>
@@ -370,7 +403,8 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
               {{ busy ? '登录中…' : '登录' }} <Icon name="arrow" />
             </button>
           </form>
-        </section>
+          <p class="login-access-note">如需工作区访问权限，请联系管理员。</p>
+        </section></div>
       </div>
     </main>
   </template>

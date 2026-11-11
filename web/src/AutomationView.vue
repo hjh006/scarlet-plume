@@ -42,6 +42,10 @@ const copyNotice = ref('')
 const historyHeading = ref<HTMLElement | null>(null)
 const selectedJob = ref<AutomationJob | null>(null)
 const runs = ref<AutomationRun[]>([])
+const focusedJob = computed(() => selectedJob.value ?? jobs.value[0])
+const selectedRunId = ref<number>()
+const focusedRun = computed(() => runs.value.find(run => run.id === selectedRunId.value) ?? runs.value[0])
+const showIssuedToken = ref(false)
 const historyLoading = ref(false)
 const historyError = ref('')
 const revokeTarget = ref<AutomationJob | null>(null)
@@ -212,6 +216,7 @@ async function createJob() {
       method: 'POST', body: JSON.stringify(body), signal: lifecycle.signal,
     })
     if (lifecycle.signal.aborted) return
+    showIssuedToken.value = false
     issued.value = result
     copyNotice.value = ''
     showForm.value = false
@@ -239,6 +244,7 @@ async function copyToken() {
 }
 
 function dismissToken() {
+  showIssuedToken.value = false
   issued.value = null
   copyNotice.value = ''
   notice.value = '采集任务已创建。连接采集端后，可在列表查看运行结果。'
@@ -386,7 +392,7 @@ onBeforeUnmount(() => {
     <div class="automation-panel-body">
       <div class="field">
         <label for="automation-issued-token">接入令牌（仅显示一次）</label>
-        <input id="automation-issued-token" ref="tokenInput" :value="issued.token" class="mono" readonly
+        <input id="automation-issued-token" ref="tokenInput" :type="showIssuedToken ? 'text' : 'password'" :value="issued.token" class="mono" readonly
                autocomplete="off" spellcheck="false" aria-describedby="automation-token-hint">
         <p id="automation-token-hint" class="field-hint">将令牌保存到采集端。关闭此面板后需要新建任务才能生成新令牌。</p>
       </div>
@@ -401,7 +407,7 @@ onBeforeUnmount(() => {
         <pre>{{ setupCommand }}</pre>
       </details>
       <div class="form-actions">
-        <button type="button" class="button button-primary" @click="copyToken">复制令牌</button>
+        <button type="button" class="button button-primary" @click="copyToken">复制令牌</button><button type="button" class="button button-secondary" @click="showIssuedToken = !showIssuedToken">{{ showIssuedToken ? '隐藏令牌' : '临时显示' }}</button>
         <button type="button" class="button button-secondary" @click="dismissToken">完成</button>
       </div>
       <p v-if="copyNotice" class="field-hint" role="status">{{ copyNotice }}</p>
@@ -420,7 +426,7 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="automation-jobs-heading" :aria-busy="loading">
+  <div class="automation-workbench"><section class="panel" aria-labelledby="automation-jobs-heading" :aria-busy="loading">
     <div class="panel-heading">
       <div><h2 id="automation-jobs-heading">采集任务</h2><p>查看任务授权和最近一次运行。</p></div>
       <div class="automation-actions">
@@ -435,10 +441,10 @@ onBeforeUnmount(() => {
       <table class="data-table automation-table">
         <thead><tr><th scope="col">来源</th><th scope="col">接入状态</th><th scope="col">最近运行</th><th scope="col">操作</th></tr></thead>
         <tbody>
-          <tr v-for="job in jobs" :key="job.id">
+          <tr v-for="job in jobs" :key="job.id" :class="{selected:focusedJob?.id === job.id}">
             <th scope="row">
               <a v-if="job.checkId" class="table-link" :href="home + '/checks/' + job.checkId">{{ jobLabel(job) }}</a>
-              <span v-else>{{ jobLabel(job) }}</span>
+              <button v-else class="automation-record-link" @click="loadRuns(job, true)">{{ jobLabel(job) }}</button>
               <span class="table-secondary">{{ automationProviders[job.provider] }} · 任务 #{{ job.id }}</span>
               <template v-if="job.managed">
                 <span class="table-secondary">平台采集 · 每 {{ job.managed.intervalMinutes }} 分钟</span>
@@ -482,9 +488,9 @@ onBeforeUnmount(() => {
       <p v-if="owner && managedAvailable">新建 PostgreSQL 任务后可测试连接、设置定期采集，或立即采集一次。</p>
       <p v-else>{{ owner ? '新建任务后，在连接源系统的采集端配置接入令牌和运行频率。' : '工作区负责人创建任务后，可在这里查看采集状态。' }}</p>
     </div>
-  </section>
+  </section><aside class="automation-context-rail"><section v-if="focusedJob" class="panel"><p class="eyebrow">当前采集任务</p><h2>{{ jobLabel(focusedJob) }}</h2><span class="badge">{{ jobState(focusedJob) }}</span><dl><div><dt>任务来源</dt><dd>{{ automationProviders[focusedJob.provider] }}</dd></div><div><dt>任务编号</dt><dd>#{{ focusedJob.id }}</dd></div><template v-if="focusedJob.managed"><div><dt>采集频率</dt><dd>每 {{ focusedJob.managed.intervalMinutes }} 分钟</dd></div><div><dt>自动检查</dt><dd>{{ focusedJob.managed.autoChecks ? '已开启' : '未开启' }}</dd></div><div><dt>报告归档</dt><dd>{{ focusedJob.managed.autoReports ? '已开启' : '未开启' }}</dd></div></template><div><dt>最近运行</dt><dd>{{ focusedJob.latestRun ? automationRunStatuses[focusedJob.latestRun.status] : '等待首次运行' }}</dd></div></dl><button class="button button-secondary" @click="loadRuns(focusedJob, true)">查看运行依据</button></section><section class="panel"><h2>自动化处理链</h2><ol><li>按授权范围采集来源事实</li><li>识别目录、字段与权限</li><li>将可验证结果关联检查</li><li>保留复测与报告快照</li></ol><p>来源状态和运行成功不能代替检查的独立复核结论。</p></section></aside></div>
 
-  <section v-if="selectedJob" class="panel automation-history" aria-labelledby="automation-history-heading" :aria-busy="historyLoading">
+  <div v-if="selectedJob" class="automation-workbench"><section class="panel automation-history" aria-labelledby="automation-history-heading" :aria-busy="historyLoading">
     <div class="panel-heading">
       <div>
         <h2 id="automation-history-heading" ref="historyHeading" tabindex="-1">运行记录</h2>
@@ -501,8 +507,8 @@ onBeforeUnmount(() => {
       <table class="data-table automation-table">
         <thead><tr><th scope="col">批次</th><th scope="col">采集结果</th><th scope="col">观察时间</th><th scope="col">登记时间</th></tr></thead>
         <tbody>
-          <tr v-for="run in runs" :key="run.id">
-            <th scope="row" class="mono">{{ run.runId }}</th>
+          <tr v-for="run in runs" :key="run.id" :class="{selected: focusedRun?.id === run.id}">
+            <th scope="row" class="mono"><button class="automation-record-link" @click="selectedRunId = run.id">{{ run.runId }}</button></th>
             <td>
               <span class="badge" :class="automationRunClass(run.status)">{{ automationRunStatuses[run.status] }}</span>
               <span class="table-secondary">{{ automationRunDetail(run, Boolean(selectedJob.managed)) }}</span>
@@ -514,5 +520,7 @@ onBeforeUnmount(() => {
       </table>
     </div>
     <p v-else-if="!historyError" class="empty-state">{{ selectedJob.managed ? '等待任务首次运行。' : '等待采集端首次运行。' }}</p>
-  </section>
+  </section><aside class="automation-context-rail"><section v-if="focusedRun" class="panel"><p class="eyebrow">运行记录</p><h2 class="mono">{{ focusedRun.runId }}</h2><span class="badge" :class="automationRunClass(focusedRun.status)">{{ automationRunStatuses[focusedRun.status] }}</span><dl><div><dt>运行编号</dt><dd>#{{ focusedRun.id }}</dd></div><div><dt>观察时间</dt><dd>{{ formatDate(focusedRun.observedAt) }}</dd></div><div><dt>登记时间</dt><dd>{{ formatDate(focusedRun.createdAt) }}</dd></div></dl><p>{{ automationRunDetail(focusedRun, Boolean(selectedJob.managed)) }}</p><a class="button button-secondary" :href="home + '/reports/archives'">查看报告归档</a></section></aside></div>
 </template>
+
+<style scoped>.automation-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start;margin-bottom:18px}.automation-context-rail{display:grid;gap:16px}.automation-context-rail>.panel{padding:20px}.automation-context-rail h2{font-size:14px;line-height:1.8;margin:0 0 14px;overflow-wrap:anywhere}.automation-context-rail p,.automation-context-rail li{font-size:12px;line-height:1.9;color:var(--muted)}.automation-context-rail ol{padding-left:20px}.automation-context-rail dl{display:grid;gap:15px;margin:20px 0}.automation-context-rail dl>div{display:grid;grid-template-columns:74px minmax(0,1fr);gap:8px;font-size:12px}.automation-context-rail dt{color:var(--muted)}.automation-context-rail dd{margin:0;overflow-wrap:anywhere}.automation-record-link{border:0;background:none;color:var(--blue);padding:0;font:inherit;cursor:pointer;text-align:left;overflow-wrap:anywhere}.automation-table{min-width:650px}.automation-table .automation-actions{gap:6px}.automation-table .automation-actions .button{font-size:11px;min-height:30px;padding:5px 8px}.automation-table tr.selected{background:#f0f7fc}.automation-history{margin-top:0}.automation-table td,.automation-table th{vertical-align:top}.automation-form{max-width:none}.automation-form>form,.automation-panel-body{padding:22px}.automation-token{border-top:3px solid #00889d;margin-bottom:18px}.automation-connect{display:grid;grid-template-columns:1fr 1fr;gap:16px}.automation-connect dd{overflow-wrap:anywhere}.automation-setup pre{padding:14px;border:1px solid var(--line);border-radius:8px;background:#f5f8fc;white-space:pre-wrap;font-size:12px}@media(max-width:1400px){.automation-workbench{grid-template-columns:minmax(0,1fr) 270px;gap:12px}}</style>

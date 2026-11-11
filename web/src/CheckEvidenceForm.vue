@@ -112,7 +112,7 @@ async function save() {
 <template>
   <details class="evidence-forms">
     <summary>{{ targetDigest ? '登记证据或导入飞书清单' : '登记证据' }}</summary>
-    <form class="evidence-form" @submit.prevent="save">
+    <form class="evidence-form source-evidence-editor" @submit.prevent="save">
       <div v-if="targetDigest" class="field">
         <label for="check-evidence-method">证据来源</label>
         <select id="check-evidence-method" v-model="selected" :disabled="saving" @change="changeMode">
@@ -120,6 +120,7 @@ async function save() {
           <option value="feishu">飞书权限清单</option>
         </select>
       </div>
+      <p class="evidence-editor-intro">仅记录来源引用、观测时间和脱敏摘要。原始观察、整改与新复测分别保留。</p>
       <template v-if="selected === 'manual'">
         <div class="field">
           <label for="check-evidence-kind">证据类型</label>
@@ -160,3 +161,7 @@ async function save() {
     </form>
   </details>
 </template>
+
+<style scoped>
+.evidence-forms{margin:16px;border:1px solid var(--line);border-radius:8px;background:#fbfdff}.evidence-forms>summary{padding:14px 16px;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer}.source-evidence-editor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:16px!important;border-top:1px solid var(--line);background:white;border-radius:0 0 8px 8px}.source-evidence-editor .field{margin:0;min-width:0}.source-evidence-editor .field:has(textarea),.source-evidence-editor .form-actions,.source-evidence-editor .form-feedback,.evidence-editor-intro{grid-column:1/-1}.evidence-editor-intro{font-size:11px;color:var(--secondary);margin:0}.source-evidence-editor .form-actions{justify-content:flex-end}.source-evidence-editor textarea{min-height:100px}.source-evidence-editor input{max-width:100%;min-width:0}
+</style>

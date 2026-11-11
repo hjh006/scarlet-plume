@@ -108,12 +108,13 @@ onBeforeUnmount(() => {
   password.value = ''
   lifecycle.abort()
 })
+function scrollField(id: string) { document.getElementById(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }
 </script>
 
 <template>
-  <section class="panel form-panel automation-form managed-pg-form" aria-labelledby="managed-pg-heading">
+  <section class="automation-form managed-pg-form" aria-labelledby="managed-pg-heading">
     <h2 id="managed-pg-heading" ref="heading" tabindex="-1">{{ job ? '配置 PostgreSQL 任务' : '新建 PostgreSQL 采集任务' }}</h2>
-    <form autocomplete="off" @submit.prevent="save">
+    <div class="managed-workbench"><nav class="panel managed-outline" aria-label="PostgreSQL配置步骤"><h3>配置步骤</h3><button type="button" @click="scrollField('managed-pg-source')">1. 连接信息</button><button type="button" @click="scrollField('managed-pg-schemas')">2. 授权范围</button><button type="button" @click="scrollField('managed-pg-interval')">3. 频率与自动化</button></nav><form class="panel managed-connection-form" autocomplete="off" @submit.prevent="save">
       <fieldset class="managed-pg-fields" :disabled="Boolean(pending)">
         <div class="field">
           <label for="managed-pg-source">来源名称</label>
@@ -192,6 +193,12 @@ onBeforeUnmount(() => {
         </button>
         <button type="button" class="button button-secondary" :disabled="Boolean(pending)" @click="emit('cancel')">取消</button>
       </div>
-    </form>
+    </form><aside class="managed-context"><section class="panel"><div class="panel-heading"><h3>采用范围</h3></div><dl><div><dt>配置修订</dt><dd>{{original?.revision ? 'v'+original.revision : '待创建'}}</dd></div><div><dt>主机</dt><dd>{{host||'待填写'}}:{{port}}</dd></div><div><dt>数据库</dt><dd>{{database||'待填写'}}</dd></div><div><dt>schema</dt><dd>{{schemaText||'待填写'}}</dd></div><div><dt>采集频率</dt><dd>每 {{intervalMinutes}} 分钟</dd></div></dl></section><section class="panel"><div class="panel-heading"><h3>连接诊断</h3></div><ol class="managed-diagnostics"><li><strong>连接与元数据权限</strong><span :class="{'diagnostic-known':feedback?.kind==='success'}">{{feedback?.kind==='success'?'连接测试成功':pending==='test'?'正在测试':'尚未确认'}}</span></li><li><strong>可见目录范围</strong><p>{{feedback?.kind==='success'?feedback.message:'测试成功后返回当前账号可读的表元数据数量。'}}</p></li><li><strong>内容与权限覆盖</strong><p>以实际采集批次的结果为准，连接成功不代表已采集或检查通过。</p></li></ol></section></aside></div>
   </section>
 </template>
+
+<style scoped>
+.managed-pg-form{padding:0!important;border:0!important;background:transparent!important;max-width:none!important}.managed-pg-form>h2{font-size:22px;margin:0 0 18px}.managed-workbench{display:grid;grid-template-columns:170px minmax(0,1fr) 280px;gap:16px;align-items:start}.managed-outline{display:grid;gap:22px;padding:20px;font-size:12px}.managed-connection-form{padding:20px;min-width:0}.managed-pg-fields{padding:0;margin:0;border:0;display:block}.managed-pg-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.managed-pg-form .field{min-width:0;margin-bottom:18px}.managed-pg-form .field input{width:100%;min-width:0}.managed-pg-form .field input[type=checkbox]{width:auto}.managed-pg-automation{margin:0;padding:16px;border:1px solid var(--line);border-radius:8px}.managed-context{display:grid;gap:16px}.managed-context dl{margin:0;padding:8px 18px;font-size:11px}.managed-context dl>div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}.managed-context dt{color:var(--secondary)}.managed-context dd{margin:0;overflow-wrap:anywhere}.managed-diagnostics{list-style:none;margin:0;padding:18px;display:grid;gap:20px;font-size:12px}.managed-diagnostics li{display:grid;gap:6px}.managed-diagnostics span,.managed-diagnostics p{font-size:11px;color:var(--secondary)}.managed-diagnostics .diagnostic-known{color:var(--success)}.managed-connection-form .form-actions{justify-content:flex-end;border-top:1px solid var(--line);padding-top:16px;position:sticky;bottom:0;background:white}.managed-pg-feedback{margin-top:15px}@media(max-width:1320px){.managed-workbench{grid-template-columns:140px minmax(0,1fr) 240px}.managed-connection-form{padding:17px}}
+</style>
+
+<style scoped>nav button { display:block; width:100%; text-align:left; border:0; background:transparent; color:var(--muted); padding:10px 8px; cursor:pointer; font:inherit; border-radius:6px }nav button:hover { color:var(--blue); background:var(--surface-muted) }</style>

@@ -28,9 +28,12 @@ const draft = reactive({
   transferPath: '',
   safeguards: '',
 })
+const selectedAsset = computed(() => assets.value.find(asset => String(asset.id) === draft.assetId))
 const isCrossBorder = computed(() => draft.kind === 'cross_border')
 const isAI = computed(() => draft.kind === 'ai')
 const isExternal = computed(() => draft.kind !== 'internal')
+
+function focusField(id: string) { const field=document.getElementById(id); field?.scrollIntoView({block:'center',behavior:'smooth'}); field?.focus({preventScroll:true}) }
 
 function errorText(error: unknown) {
   if (active.signal.aborted) return ''
@@ -90,7 +93,7 @@ onBeforeUnmount(() => active.abort())
 <template>
   <a class="back-link" :href="pageUrl"><Icon name="back" />返回处理活动</a>
   <header class="page-header">
-    <div><h1>登记处理活动</h1><p>说明关联资产、处理目的和数据流向。审批、取证与整改在关联检查中记录。</p></div>
+    <div><p class="eyebrow">数据治理 / 处理活动</p><h1>新建处理活动</h1><p>说明关联资产、处理目的和数据流向。审批、取证与整改在关联检查中记录。</p></div>
   </header>
   <p v-if="!canManageChecks(workspace.role)" class="message message-warning" role="alert">当前账号无权登记活动。</p>
   <p v-else-if="loading && !assets.length" class="message" role="status">正在读取数据资产…</p>
@@ -103,7 +106,7 @@ onBeforeUnmount(() => active.abort())
     <p>每项处理活动关联本工作区的一项资产。</p>
     <a class="button button-primary" :href="home + '/assets'">前往数据资产</a>
   </section>
-  <form v-else class="panel form-panel" @submit.prevent="createActivity">
+  <div v-else class="form-workbench activity-create-layout"><aside class="panel activity-form-outline"><div class="panel-heading"><h2>配置步骤</h2></div><ol class="workflow-spine"><li><button type="button" @click="focusField('activity-name')">关联范围</button></li><li><button type="button" @click="focusField('activity-purpose')">处理目的</button></li><li><button type="button" @click="focusField('activity-recipient')">接收与区域</button></li><li><button type="button" @click="focusField('activity-retention')">保留与保障</button></li></ol></aside><form class="panel form-main activity-create-form" @submit.prevent="createActivity"><div class="panel-heading"><h2>新建处理活动</h2></div><div class="activity-create-fields">
     <p v-if="formError" class="message message-error page-feedback" role="alert">{{ formError }}</p>
     <div class="field">
       <label for="activity-name">活动名称</label>
@@ -155,9 +158,14 @@ onBeforeUnmount(() => active.abort())
                 aria-describedby="activity-safeguards-hint"></textarea>
       <p id="activity-safeguards-hint" class="field-hint">记录范围限制、脱敏、权限或到期处理。源系统配置与批准记录可在检查中按引用登记。</p>
     </div>
-    <div class="form-actions">
+    </div><div class="form-actions">
       <button type="submit" class="button button-primary" :disabled="saving || loading">{{ saving ? '正在保存…' : '保存活动' }}</button>
       <a class="button button-secondary" :href="pageUrl">取消</a>
     </div>
-  </form>
+  </form><aside class="form-aside context-rail section-stack"><section class="panel"><div class="panel-heading"><h2>关联资产</h2></div><dl class="activity-create-context"><div><dt>当前资产</dt><dd>{{selectedAsset?.name||'尚未选择'}}</dd></div><div><dt>所属系统</dt><dd>{{selectedAsset?.system||'未记录'}}</dd></div><div><dt>责任团队</dt><dd>{{selectedAsset?.ownerTeam||'待确认'}}</dd></div><div><dt>来源</dt><dd>{{selectedAsset?.source||'手工登记 / 未记录'}}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h2>核验提示</h2></div><p class="activity-create-note">采集可以提供资产与识别事实；处理依据、实际用途、接收方保障和留存条款仍需明确取证。</p></section><section class="panel"><div class="panel-heading"><h2>修订与范围</h2></div><p class="activity-create-note">首次保存后记录活动修订。后续变化将单独留存，已采用的评估和历史报告保持各自时点。</p></section></aside></div>
 </template>
+<style scoped>
+.activity-create-layout{display:grid;grid-template-columns:190px minmax(0,1fr) 290px;gap:16px;align-items:start}.activity-form-outline ol{margin:0;padding:20px 20px 22px 36px;display:grid;gap:22px;font-size:12px}.activity-form-outline button{border:0;padding:0;background:none;color:var(--secondary);font:inherit;text-align:left;cursor:pointer}.activity-create-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding:20px}.activity-create-fields>.field{margin:0;min-width:0}.activity-create-fields>.field:has(textarea){grid-column:1/-1}.activity-create-fields textarea{min-height:100px}.activity-create-form>.form-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;margin:0;padding:16px 20px;border-top:1px solid var(--line);background:#fbfdff;z-index:1}.activity-create-context{margin:0;padding:12px 18px;display:grid;font-size:12px}.activity-create-context>div{display:grid;grid-template-columns:75px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.activity-create-context>div:last-child{border:0}.activity-create-context dt{color:var(--secondary)}.activity-create-context dd{margin:0;overflow-wrap:anywhere}.activity-create-note{padding:18px;font-size:12px;color:var(--secondary);line-height:1.8}.activity-create-form .message{margin:16px 20px 0}.activity-create-fields .more-assets{margin-top:10px}
+@media(max-width:1400px){.activity-create-layout{grid-template-columns:160px minmax(0,1fr) 250px}}
+.activity-form-outline .workflow-spine>li+li::before{left:-15px;top:-17px;width:1px;height:20px}
+</style>

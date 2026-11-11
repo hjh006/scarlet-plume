@@ -31,6 +31,8 @@ const series = [
   { key: 'responses4xx', label: 'HTTP 4xx', tone: 'client' },
   { key: 'responses5xx', label: 'HTTP 5xx', tone: 'server' },
 ] as const
+const selectedSource = computed(() => props.sources.find(source => String(source.id) === sourceId.value))
+const statusMaximum = computed(() => Math.max(1, data.value?.totals.requests ?? 1))
 const maximum = computed(() => Math.max(1, ...(data.value?.points.map(point => point.requests) ?? [])))
 const lines = computed(() => {
   const points = data.value?.points ?? []
@@ -106,7 +108,7 @@ onBeforeUnmount(() => pending?.abort())
         <time :datetime="data.startAt">{{ formatDate(data.startAt) }}</time>
         至 <time :datetime="data.endAt">{{ formatDate(data.endAt) }}</time>
       </p>
-      <template v-if="data.totals.requests && data.points.length">
+      <div class="runtime-monitor-workbench"><div class="runtime-monitor-main"><template v-if="data.totals.requests && data.points.length">
         <figure class="runtime-monitor-chart">
           <figcaption>请求趋势</figcaption>
           <ul aria-label="图例">
@@ -155,7 +157,7 @@ onBeforeUnmount(() => pending?.abort())
             </tbody>
           </table>
         </div>
-      </template>
+      </template></div><aside class="runtime-monitor-context"><h3>所选来源与观测范围</h3><dl><div><dt>来源</dt><dd>{{ selectedSource ? selectedSource.name : '全部已接入来源' }}</dd></div><div><dt>服务</dt><dd>{{ selectedSource?.service || '按来源分别采集' }}</dd></div><div><dt>采集窗口</dt><dd>最近 {{ data.hours }} 小时</dd></div><div><dt>截至</dt><dd>{{ formatDate(data.endAt) }}</dd></div></dl><h3>HTTP 状态分布</h3><p class="runtime-status-note">按实际来源内计数，非去重用户请求。</p><div v-for="item in series.slice(1)" :key="item.key" class="runtime-status-bar"><div><span>{{ item.label }}</span><strong>{{ data.totals[item.key] }}</strong></div><span><i :data-series="item.tone" :style="{width: Math.min(100,data.totals[item.key] / statusMaximum * 100) + '%'}"></i></span></div><p class="runtime-monitor-gap">多处接入可能重复观测。4xx / 5xx 是响应状态，不能单独证明存在漏洞。详细字段与采集缺口请在请求审计中核对。</p><a class="button button-secondary" :href="auditHref">查看调查链路</a></aside></div>
     </template>
   </section>
 </template>
@@ -188,4 +190,5 @@ onBeforeUnmount(() => pending?.abort())
   .runtime-monitor-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .runtime-monitor-counts div { padding-inline: .45rem; }
 }
+.runtime-monitor-workbench{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start;margin-top:16px}.runtime-monitor-main{min-width:0}.runtime-monitor-context{padding:18px;border:1px solid var(--api-line,var(--line));border-radius:10px;background:#fafcff;font-size:12px;line-height:1.7}.runtime-monitor-context h3{font-size:13px;margin:0 0 14px}.runtime-monitor-context dl{display:grid;gap:13px;margin:0 0 22px}.runtime-monitor-context dl>div{display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px}.runtime-monitor-context dt{color:var(--secondary)}.runtime-monitor-context dd{margin:0;overflow-wrap:anywhere}.runtime-status-note{font-size:11px;color:var(--secondary);margin:0 0 14px}.runtime-status-bar{margin:15px 0}.runtime-status-bar>div{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.runtime-status-bar>span{height:7px;border-radius:8px;background:#e9edf5;display:block;overflow:hidden}.runtime-status-bar i{display:block;height:100%;min-width:0;background:#8173ff;border-radius:8px}.runtime-status-bar i[data-series="client"]{background:#00889d}.runtime-status-bar i[data-series="server"]{background:#ff654b}.runtime-monitor-gap{padding-top:16px;border-top:1px solid var(--line);font-size:11px;color:var(--secondary);margin-top:20px}.runtime-monitor-context .button{width:100%;font-size:12px;margin-top:14px}.runtime-monitor-chart{margin:0 0 14px;padding:18px;border-radius:10px;background:white}.runtime-monitor-chart svg{height:200px}.runtime-monitor-chart figcaption{font-size:14px}.runtime-monitor-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-radius:10px;background:#f8fafc;margin-top:16px}.runtime-monitor-counts div{padding:14px 18px}.runtime-monitor-counts dt{font-size:11px;color:var(--secondary)}.runtime-monitor-counts dd{font-size:26px;font-weight:700;margin:6px 0 0;color:#153259}.runtime-monitor-filters{max-width:none;grid-template-columns:180px 280px;margin-top:14px}.runtime-monitor-chart [data-series="requests"]{--series-ink:#076ca7}.runtime-monitor-chart [data-series="client"]{--series-ink:#00889d}.runtime-monitor-chart [data-series="server"]{--series-ink:#ff654b}.runtime-monitor .api-table{min-width:600px;font-size:12px}.runtime-monitor .api-table-frame{overflow:auto}.runtime-monitor-details summary{min-height:36px;font-size:12px}@media(min-width:1100px) and (max-width:1400px){.runtime-monitor-workbench{grid-template-columns:minmax(0,1fr) 250px}}
 </style>

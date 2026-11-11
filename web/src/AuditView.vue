@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import Icon from './Icon.vue'
 
@@ -31,6 +31,9 @@ const exporting = ref(false)
 const error = ref('')
 const exportError = ref('')
 const appliedQuery = ref('')
+const selectedIndex = ref(0)
+const selectedRequest = computed(() => runtime.value?.items[selectedIndex.value] ?? runtime.value?.items[0])
+const selectedAction = computed(() => actions.value?.items[selectedIndex.value] ?? actions.value?.items[0])
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE']
 const actionLabels: Record<string, string> = {
   'check.created': '创建检查',
@@ -135,7 +138,7 @@ onBeforeUnmount(() => active.abort())
          :aria-current="actionsTab ? 'page' : undefined">平台操作</a>
     </nav>
     <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
-    <section class="panel" aria-labelledby="audit-title" :aria-busy="loading">
+    <div class="audit-workbench"><section class="panel" aria-labelledby="audit-title" :aria-busy="loading">
       <div class="panel-heading">
         <div>
           <h2 id="audit-title">{{ actionsTab ? '平台操作记录' : '请求审计记录' }}</h2>
@@ -192,11 +195,11 @@ onBeforeUnmount(() => active.abort())
           <table class="data-table audit-table">
             <thead><tr><th scope="col">观测时间</th><th scope="col">来源与服务</th><th scope="col">方法</th><th scope="col">路由模板</th><th scope="col">状态码</th></tr></thead>
             <tbody>
-              <tr v-for="entry in runtime.items" :key="entry.id">
+              <tr v-for="(entry,index) in runtime.items" :key="entry.id" :class="{selected: selectedRequest?.id === entry.id}">
                 <td><time :datetime="entry.observedAt">{{ formatDate(entry.observedAt) }}</time></td>
                 <th scope="row">{{ entry.source }}<span class="table-secondary">{{ kindLabels[entry.kind] }} · {{ entry.service }}</span></th>
                 <td class="mono">{{ entry.method }}</td>
-                <td class="mono">{{ entry.route }}</td>
+                <td class="mono"><button class="audit-record-link" @click="selectedIndex = index">{{ entry.route }}</button></td>
                 <td><span class="badge" :class="entry.status >= 500 ? 'status-needs_work' : entry.status >= 400 ? 'status-in_review' : 'status-draft'">{{ entry.status }}</span></td>
               </tr>
             </tbody>
@@ -206,11 +209,11 @@ onBeforeUnmount(() => active.abort())
           <table class="data-table audit-table audit-actions-table">
             <thead><tr><th scope="col">操作时间</th><th scope="col">经办人</th><th scope="col">操作</th><th scope="col">对象</th></tr></thead>
             <tbody>
-              <tr v-for="(entry, index) in actions.items" :key="index">
+              <tr v-for="(entry, index) in actions.items" :key="index" :class="{selected: selectedAction === entry}">
                 <td><time :datetime="entry.at">{{ formatDate(entry.at) }}</time></td>
                 <th scope="row">{{ entry.actor }}</th>
                 <td>
-                  {{ actionLabels[entry.action] || entry.action }}
+                  <button class="audit-record-link" @click="selectedIndex = index">{{ actionLabels[entry.action] || entry.action }}</button>
                   <span v-if="entry.automated" class="table-secondary">自动登记</span>
                 </td>
                 <td>
@@ -225,7 +228,7 @@ onBeforeUnmount(() => active.abort())
         </div>
         <p v-else class="empty-state">所选范围内暂无审计记录。</p>
       </template>
-    </section>
+    </section><aside class="audit-detail-rail"><section class="panel"><p class="eyebrow">{{ actionsTab ? '操作详情' : '请求详情' }}</p><template v-if="selectedRequest && !actionsTab"><h2><span class="audit-method">{{ selectedRequest.method }}</span>{{ selectedRequest.route }}</h2><dl><div><dt>观察时间</dt><dd>{{ formatDate(selectedRequest.observedAt) }}</dd></div><div><dt>来源</dt><dd>{{ selectedRequest.source }} · #{{ selectedRequest.sourceId }}</dd></div><div><dt>服务</dt><dd>{{ selectedRequest.service }}</dd></div><div><dt>采集方式</dt><dd>{{ kindLabels[selectedRequest.kind] }}</dd></div><div><dt>状态码</dt><dd><span class="badge">{{ selectedRequest.status }}</span></dd></div><div><dt>审计编号</dt><dd>#{{ selectedRequest.id }}</dd></div></dl></template><template v-else-if="selectedAction"><h2>{{ actionLabels[selectedAction.action] || selectedAction.action }}</h2><dl><div><dt>操作时间</dt><dd>{{ formatDate(selectedAction.at) }}</dd></div><div><dt>经办人</dt><dd>{{ selectedAction.actor }}</dd></div><div><dt>对象</dt><dd>{{ targetLabels[selectedAction.targetType] || selectedAction.targetType }} #{{ selectedAction.targetId }}</dd></div><div><dt>登记方式</dt><dd>{{ selectedAction.automated ? '自动登记' : '平台操作' }}</dd></div></dl><a v-if="targetPaths[selectedAction.targetType]" class="button button-secondary" :href="home + targetPaths[selectedAction.targetType] + selectedAction.targetId">打开关联对象</a></template><p v-else>选择记录查看来源与审计标识。</p></section><section class="panel"><h2>查询与留存</h2><p>当前列表 {{ runtime?.items.length ?? actions?.items.length ?? 0 }} 条。{{ runtime?.truncated || actions?.truncated ? '已达到本次查询上限，请缩小查询范围。' : '数量仅代表本次查询返回的记录。' }}</p><p v-if="runtime">保留最近 {{ runtime.retentionDays }} 天<span v-if="runtime.retentionLimitPerSource">，每个来源最多 {{ runtime.retentionLimitPerSource }} 条</span>。</p><p>导出沿用最近一次成功查询的条件和展示上限。</p></section></aside></div>
   </div>
 </template>
 
@@ -241,3 +244,5 @@ onBeforeUnmount(() => active.abort())
   .audit-filter .field { flex-basis: 7rem; }
 }
 </style>
+
+<style scoped>.audit-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.audit-tabs{border-bottom:1px solid var(--line);gap:24px;padding:0 0 10px}.audit-tabs .button{background:none;border:0;color:var(--muted);padding-left:0;padding-right:0;border-radius:0}.audit-tabs .button-primary{color:var(--blue);box-shadow:0 11px 0 -9px var(--blue)}.audit-filter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:20px}.audit-filter .field{max-width:none;width:100%;font-size:11px}.audit-filter>.button{align-self:end}.audit-table{min-width:640px}.audit-table tr.selected{background:#f0f7fd}.audit-record-link{border:0;background:none;color:var(--blue);font:inherit;text-align:left;cursor:pointer;padding:0;overflow-wrap:anywhere}.audit-detail-rail{display:grid;gap:16px;position:sticky;top:84px}.audit-detail-rail .panel{padding:20px}.audit-detail-rail h2{font-size:14px;line-height:1.8;overflow-wrap:anywhere;margin:0 0 16px}.audit-detail-rail p{font-size:12px;color:var(--muted);line-height:1.9}.audit-detail-rail dl{display:grid;gap:16px;margin:20px 0}.audit-detail-rail dl>div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:9px;font-size:12px}.audit-detail-rail dt{color:var(--muted)}.audit-detail-rail dd{margin:0;overflow-wrap:anywhere}.audit-method{display:inline-block;color:var(--blue);font-size:11px;margin-right:8px}.audit-actions-table{min-width:560px}@media(max-width:1400px){.audit-workbench{grid-template-columns:minmax(0,1fr) 270px}.audit-filter{gap:12px;padding:16px}}</style>
