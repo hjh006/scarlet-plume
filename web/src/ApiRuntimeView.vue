@@ -54,6 +54,9 @@ const home = `#/${encodeURIComponent(props.workspace.slug)}`
 const scanPath = home + '/api-security'
 const runtimePath = workspacePath(props.workspace.slug) + '/api-security/runtime'
 const owner = computed(() => props.workspace.role === 'owner')
+const view = ref<'routes' | 'sources' | 'monitor' | 'findings'>('routes')
+const selectedSourceId = ref<number | null>(null)
+const selectedSource = computed(() => sources.value.find(source => source.id === selectedSourceId.value) ?? enabledSources.value[0] ?? sources.value[0])
 const sources = ref<RuntimeSource[]>([])
 const routes = ref<RuntimeRoute[]>([])
 const findings = ref<RuntimeFinding[]>([])
@@ -81,13 +84,14 @@ const copyNotice = ref('')
 let revokeButton: HTMLButtonElement | undefined
 const active = new AbortController()
 const kindFilter = ref<SourceKind | ''>('')
+const sourceFilter = ref('')
 const postureFilter = ref<RoutePosture | ''>('')
 const visibleCount = ref(50)
 const enabledSources = computed(() => sources.value.filter(source => !source.revokedAt))
 const reportingSources = computed(() => enabledSources.value.filter(source => source.lastSeen).length)
 const openFindings = computed(() => findings.value.filter(finding => finding.checkStatus !== 'verified').length)
 const filteredRoutes = computed(() => routes.value.filter(route =>
-  (!kindFilter.value || route.kind === kindFilter.value) && (!postureFilter.value || route.posture === postureFilter.value),
+  (!kindFilter.value || route.kind === kindFilter.value) && (!sourceFilter.value || String(route.sourceId) === sourceFilter.value) && (!postureFilter.value || route.posture === postureFilter.value),
 ))
 
 function errorText(error: unknown) {
@@ -245,7 +249,7 @@ onBeforeUnmount(() => {
     <header class="api-masthead api-masthead--detail">
       <div class="api-masthead-copy">
         <p class="api-scan-index">API 安全</p>
-        <h1>运行时观测</h1>
+        <h1>{{ view === 'monitor' ? 'API 流量监测' : view === 'findings' ? '运行时风险研判' : '运行时观测' }}</h1>
         <p class="api-scan-context">通过独立采集 Agent 观测服务入口，也可接入既有网关日志和 OTLP 应用追踪。按服务别名与最新 OpenAPI 契约对照。</p>
       </div>
       <div class="page-actions api-runtime-actions">
@@ -261,6 +265,7 @@ onBeforeUnmount(() => {
     <p v-if="loadError" class="message message-error" role="alert">{{ loadError }}</p>
     <p v-else-if="loading && !loaded" class="message" role="status">正在读取运行时观测…</p>
 
+    <nav class="runtime-view-tabs" aria-label="运行时操作视图"><button v-for="item in ([{id:'routes',label:'路由观测'},{id:'sources',label:'观测来源'},{id:'monitor',label:'流量监测'},{id:'findings',label:'检测发现'}] as const)" :key="item.id" type="button" :aria-pressed="view===item.id" @click="view=item.id">{{ item.label }}</button></nav>
     <section v-if="formVisible" id="runtime-source-form" class="panel api-panel" aria-labelledby="runtime-source-form-title">
       <div class="api-panel-heading"><div><h2 id="runtime-source-form-title">新增观测来源</h2><p>为单个网关或应用签发专用接入令牌。</p></div></div>
       <form @submit.prevent="createSource">
@@ -295,7 +300,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="field">
         <label for="runtime-issued-token">接入令牌</label>
-        <input id="runtime-issued-token" ref="tokenInput" class="mono" :value="issued.token" aria-describedby="runtime-token-hint"
+        <input id="runtime-issued-token" ref="tokenInput" type="password" class="mono" :value="issued.token" aria-describedby="runtime-token-hint"
                autocomplete="off" autocapitalize="none" spellcheck="false" readonly>
         <p id="runtime-token-hint" class="field-hint">令牌仅展示一次。复制后存入接入端的凭据配置。</p>
       </div>
@@ -328,16 +333,16 @@ onBeforeUnmount(() => {
         <div class="api-metric"><dt><span class="api-metric-icon api-metric-icon--coral"><Icon name="checks" /></span>未闭环发现</dt><dd>{{ findingsLoaded ? openFindings : '—' }}</dd></div>
       </dl>
 
-      <RuntimeMonitor :api-path="runtimePath" :audit-href="home + '/audit'" :sources="sources" :refresh="monitorRefresh"
+      <RuntimeMonitor v-show="view === 'monitor'" :api-path="runtimePath" :audit-href="home + '/audit'" :sources="sources" :refresh="monitorRefresh"
                       @session-expired="emit('sessionExpired')" />
-      <RuntimeFindingsPanel :workspace="workspace" :findings="findings" :home="home" :loading="loading" :error="findingsError"
+      <RuntimeFindingsPanel v-show="view === 'findings'" :workspace="workspace" :findings="findings" :home="home" :loading="loading" :error="findingsError"
                             @session-expired="emit('sessionExpired')" />
 
-      <section class="panel api-panel" aria-labelledby="runtime-routes-title" :aria-busy="loading">
+      <div v-if="view === 'routes'" class="runtime-route-workbench"><section class="panel api-panel" aria-labelledby="runtime-routes-title" :aria-busy="loading">
         <div class="api-panel-heading">
           <div><h2 id="runtime-routes-title">观测路由</h2><p>展示最近的 {{ routes.length }} 项，按来源和路由分别统计。同一次请求可能由网关和应用分别观测。</p></div>
         </div>
-        <div v-if="routes.length" class="runtime-route-filters">
+        <div v-if="routes.length" class="runtime-route-filters"><div class="field"><label for="runtime-filter-source">观测来源</label><select id="runtime-filter-source" v-model="sourceFilter" @change="visibleCount=50; selectedSourceId=sourceFilter ? Number(sourceFilter) : null"><option value="">全部来源</option><option v-for="source in sources" :key="source.id" :value="String(source.id)">{{ source.name }}</option></select></div>
           <div class="field">
             <label for="runtime-filter-kind">来源类型</label>
             <select id="runtime-filter-kind" v-model="kindFilter" @change="visibleCount = 50">
@@ -372,7 +377,7 @@ onBeforeUnmount(() => {
                     <code class="api-path mono">{{ route.route }}</code>
                   </span>
                 </th>
-                <td role="cell"><span class="api-cell-label" aria-hidden="true">观测来源</span>{{ route.source }}<span class="api-secondary">{{ kinds[route.kind] }} · {{ route.service }}</span></td>
+                <td role="cell"><span class="api-cell-label" aria-hidden="true">观测来源</span><button type="button" class="runtime-source-select" :aria-pressed="selectedSource?.id === route.sourceId" @click="selectedSourceId=route.sourceId">{{ route.source }}</button><span class="api-secondary">{{ kinds[route.kind] }} · {{ route.service }}</span></td>
                 <td role="cell"><span class="api-cell-label" aria-hidden="true">契约对照</span><span class="badge" :data-posture="route.posture">{{ postures[route.posture] }}</span></td>
                 <td role="cell"><span class="api-cell-label" aria-hidden="true">观测请求</span>{{ route.requests }}<span class="api-secondary">4xx {{ route.responses4xx }} · 5xx {{ route.responses5xx }}</span></td>
                 <td role="cell"><span class="api-cell-label" aria-hidden="true">数据库系统</span>{{ route.databaseSystems?.join('、') || '—' }}</td>
@@ -386,7 +391,9 @@ onBeforeUnmount(() => {
                 @click="visibleCount += 50">显示更多路由</button>
       </section>
 
-      <section class="panel api-panel" aria-labelledby="runtime-sources-title" :aria-busy="loading">
+      <aside class="context-rail runtime-source-rail"><section class="panel api-panel"><div class="api-panel-heading"><h2>观测来源</h2></div><div v-if="selectedSource" class="runtime-source-proof"><h3>{{ selectedSource.name }}</h3><span class="badge">{{ kinds[selectedSource.kind] }}</span><dl><div><dt>来源标识</dt><dd>#{{ selectedSource.id }}</dd></div><div><dt>服务别名</dt><dd>{{ selectedSource.service }}</dd></div><div><dt>最近上报</dt><dd>{{ selectedSource.lastSeen ? formatDate(selectedSource.lastSeen) : '尚无记录' }}</dd></div><div><dt>状态</dt><dd>{{ selectedSource.revokedAt ? '已撤销' : selectedSource.lastSeen ? '已收到观测' : '等待来源' }}</dd></div></dl><button class="button button-secondary" type="button" @click="view='sources'">管理来源与范围</button></div><p v-else class="empty-state">尚无已配置观测来源。</p></section><section class="panel api-panel"><div class="api-panel-heading"><h3>采集边界</h3></div><div class="runtime-source-proof"><p>来源内请求分别计数。网关与应用可能观察同一请求，不能相加为唯一访问量。</p><p>这里只保留受控路由、统计及关联引用。连接、检查范围与真实认证状态分开呈现。</p><a class="button button-secondary" :href="home + '/audit'">查看请求审计</a></div></section></aside></div>
+
+      <section v-if="view === 'sources'" class="panel api-panel" aria-labelledby="runtime-sources-title" :aria-busy="loading">
         <div class="api-panel-heading">
           <div><h2 id="runtime-sources-title">观测来源</h2><p>根据最近上报时间追踪接入状态。</p></div>
         </div>
@@ -399,7 +406,7 @@ onBeforeUnmount(() => {
             </tr></thead>
             <tbody role="rowgroup">
               <tr v-for="source in sources" :key="source.id" role="row">
-                <th scope="row" role="rowheader">{{ source.name }}<span class="api-secondary">{{ kinds[source.kind] }} · #{{ source.id }}</span></th>
+                <th scope="row" role="rowheader"><button type="button" class="runtime-source-select" @click="selectedSourceId=source.id; sourceFilter=String(source.id); view='routes'">{{ source.name }}</button><span class="api-secondary">{{ kinds[source.kind] }} · #{{ source.id }}</span></th>
                 <td role="cell"><span class="api-cell-label" aria-hidden="true">服务别名</span>{{ source.service }}</td>
                 <td role="cell">
                   <span class="api-cell-label" aria-hidden="true">状态</span>

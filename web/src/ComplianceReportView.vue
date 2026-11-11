@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { activityKindLabels, type Activity, type ActivityPage } from './activity'
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import { checkStatusLabels, eventLabels, type Check, type CheckEvent, type Evidence } from './workflow'
 import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPublicSelect, type PostgresEvidence } from './postgresql'
 import type { ReportCounts, ReportDataFlows, ReportIdentification, ReportSource, ReportCatalogDiscovery, ReportOperations, ReportAssessmentReferences } from './reports'
 import Icon from './Icon.vue'
+import Brand from './Brand.vue'
 import CatalogAssessmentEvidence from './CatalogAssessmentEvidence.vue'
 import { assessmentKinds, assessmentStatuses } from './assessments'
 import RuntimeDetectionFacts from './RuntimeDetectionFacts.vue'
@@ -63,6 +64,36 @@ const reportChecks = computed(() => report.value?.checks.map(entry => ({
     entry.evidence.find(evidence => evidence.postgres?.classification)?.postgres?.classification,
 })) ?? [])
 
+// A page margin belongs to the printed document, so keep its stylesheet in
+// this report component and derive every repeated label from the loaded report.
+function printContent(value: string) {
+  return '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n\f]/g, ' ') + '"'
+}
+const printMarginStyles = computed(() => {
+  if (!report.value) return ''
+  const scope = report.value.scope
+  const range = scope.activityName ? '处理活动：' + scope.activityName
+    : scope.source ? '采集来源：' + scope.source.source : '整个工作区'
+  const mode = props.archiveId ? '历史采用快照' : '当前范围预览'
+  const generated = new Date(report.value.generatedAt)
+  const generatedAt = Number.isFinite(generated.valueOf())
+    ? generated.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }) + '（北京时间）'
+    : '未知'
+  const heading = mode + ' · ' + props.workspace.name + ' / ' + range
+  const timestamp = (props.archiveId ? '归档生成于 ' : '本次预览生成于 ') + generatedAt
+  return `@media print { @page {
+    size: A4; margin: 19mm 12mm 18mm;
+    @top-left { content: ${printContent(heading)}; width: 186mm; font-family: "Source Han Sans SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; line-height: 1.35; color: #536780; text-align: left; vertical-align: bottom; padding-bottom: 4mm; }
+    @bottom-left { content: ${printContent(timestamp)}; width: 153mm; font-family: "Source Han Sans SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; color: #536780; vertical-align: top; padding-top: 4mm; border-top: .2mm solid #dce5f0; }
+    @bottom-right { content: "第 " counter(page) " / " counter(pages) " 页"; width: 33mm; font-family: "Source Han Sans SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; color: #536780; text-align: right; vertical-align: top; padding-top: 4mm; border-top: .2mm solid #dce5f0; }
+  } }`
+})
+
+// Deployment CSP rejects inline <style> elements. Keep the report's dynamic
+// page metadata in a native stylesheet and remove it when leaving this view.
+const printStyleSheet = new CSSStyleSheet()
+watch(printMarginStyles, css => printStyleSheet.replaceSync(css), { immediate: true })
+
 function errorText(error: unknown) {
   if (active.signal.aborted) return ''
   if (error instanceof ApiError && error.status === 401) {
@@ -103,6 +134,9 @@ async function loadReport() {
   }
 }
 
+function scrollSection(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }) }
+function printReport() { window.print() }
+
 function setScope() {
   window.location.hash = home + '/reports' + (activityId.value ? '/' + encodeURIComponent(activityId.value) : '')
 }
@@ -128,10 +162,14 @@ async function download(format: 'html' | 'json') {
 }
 
 onMounted(() => {
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, printStyleSheet]
   if (!props.archiveId) void loadActivities()
   void loadReport()
 })
-onBeforeUnmount(() => active.abort())
+onBeforeUnmount(() => {
+  active.abort()
+  document.adoptedStyleSheets = document.adoptedStyleSheets.filter(sheet => sheet !== printStyleSheet)
+})
 </script>
 
 <template>
@@ -143,15 +181,13 @@ onBeforeUnmount(() => active.abort())
     </div>
     <div class="page-actions">
       <a v-if="!archiveId" class="button button-secondary" :href="home + '/reports/archives'">自动报告归档</a>
-      <button type="button" class="button button-primary" :disabled="!report || loading || Boolean(exporting)" @click="download('html')">
-        <Icon name="download" />{{ exporting === 'html' ? '正在导出…' : '导出 HTML' }}
-      </button>
-      <button type="button" class="button button-secondary" :disabled="!report || loading || Boolean(exporting)" @click="download('json')">
-        {{ exporting === 'json' ? '正在导出…' : '导出 JSON' }}
-      </button>
+
     </div>
   </header>
   <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
+  <div class="report-workbench">
+    <nav class="panel report-contents" aria-label="报告目录"><strong>报告目录</strong><button type="button" @click="scrollSection('report-scope-title')">范围与采用依据</button><button v-if="report?.identification" type="button" @click="scrollSection('report-identification-title')">来源与识别</button><button v-if="report?.catalogDiscovery" type="button" @click="scrollSection('report-catalog-title')">目录与分类证据</button><button v-if="report?.operations" type="button" @click="scrollSection('report-operations-title')">整改与来源复测</button><button type="button" @click="scrollSection('report-results-title')">检查与独立复核</button><button v-if="report?.assessmentReferences" type="button" @click="scrollSection('report-assessment-refs-title')">专项评估引用</button><button v-if="report?.dataFlows" type="button" @click="scrollSection('report-flows-title')">数据关系依据</button></nav>
+    <article class="report-document"><header class="report-document-header"><div class="report-print-brand"><Brand /></div><h2>数据安全合规报告</h2><p>{{report?.scope.activityName || workspace.name}} · {{archiveId ? '历史采用快照' : '当前范围预览'}}<template v-if="report"> · {{formatDate(report.generatedAt)}}</template></p></header>
   <section class="panel report-scope" aria-labelledby="report-scope-title" :aria-busy="loading">
     <div class="panel-heading">
       <div>
@@ -303,11 +339,23 @@ onBeforeUnmount(() => active.abort())
       </table>
     </div>
     <div v-else class="empty-state"><strong>此范围暂无检查</strong><p>{{ archiveId ? '此归档保留了本次采集的识别汇总。' : '新建检查后，报告将纳入该记录和后续操作。' }}</p></div>
-  </section>
+  </section>    <footer class="report-print-footer">赤翎 / SCARLET PLUME · 采用来源、版本、证据与独立复核分别列示</footer>
+    </article><aside class="report-actions-rail"><section class="panel"><div class="panel-heading"><h2>报告操作</h2></div><div class="report-export-actions">
+      <button type="button" class="button button-primary" :disabled="!report || loading || Boolean(exporting)" @click="download('html')">
+        <Icon name="download" />{{ exporting === 'html' ? '正在导出…' : '导出 HTML' }}
+      </button>
+      <button type="button" class="button button-secondary" :disabled="!report || loading || Boolean(exporting)" @click="download('json')">
+        {{ exporting === 'json' ? '正在导出…' : '导出 JSON' }}
+      </button>
+      <button class="button button-secondary" type="button" :disabled="!report || loading" @click="printReport">打印报告</button><a class="button button-secondary" :href="home+'/reports/archives'">历史报告归档</a></div></section><section class="panel"><div class="panel-heading"><h2>当前采用范围</h2></div><dl class="report-context"><div><dt>报告类型</dt><dd>{{archiveId ? '归档 #'+archiveId : '实时汇总'}}</dd></div><div><dt>检查</dt><dd>{{report?.counts.total ?? '未知'}}</dd></div><div><dt>待补充</dt><dd>{{report?.counts.needsWork ?? '未知'}}</dd></div><div><dt>待独立复核</dt><dd>{{report?.counts.inReview ?? '未知'}}</dd></div><div><dt>已独立复核</dt><dd>{{report?.counts.verified ?? '未知'}}</dd></div></dl><p class="report-scope-note">报告展示已纳管范围，不生成整体合规评分。未知、过期和未闭环项分别留存。</p></section></aside>
+  </div>
 </template>
 
 <style scoped>
 .report-classification-snapshot { min-width: 0; }
 .report-classification-snapshot > summary { min-height: 2.5rem; padding-block: .5rem; cursor: pointer; }
 .report-classification-snapshot[open] { min-width: min(37rem, 100%); }
+
+.report-workbench{display:grid;grid-template-columns:170px minmax(0,1fr) 260px;gap:16px;align-items:start}.report-contents{display:grid;padding:16px 0;position:sticky;top:16px;gap:4px}.report-contents>strong{padding:0 16px 12px;font-size:13px}.report-contents button{border:0;background:none;color:var(--accent);padding:12px 16px;text-align:left;font-size:11px;border-left:2px solid transparent}.report-contents button:hover,.report-contents button:focus-visible{background:#edf7fc;border-left-color:var(--accent)}.report-document{min-width:0;background:white;border:1px solid var(--line);border-radius:12px;padding:26px}.report-document-header{padding-bottom:20px;border-bottom:1px solid var(--line);margin-bottom:12px}.report-document-header h2{font-size:22px}.report-document-header p{font-size:11px;color:var(--secondary);margin-top:10px}.report-document>.panel{border:0;border-radius:0;margin:0 0 20px!important;box-shadow:none;background:transparent;overflow:visible}.report-document .panel-heading{padding:18px 0 12px!important;min-height:0;border-bottom:1px solid var(--line)}.report-document .panel-heading h2{font-size:16px}.report-document .panel-heading p{font-size:11px}.report-document .report-results article{border:1px solid var(--line);border-radius:8px;padding:14px;margin:13px 0;font-size:11px}.report-document .report-results article h3{font-size:12px}.report-document .report-results>p,.report-document .report-results>ul{font-size:11px;padding:10px 0}.report-document .table-scroll{max-width:100%;min-width:0}.report-document .data-table{min-width:0!important;font-size:11px!important}.report-document .data-table :is(th,td){padding:11px 10px!important;overflow-wrap:anywhere}.report-document .report-counts{gap:12px;padding:14px 0}.report-document .report-counts dd{font-size:22px}.report-document .filter-bar{padding:12px 0!important;border-bottom:1px solid var(--line);background:transparent;flex-wrap:wrap}.report-document .filter-bar select{max-width:100%;min-width:0}.report-context{margin:0;padding:8px 18px;font-size:11px}.report-context>div{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-bottom:1px solid var(--line);padding:11px 0}.report-context dt{color:var(--secondary)}.report-context dd{margin:0;overflow-wrap:anywhere}.report-actions-rail{position:sticky;top:16px;display:grid;gap:16px}.report-export-actions{padding:18px;display:grid;gap:12px}.report-export-actions .button{width:100%}.report-scope-note{font-size:11px;color:#456079;background:#f0f7fc;border:1px solid #dbeaf5;border-radius:6px;padding:12px;margin:15px}.report-print-brand,.report-print-footer{display:none}.report-document [id]{scroll-margin-top:20px}@media(max-width:1320px){.report-workbench{grid-template-columns:145px minmax(0,1fr) 225px;gap:14px}.report-document{padding:20px}.report-contents button{padding:11px 12px}}
+@media print{@page{size:A4;margin:19mm 12mm 18mm}.report-contents,.report-actions-rail,.page-header,.back-link,.report-document .filter-bar,.report-workbench .button{display:none!important}:global(.app-shell){display:block!important}:global(.app-shell .sidebar),:global(.topbar),:global(.skip-link){display:none!important}:global(.main-content){padding:0!important;width:auto!important;max-width:none!important}:global(body){background:white!important;color:#15233d!important}.report-workbench{display:block}.report-document{border:0;padding:0;border-radius:0}.report-document .table-scroll{overflow:visible}.report-document .data-table{font-size:9pt!important}.report-document .data-table :is(td,th){padding:7px 6px!important}.report-document .panel,.report-document article{break-inside:auto}.report-document article,.report-document tr{break-inside:avoid}.report-print-brand{display:block;margin-bottom:24px}.report-print-brand :deep(.brand){color:#15233d!important}.report-print-brand :deep(.brand small){color:#15233d!important}.report-print-footer{display:block;border-top:1px solid #dce5f0;padding-top:12px;font-size:9px;color:#64748d}.report-document .report-classification-snapshot[open]{min-width:0}.report-document .report-counts{display:flex;flex-wrap:wrap}.report-document .report-counts>div{flex:1;min-width:70px}thead{display:table-header-group}}
 </style>

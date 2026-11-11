@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { activityKindLabels } from './activity'
 import { ApiError, describeError, request, workspacePath, type Workspace } from './api'
 import { templateKinds, type CheckTemplate, type TemplateItem, type TemplateKind } from './template'
 import type { Requirement } from './workflow'
 import Icon from './Icon.vue'
+import TemplateCriteria from './TemplateCriteria.vue'
 
 const props = defineProps<{ workspace: Workspace; sourceId?: string; revise: boolean }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -22,6 +23,9 @@ const saving = ref(false)
 const loadError = ref('')
 const formError = ref('')
 const active = new AbortController()
+const selectedItemId = ref<number>()
+const selectedItem = computed(() => items.value.find(i => i.rowId === selectedItemId.value) ?? items.value[0])
+function focusItem(rowId: number) { selectedItemId.value = rowId; document.getElementById('template-row-' + rowId)?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }
 let nextRowId = 0
 
 function errorText(error: unknown) {
@@ -130,7 +134,7 @@ onBeforeUnmount(() => active.abort())
     <p role="alert">{{ loadError }}</p>
     <button type="button" class="button button-secondary" @click="load">重新读取</button>
   </div>
-  <form v-else class="panel form-panel template-form" @submit.prevent="publish">
+  <div v-else class="template-form-workbench"><nav class="panel template-form-outline" aria-label="模板编辑目录"><h2>模板结构</h2><p>{{ items.length }} / 25 个检查项</p><button v-for="(item,index) in items" :key="item.rowId" type="button" :class="{active:selectedItem?.rowId === item.rowId}" @click="focusItem(item.rowId)"><span>{{ String(index+1).padStart(2,'0') }}</span>{{ item.title || '未命名检查项' }}</button></nav><form class="panel form-panel template-form" @submit.prevent="publish">
     <div class="field">
       <label for="template-kind">活动类型</label>
       <select id="template-kind" v-model="kind" :disabled="revise || saving">
@@ -147,7 +151,7 @@ onBeforeUnmount(() => active.abort())
       <label for="template-title">模板名称</label>
       <input id="template-title" v-model="title" maxlength="100" required>
     </div>
-    <fieldset v-for="(item, index) in items" :key="item.rowId" class="template-fieldset">
+    <fieldset v-for="(item, index) in items" :key="item.rowId" :id="'template-row-' + item.rowId" class="template-fieldset" @focusin="selectedItemId = item.rowId">
       <legend>检查项 {{ index + 1 }}</legend>
       <div class="field">
         <label :for="'item-title-' + item.rowId">检查项名称</label>
@@ -191,5 +195,9 @@ onBeforeUnmount(() => active.abort())
       <button class="button button-primary" type="submit" :disabled="saving">{{ saving ? '正在发布…' : '发布模板版本' }}</button>
       <a class="button button-secondary" :href="backUrl">取消</a>
     </div>
-  </form>
+  </form><aside class="template-preview"><section class="panel"><p class="eyebrow">发布范围</p><h2>{{ title || '未命名模板' }}</h2><dl><div><dt>活动场景</dt><dd>{{ activityKindLabels[kind] }}</dd></div><div><dt>模板标识</dt><dd>{{ templateKey || '待填写' }}</dd></div><div><dt>版本依据</dt><dd>{{ source ? source.title + ' · v' + source.version : '新建模板' }}</dd></div></dl><p>发布后保留版本内容，既有检查继续采用原版本。</p></section><section v-if="selectedItem" class="panel"><p class="eyebrow">当前检查项预览</p><h2>{{ selectedItem.title || '待填写名称' }}</h2><span class="badge">{{ selectedItem.requirementCode || '待关联要求' }}</span><TemplateCriteria :item="selectedItem" /></section></aside></div>
 </template>
+
+<style scoped>
+.template-form-workbench{display:grid;grid-template-columns:170px minmax(0,1fr) 280px;gap:16px;align-items:start}.template-form{max-width:none;padding:24px;min-width:0}.template-form-outline{padding:18px 10px;position:sticky;top:84px}.template-form-outline h2,.template-form-outline p{margin:0 8px 14px}.template-form-outline h2{font-size:13px}.template-form-outline p{font-size:11px;color:var(--muted)}.template-form-outline button{display:flex;align-items:start;gap:8px;width:100%;font:inherit;font-size:12px;line-height:1.7;text-align:left;border:0;background:none;color:var(--muted);padding:12px 8px;cursor:pointer}.template-form-outline button span{color:var(--blue);font-size:10px;margin-top:3px}.template-form-outline button.active{background:#edf6fc;color:var(--blue);border-radius:6px}.template-fieldset{padding:18px;margin:20px 0;min-width:0;border:1px solid var(--line);border-radius:10px;background:#fcfdff;scroll-margin-top:90px}.template-fieldset legend{font-size:12px;color:var(--blue);padding:0 8px}.template-preview{display:grid;gap:16px;position:sticky;top:84px}.template-preview>.panel{padding:20px}.template-preview h2{font-size:15px;margin:0 0 15px;overflow-wrap:anywhere}.template-preview p{font-size:12px;color:var(--muted);line-height:1.8}.template-preview dl{display:grid;gap:14px}.template-preview dl>div{font-size:12px;display:grid;grid-template-columns:70px minmax(0,1fr);gap:8px}.template-preview dt{color:var(--muted)}.template-preview dd{margin:0;overflow-wrap:anywhere}.template-field-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form-actions{border-top:1px solid var(--line);padding-top:18px;margin-top:20px}@media(max-width:1400px){.template-form-workbench{grid-template-columns:145px minmax(0,1fr) 250px;gap:12px}.template-form{padding:18px}.template-field-pair{grid-template-columns:1fr}}
+</style>

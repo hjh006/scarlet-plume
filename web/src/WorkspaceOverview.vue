@@ -1,90 +1,65 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { assetBusinessLevelLabels, assetCategoryLabels, formatDate, providerLabel, type Overview } from './api'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { ApiError, assetBusinessLevelLabels, assetCategoryLabels, describeError, formatDate, providerLabel, request, workspacePath, type Overview } from './api'
 import { checkStatusLabels } from './workflow'
 import { runtimeRuleLabels, runtimeRiskSeverityLabels } from './runtime-findings'
 import Icon from './Icon.vue'
+import FeatherGraph from './FeatherGraph.vue'
+import { dataFlowNodeLabels, dataFlowEvidenceLabels, type DataFlowGraph, type DataFlowNode } from './data-flows'
 import './overview.css'
 
 const props = defineProps<{ home: string; overview: Overview | null; loading?: boolean }>()
-const emit = defineEmits<{ refresh: [] }>()
+const emit = defineEmits<{ refresh: []; sessionExpired: [] }>()
 const metrics = computed(() => [
   { label: '已配置来源', value: props.overview?.counts.activeSources, route: 'automation', icon: 'assets', tone: 'teal' },
   { label: '数据资产', value: props.overview?.counts.assets, route: 'assets', icon: 'classification', tone: 'violet' },
   { label: '待处置发现', value: props.overview?.counts.openRuntimeFindings, route: 'api-security/runtime', icon: 'warning', tone: 'coral' },
   { label: '待复核检查', value: props.overview?.counts.inReview, route: 'checks', icon: 'checks', tone: 'blue' },
 ])
-const tasks = computed(() => [
-  { title: '处置运行时发现', count: props.overview?.counts.openRuntimeFindings, detail: '核对成功响应与接口契约的差异', route: 'api-security/runtime', icon: 'warning', tone: 'coral' },
-  { title: '独立复核监管检查', count: props.overview?.counts.inReview, detail: '检查已提交，等待独立复核', route: 'checks', icon: 'checks', tone: 'blue' },
-  { title: '确认数据分类分级', count: props.overview?.counts.pendingClassification, detail: '复核识别结果并补充分级依据', route: 'classification', icon: 'classification', tone: 'violet' },
-])
 const sources = computed(() => props.overview?.collectionSources ?? [])
 const findings = computed(() => props.overview?.recentFindings ?? [])
 const sourceStates: Record<string, string> = {
   collecting: '采集中', queued: '已排队', paused: '已暂停', enabled: '已启用', failed: '采集失败', never_run: '待首次记录', observing: '已接入',
 }
-const destinations = computed(() => [
-  { label: '分类识别', detail: `${props.overview?.counts.assets ?? 0} 项资产`, icon: 'classification', route: 'classification', tone: 'violet' },
-  { label: '监管取证', detail: `${props.overview?.counts.checks ?? 0} 项检查`, icon: 'checks', route: 'checks', tone: 'blue' },
-  { label: '报告归档', detail: '查看真实检查与证据', icon: 'reports', route: 'reports/archives', tone: 'teal' },
-])
 function sourceTarget(kind: string) { return props.home + (kind === 'runtime' ? '/api-security/runtime' : kind === 'discovery' ? '/discovery' : kind === 'operations' ? '/operations' : '/automation') }
 function sourceIcon(provider: string) { return ['otlp', 'gateway'].includes(provider) ? 'api-security' : ['postgresql','mysql','mariadb','mongodb'].includes(provider) ? 'assets' : 'integrations' }
 function sourceProvider(provider: string) { return provider === 'otlp' ? '应用探针 · OTLP' : provider === 'gateway' ? '独立 Agent / 网关' : provider === 'feishu' ? '飞书' : providerLabel(provider) }
+const graph=ref<DataFlowGraph|null>(null), graphLoading=ref(false), graphError=ref(''), selectedId=ref('')
+let graphRequest:AbortController|undefined
+const selectedNode=computed(()=>graph.value?.nodes.find(node=>node.id===selectedId.value)??graph.value?.nodes[0]??null)
+const selectedEdges=computed(()=>graph.value?.edges.filter(edge=>edge.from===selectedNode.value?.id||edge.to===selectedNode.value?.id)??[])
+function selectNode(node:DataFlowNode){selectedId.value=node.id}
+async function loadGraph(){graphRequest?.abort();const current=new AbortController();graphRequest=current;graphLoading.value=true;graphError.value='';try{const slug=decodeURIComponent(props.home.split('/')[1]||'');const result=await request<DataFlowGraph>(workspacePath(slug)+'/data-flows',{signal:current.signal});if(!current.signal.aborted){graph.value=result;if(!result.nodes.some(node=>node.id===selectedId.value))selectedId.value=result.nodes[0]?.id||''}}catch(error){if(!current.signal.aborted){if(error instanceof ApiError&&error.status===401)emit('sessionExpired');else graphError.value=describeError(error)}}finally{if(!current.signal.aborted)graphLoading.value=false}}
+watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immediate:true});onBeforeUnmount(()=>graphRequest?.abort())
 </script>
 
 <template>
   <div class="workspace-overview" :aria-busy="loading">
     <header class="overview-heading">
       <div>
-        <h1>数据安全工作台</h1>
+        <p class="eyebrow">数据治理 / SCARLET PLUME</p><h1>数据安全全景</h1>
         <p v-if="overview?.generatedAt">工作区数据更新于 <time :datetime="overview.generatedAt">{{ formatDate(overview.generatedAt) }}</time></p>
         <p v-else>查看当前工作区的数据接入、治理进度和待办事项。</p>
       </div>
       <div class="page-actions">
         <button type="button" class="button button-secondary" :disabled="loading" @click="emit('refresh')"><Icon name="automation" />{{ loading ? '刷新中…' : '刷新数据' }}</button>
-        <a class="button button-primary" :href="home + '/reports'"><Icon name="reports" />查看报告</a>
+        <a class="button button-primary" :href="home + '/discovery'"><Icon name="plus" />接入数据源</a>
       </div>
     </header>
 
     <ul class="overview-metrics" aria-label="工作区治理指标">
       <li v-for="metric in metrics" :key="metric.label">
         <a :href="home + '/' + metric.route" class="overview-metric-link">
-          <span class="overview-tone-icon" :data-tone="metric.tone"><Icon :name="metric.icon" /></span>
-          <span class="overview-metric-copy"><strong>{{ metric.value ?? '—' }}</strong><span>{{ metric.label }}</span></span>
+
+          <span class="overview-metric-copy" :data-tone="metric.tone"><span>{{metric.label}}</span><strong>{{metric.value??'—'}}</strong><small>当前授权工作区</small></span>
           <Icon name="chevron" />
         </a>
       </li>
     </ul>
 
     <div class="overview-primary-grid">
-      <section class="panel overview-flow-panel" aria-labelledby="overview-flow-title">
-        <div class="overview-panel-heading"><h2 id="overview-flow-title">数据治理链路</h2><a class="quiet-link" :href="home + '/data-flows'">查看数据流转 <Icon name="chevron" /></a></div>
-        <div v-if="overview" class="overview-flow-canvas">
-          <div class="overview-feather" aria-hidden="true"></div>
-          <ul class="overview-flow-sources" aria-label="已配置的采集来源">
-            <li v-for="source in sources.slice(0, 4)" :key="source.kind + ':' + source.id">
-              <a class="overview-flow-node" :href="sourceTarget(source.kind)"><Icon :name="sourceIcon(source.provider)" /><span><strong>{{ source.name }}</strong><small>{{ sourceProvider(source.provider) }}</small></span><span class="overview-flow-port" aria-hidden="true"></span></a>
-            </li>
-            <li v-if="!sources.length" class="overview-flow-empty"><Icon name="assets" /><span>尚无接入来源<a :href="home + '/automation'">配置自动采集</a></span></li>
-          </ul>
-          <div class="overview-flow-core"><Icon name="data-flows" /><span>赤翎治理引擎<small>识别 · 检查 · 取证</small></span></div>
-          <ul class="overview-flow-destinations" aria-label="治理业务入口">
-            <li v-for="destination in destinations" :key="destination.route"><a class="overview-flow-node" :data-tone="destination.tone" :href="home + '/' + destination.route"><span class="overview-flow-port" aria-hidden="true"></span><Icon :name="destination.icon" /><span><strong>{{ destination.label }}</strong><small>{{ destination.detail }}</small></span></a></li>
-          </ul>
-        </div>
-        <div v-else class="overview-flow-loading" role="status">正在读取治理链路…</div>
-        <div class="overview-flow-legend"><span class="overview-legend-node">已配置来源</span><span class="overview-legend-line">治理流程</span><p>流程示意；实际观测的接口与数据库关联请查看数据流转。</p></div>
-      </section>
-
-      <section class="panel overview-tasks" aria-labelledby="overview-tasks-title">
-        <div class="overview-panel-heading"><h2 id="overview-tasks-title">待办事项</h2><span class="overview-caption">当前工作区</span></div>
-        <ul>
-          <li v-for="task in tasks" :key="task.route"><a :href="home + '/' + task.route"><span class="overview-tone-icon" :data-tone="task.tone"><Icon :name="task.icon" /></span><span class="overview-task-copy"><strong>{{ task.title }}</strong><span><b>{{ task.count ?? '—' }}</b> 项 · {{ task.detail }}</span></span><Icon name="chevron" /></a></li>
-        </ul>
-        <div v-if="overview" class="overview-review-summary"><span>检查闭环</span><strong>{{ overview.counts.verified }} <small>/ {{ overview.counts.checks }}</small></strong><a :href="home + '/checks'">查看检查台账 <Icon name="chevron" /></a></div>
-      </section>
+      <section class="panel overview-flow-panel" aria-labelledby="overview-flow-title"><div class="overview-panel-heading"><div><h2 id="overview-flow-title">赤翎 · 数据关系</h2><p v-if="graph">{{graph.summary.nodes}} 个节点 · {{graph.summary.edges}} 条关系</p></div><a class="button button-secondary" :href="home+'/data-flows'">查看图谱与历史</a></div><p v-if="graphError" class="message message-error overview-graph-error" role="alert">{{graphError}}<button class="button button-secondary" type="button" @click="loadGraph">重新读取</button></p><FeatherGraph :graph="graph" :loading="graphLoading" :selected="selectedNode?.id" @select="selectNode"/><div class="overview-flow-legend"><span>有依据的关系 · 仅覆盖当前已观察来源</span><time v-if="graph" :datetime="graph.generatedAt">{{formatDate(graph.generatedAt)}}</time></div></section>
+      <aside class="panel overview-relation-detail"><div class="overview-panel-heading"><h2>关系详情</h2></div><div v-if="selectedNode" class="overview-relation-body"><h3>{{selectedNode.label}}</h3><div class="overview-relation-tags"><span class="badge">{{dataFlowNodeLabels[selectedNode.kind]}}</span><span v-for="category in selectedNode.categories" :key="category" class="badge status-in_review">{{assetCategoryLabels[category]||category}}</span></div><dl><div><dt>关联服务</dt><dd>{{selectedNode.service||'未声明'}}</dd></div><div><dt>来源记录</dt><dd>{{selectedNode.evidence.length}} 项</dd></div><div><dt>直接关系</dt><dd>{{selectedEdges.length}} 条</dd></div></dl><ol class="overview-proof-spine"><li v-for="(proof,index) in selectedNode.evidence.slice(0,4)" :key="index"><strong>{{dataFlowEvidenceLabels[proof.kind]||proof.kind}}</strong><span>{{proof.source}}</span><time v-if="proof.observedAt" :datetime="proof.observedAt">{{formatDate(proof.observedAt)}}</time></li></ol><p v-if="!selectedNode.evidence.length" class="field-hint">此节点没有附带来源记录，具体覆盖需继续核对。</p><a class="button button-primary" :href="selectedNode.assetId?home+'/classification/'+selectedNode.assetId:home+'/data-flows'">{{selectedNode.assetId?'查看资产与依据':'查看关系与证据'}}</a></div><p v-else class="empty-state">接入有效来源后，可选择图中节点查看实际依据。</p></aside>
     </div>
 
     <div class="overview-secondary-grid">

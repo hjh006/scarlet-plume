@@ -1,0 +1,1282 @@
+[
+  {
+    "id": 1,
+    "name": "01-overview",
+    "title": "数据安全全景",
+    "route": "overview",
+    "components": "WorkspaceOverview.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际图谱读取、节点选择与依据",
+      "evidence": [
+        "data/report.json",
+        "security/graph-readable-fixed-qa.json"
+      ]
+    },
+    "screenshots": [
+      "data/01-overview-1280.png",
+      "data/01-overview-1366.png",
+      "data/01-overview-1600.png",
+      "data/fixed-viewport/01-overview-1280.png",
+      "data/fixed-viewport/01-overview-1366.png",
+      "data/fixed-viewport/01-overview-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 2,
+    "name": "02-assets",
+    "title": "数据资产台账",
+    "route": "assets",
+    "components": "WorkspaceView.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际资产检索、无结果、登记表聚焦；仅本地UI状态变化",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/02-assets-1280.png",
+      "data/02-assets-1366.png",
+      "data/02-assets-1600.png",
+      "data/fixed-viewport/02-assets-1280.png",
+      "data/fixed-viewport/02-assets-1366.png",
+      "data/fixed-viewport/02-assets-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 3,
+    "name": "03-check-detail",
+    "title": "检查与独立复核",
+    "route": "checks/:id",
+    "components": "CheckDetail.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "隔离工作区真实G01：取证→退回→整改→新复测→再次提交→独立通过",
+      "evidence": [
+        "compliance/real-workflow-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/03-check-detail-1280.png",
+      "compliance/03-check-detail-1366.png",
+      "compliance/03-check-detail-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 4,
+    "name": "04-catalog",
+    "title": "业务与数据资产目录",
+    "route": "asset-catalog",
+    "components": "AssetCatalogView.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/04-catalog-1280.png",
+      "data/04-catalog-1366.png",
+      "data/04-catalog-1600.png",
+      "data/fixed-viewport/04-catalog-1280.png",
+      "data/fixed-viewport/04-catalog-1366.png",
+      "data/fixed-viewport/04-catalog-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 5,
+    "name": "05-classification",
+    "title": "分类分级台账",
+    "route": "classification",
+    "components": "ClassificationView.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/05-classification-1280.png",
+      "data/05-classification-1366.png",
+      "data/05-classification-1600.png",
+      "data/fixed-viewport/05-classification-1280.png",
+      "data/fixed-viewport/05-classification-1366.png",
+      "data/fixed-viewport/05-classification-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 6,
+    "name": "06-standards",
+    "title": "分类分级标准库",
+    "route": "classification/standards",
+    "components": "ClassificationStandardsView.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/06-standards-1280.png",
+      "data/06-standards-1366.png",
+      "data/06-standards-1600.png",
+      "data/fixed-viewport/06-standards-1280.png",
+      "data/fixed-viewport/06-standards-1366.png",
+      "data/fixed-viewport/06-standards-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 7,
+    "name": "07-classification-detail",
+    "title": "分类确认与自动判定依据",
+    "route": "classification/:asset",
+    "components": "ClassificationView.vue ClassificationEvaluation.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际规则、采集事实、证据批次、缺失条件页签；未写正式分类",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/07-classification-evidence-1280.png",
+      "data/07-classification-evidence-1366.png",
+      "data/07-classification-evidence-1600.png",
+      "data/fixed-viewport/07-classification-evidence-1280.png",
+      "data/fixed-viewport/07-classification-evidence-1366.png",
+      "data/fixed-viewport/07-classification-evidence-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 8,
+    "name": "08-data-flows",
+    "title": "数据流转图谱",
+    "route": "data-flows",
+    "components": "DataFlowsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际节点与边、键盘、邻接、缩放、重置及标签避让",
+      "evidence": [
+        "security/functional-qa.json",
+        "security/graph-readable-fixed-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/08-1280.png",
+      "security/08-1366.png",
+      "security/08-1600.png",
+      "security/08-readable-fixed-1280x900.png",
+      "security/08-readable-fixed-1366x900.png",
+      "security/08-readable-fixed-1600x1000.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 9,
+    "name": "09-graph-history",
+    "title": "图谱历史与版本差异",
+    "route": "data-flows:history",
+    "components": "DataFlowsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际历史快照读取与差异对比",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/09-1280.png",
+      "security/09-1366.png",
+      "security/09-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 10,
+    "name": "10-investigation",
+    "title": "请求与数据关系调查",
+    "route": "data-flows:investigation",
+    "components": "DataFlowsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "同Trace请求调查及来源元数据对齐",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/10-1280.png",
+      "security/10-1366.png",
+      "security/10-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 11,
+    "name": "11-activities",
+    "title": "处理活动台账",
+    "route": "activities",
+    "components": "ActivitiesView.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/11-activities-1280.png",
+      "data/11-activities-1366.png",
+      "data/11-activities-1600.png",
+      "data/fixed-viewport/11-activities-1280.png",
+      "data/fixed-viewport/11-activities-1366.png",
+      "data/fixed-viewport/11-activities-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 12,
+    "name": "12-activity-form",
+    "title": "新建与编辑处理活动",
+    "route": "activities/new + activities/:id:edit",
+    "components": "ActivityCreate.vue ActivityDetail.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "AI/出境条件表单、编辑及取消；未写local活动",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/12-activity-create-1280.png",
+      "data/12-activity-create-1366.png",
+      "data/12-activity-create-1600.png",
+      "data/12-activity-create-ai-1280.png",
+      "data/12-activity-create-ai-1366.png",
+      "data/12-activity-create-ai-1600.png",
+      "data/fixed-viewport/12-activity-create-1280.png",
+      "data/fixed-viewport/12-activity-create-1366.png",
+      "data/fixed-viewport/12-activity-create-1600.png",
+      "data/fixed-viewport/12-activity-create-ai-1280.png",
+      "data/fixed-viewport/12-activity-create-ai-1366.png",
+      "data/fixed-viewport/12-activity-create-ai-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 13,
+    "name": "13-activity-detail",
+    "title": "处理活动详情与变更历史",
+    "route": "activities/:id",
+    "components": "ActivityDetail.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "data/report.json"
+      ]
+    },
+    "screenshots": [
+      "data/13-activity-detail-1280.png",
+      "data/13-activity-detail-1366.png",
+      "data/13-activity-detail-1600.png",
+      "data/13-activity-edit-1280.png",
+      "data/13-activity-edit-1366.png",
+      "data/13-activity-edit-1600.png",
+      "data/fixed-viewport/13-activity-detail-1280.png",
+      "data/fixed-viewport/13-activity-detail-1366.png",
+      "data/fixed-viewport/13-activity-detail-1600.png",
+      "data/fixed-viewport/13-activity-edit-1280.png",
+      "data/fixed-viewport/13-activity-edit-1366.png",
+      "data/fixed-viewport/13-activity-edit-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 14,
+    "name": "14-operations",
+    "title": "安全运营与处置概览",
+    "route": "operations",
+    "components": "SecurityOperationsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/14-1280.png",
+      "security/14-1366.png",
+      "security/14-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 15,
+    "name": "15-security-events",
+    "title": "安全事件台账",
+    "route": "operations:events",
+    "components": "SecurityOperationsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/15-1280.png",
+      "security/15-1366.png",
+      "security/15-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 16,
+    "name": "16-controls",
+    "title": "处置动作与执行回执",
+    "route": "operations:controls",
+    "components": "SecurityOperationsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际既有处置及回执读取；本轮未重新执行物理处置",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/16-1280.png",
+      "security/16-1366.png",
+      "security/16-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 17,
+    "name": "17-control-form",
+    "title": "处置申请与独立审批",
+    "route": "operations:request/approve",
+    "components": "SecurityOperationsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "隔离合成范围真实申请、申请人自批403、独立审批；停留approved无执行Agent",
+      "evidence": [
+        "shell/control-workflow.json"
+      ]
+    },
+    "screenshots": [
+      "security/17-1280.png",
+      "security/17-1366.png",
+      "security/17-1600.png",
+      "shell/17-approved-awaiting-source-1280.png",
+      "shell/17-approved-awaiting-source-1366.png",
+      "shell/17-approved-awaiting-source-1600.png",
+      "shell/17-independent-approval-1280.png",
+      "shell/17-independent-approval-1366.png",
+      "shell/17-independent-approval-1600.png",
+      "shell/17-request-1280.png",
+      "shell/17-request-1366.png",
+      "shell/17-request-1600.png",
+      "shell/17-self-review-blocked-1280.png",
+      "shell/17-self-review-blocked-1366.png",
+      "shell/17-self-review-blocked-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 18,
+    "name": "18-operation-sources",
+    "title": "事件与执行来源配置",
+    "route": "operations:sources",
+    "components": "SecurityOperationsView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "隔离真实一次性令牌：掩码、复制、关闭清除、撤销及viewer禁写",
+      "evidence": [
+        "security/token-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/18-1280.png",
+      "security/18-1366.png",
+      "security/18-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 19,
+    "name": "19-api-security",
+    "title": "API契约安全与扫描",
+    "route": "api-security",
+    "components": "ApiSecurityView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/19-1280.png",
+      "security/19-1366.png",
+      "security/19-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 20,
+    "name": "20-api-scan-detail",
+    "title": "API契约扫描详情",
+    "route": "api-security/:scan",
+    "components": "ApiSecurityView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/20-1280.png",
+      "security/20-1366.png",
+      "security/20-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 21,
+    "name": "21-runtime",
+    "title": "运行时观测与来源",
+    "route": "api-security/runtime",
+    "components": "ApiRuntimeView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/21-1280.png",
+      "security/21-1366.png",
+      "security/21-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 22,
+    "name": "22-runtime-monitor",
+    "title": "API流量监测与请求审计",
+    "route": "api-security/runtime:monitor",
+    "components": "RuntimeMonitor.vue AuditView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际来源筛选与请求记录依据对齐，审计详情读取",
+      "evidence": [
+        "security/functional-qa.json",
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/22-request-audit-1280.png",
+      "compliance/22-request-audit-1366.png",
+      "compliance/22-request-audit-1600.png",
+      "security/22-1280.png",
+      "security/22-1366.png",
+      "security/22-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 23,
+    "name": "23-runtime-risk",
+    "title": "运行时风险研判与分派",
+    "route": "api-security/runtime:findings",
+    "components": "RuntimeFindingsPanel.vue RuntimeRiskEditor.vue RuntimeDetectionFacts.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/23-1280.png",
+      "security/23-1366.png",
+      "security/23-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 24,
+    "name": "24-validation",
+    "title": "API主动验证任务",
+    "route": "validation",
+    "components": "ApiValidationView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际任务台账、详情与返回台账",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/24-1280.png",
+      "security/24-1366.png",
+      "security/24-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 25,
+    "name": "25-validation-form",
+    "title": "主动验证范围配置与审批",
+    "route": "validation:new/edit/approve",
+    "components": "ApiValidationView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "配置与旧结果分离、viewer禁建；本轮不再次发起主动探测",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/25-1280.png",
+      "security/25-1366.png",
+      "security/25-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 26,
+    "name": "26-validation-run",
+    "title": "主动验证结果与判定依据",
+    "route": "validation/:id",
+    "components": "ApiValidationView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/26-1280.png",
+      "security/26-1366.png",
+      "security/26-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 27,
+    "name": "27-lifecycle",
+    "title": "API生命周期与版本变更",
+    "route": "api-lifecycle",
+    "components": "ApiLifecycleView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际服务范围、生命周期导出与无结果状态",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/27-1280.png",
+      "security/27-1366.png",
+      "security/27-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 28,
+    "name": "28-policies",
+    "title": "运行时检测策略与版本",
+    "route": "runtime-policies",
+    "components": "RuntimePoliciesView.vue",
+    "owner": "security",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "隔离策略真实修订、版本历史、409保留草稿及viewer只读",
+      "evidence": [
+        "security/functional-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/28-1280.png",
+      "security/28-1366.png",
+      "security/28-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 29,
+    "name": "29-checks",
+    "title": "监管检查台账",
+    "route": "checks",
+    "components": "ChecksView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/29-checks-1280.png",
+      "compliance/29-checks-1366.png",
+      "compliance/29-checks-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 30,
+    "name": "30-check-create",
+    "title": "新建监管检查",
+    "route": "checks/new",
+    "components": "CheckCreate.vue TemplateCriteria.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/30-check-create-1280.png",
+      "compliance/30-check-create-1366.png",
+      "compliance/30-check-create-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 31,
+    "name": "31-evidence",
+    "title": "证据登记与来源取证",
+    "route": "checks/:id:evidence",
+    "components": "CheckEvidenceForm.vue CheckDetail.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "隔离真实观察/整改/复测证据；另以模拟409验证草稿保留",
+      "evidence": [
+        "compliance/real-workflow-results.json",
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/31-evidence-1280.png",
+      "compliance/31-evidence-1366.png",
+      "compliance/31-evidence-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 32,
+    "name": "32-assessments",
+    "title": "专项合规评估台账",
+    "route": "assessments",
+    "components": "AssessmentsView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/32-assessments-1280.png",
+      "compliance/32-assessments-1366.png",
+      "compliance/32-assessments-1600.png",
+      "compliance/confirmation/32-assessments-1280.png",
+      "compliance/confirmation/32-assessments-1366.png",
+      "compliance/confirmation/32-assessments-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 33,
+    "name": "33-assessment-detail",
+    "title": "专项评估答复与独立复核",
+    "route": "assessments/:id",
+    "components": "AssessmentsView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "隔离真实PIA保存、下载、提交、独立退回；14个unknown与5个缺口阻止通过",
+      "evidence": [
+        "compliance/real-workflow-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/33-assessment-detail-1280.png",
+      "compliance/33-assessment-detail-1366.png",
+      "compliance/33-assessment-detail-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 34,
+    "name": "34-assessment-template",
+    "title": "专项评估模板编辑",
+    "route": "assessments:templates",
+    "components": "AssessmentsView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/34-assessment-template-1280.png",
+      "compliance/34-assessment-template-1366.png",
+      "compliance/34-assessment-template-1600.png",
+      "compliance/confirmation/34-assessment-template-1280.png",
+      "compliance/confirmation/34-assessment-template-1366.png",
+      "compliance/confirmation/34-assessment-template-1600.png",
+      "compliance/final-print/34-template-first-viewport-1280.png",
+      "compliance/final-print/34-template-first-viewport-1366.png",
+      "compliance/final-print/34-template-first-viewport-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 35,
+    "name": "35-report",
+    "title": "合规报告预览与导出",
+    "route": "reports",
+    "components": "ComplianceReportView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际预览与HTML/JSON导出；范围、来源和未知项保持",
+      "evidence": [
+        "deployed/report.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/35-report-1280.png",
+      "compliance/35-report-1366.png",
+      "compliance/35-report-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 36,
+    "name": "36-report-archives",
+    "title": "历史报告归档",
+    "route": "reports/archives",
+    "components": "ReportArchiveView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际历史归档读取与导出摘要一致；旧382已超既有30份保留窗口",
+      "evidence": [
+        "deployed/report.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/36-report-archives-1280.png",
+      "compliance/36-report-archives-1366.png",
+      "compliance/36-report-archives-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 37,
+    "name": "37-print-report",
+    "title": "合规报告打印版",
+    "route": "reports:print",
+    "components": "ComplianceReportView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "actual_multi_page_A4_pdf_and_three_desktop_viewports",
+    "functionalQa": {
+      "scope": "实际多页A4 PDF，页码、范围及真实生成时点逐页验证",
+      "evidence": [
+        "compliance/print-fixed-qa.json",
+        "deployed/print-report.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/37-print-report-first-page.png",
+      "compliance/final-print/37-current-page-01.png",
+      "compliance/final-print/37-current-page-02.png",
+      "compliance/final-print/37-history-page-1.png",
+      "compliance/final-print/37-history-page-2.png",
+      "compliance/final-print/37-layout-only-long-scope-page1.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 38,
+    "name": "38-audit",
+    "title": "审计中心与操作详情",
+    "route": "audit/actions",
+    "components": "AuditView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/38-audit-1280.png",
+      "compliance/38-audit-1366.png",
+      "compliance/38-audit-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 39,
+    "name": "39-discovery",
+    "title": "多源自动发现",
+    "route": "discovery",
+    "components": "DiscoveryView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "真实来源和运行记录读取；本轮不修改local采集任务",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/39-discovery-1280.png",
+      "compliance/39-discovery-1366.png",
+      "compliance/39-discovery-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 40,
+    "name": "40-discovery-form",
+    "title": "发现任务配置与频率",
+    "route": "discovery:source-edit",
+    "components": "DiscoveryView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "真实表单读取及模拟PUT409保留草稿；未修改local频率",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/40-discovery-form-1280.png",
+      "compliance/40-discovery-form-1366.png",
+      "compliance/40-discovery-form-1600.png",
+      "compliance/confirmation/40-discovery-form-1280.png",
+      "compliance/confirmation/40-discovery-form-1366.png",
+      "compliance/confirmation/40-discovery-form-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 41,
+    "name": "41-discovery-rules",
+    "title": "自定义识别规则",
+    "route": "discovery:rules",
+    "components": "DiscoveryView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/41-discovery-rules-1280.png",
+      "compliance/41-discovery-rules-1366.png",
+      "compliance/41-discovery-rules-1600.png",
+      "compliance/confirmation/41-discovery-rules-1280.png",
+      "compliance/confirmation/41-discovery-rules-1366.png",
+      "compliance/confirmation/41-discovery-rules-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 42,
+    "name": "42-automation",
+    "title": "自动采集任务台账",
+    "route": "automation",
+    "components": "AutomationView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/42-automation-1280.png",
+      "compliance/42-automation-1366.png",
+      "compliance/42-automation-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 43,
+    "name": "43-postgres-connection",
+    "title": "PostgreSQL连接配置与测试",
+    "route": "automation:managed-pg",
+    "components": "ManagedPostgresForm.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/43-postgres-connection-1280.png",
+      "compliance/43-postgres-connection-1366.png",
+      "compliance/43-postgres-connection-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 44,
+    "name": "44-automation-runs",
+    "title": "采集运行记录与归档",
+    "route": "automation:history",
+    "components": "AutomationView.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/44-automation-runs-1280.png",
+      "compliance/44-automation-runs-1366.png",
+      "compliance/44-automation-runs-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 45,
+    "name": "45-templates",
+    "title": "检查模板目录与版本详情",
+    "route": "templates",
+    "components": "TemplatesView.vue TemplateCriteria.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/45-template-version-1280.png",
+      "compliance/45-template-version-1366.png",
+      "compliance/45-template-version-1600.png",
+      "compliance/45-templates-1280.png",
+      "compliance/45-templates-1366.png",
+      "compliance/45-templates-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 46,
+    "name": "46-template-form",
+    "title": "检查模板新建与修订",
+    "route": "templates/new + templates/revise/:id",
+    "components": "TemplateForm.vue",
+    "owner": "compliance",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际接口读取、页面操作与权限展示；未修改local业务记录",
+      "evidence": [
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/46-template-new-1280.png",
+      "compliance/46-template-new-1366.png",
+      "compliance/46-template-new-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 47,
+    "name": "47-integrations-import",
+    "title": "集成目录与资产导入",
+    "route": "integrations",
+    "components": "WorkspaceView.vue ImportPanel.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "真实集成状态；清单本地校验、确认入口，不执行导入",
+      "evidence": [
+        "data/report.json",
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "compliance/47-import-1280.png",
+      "compliance/47-import-1366.png",
+      "compliance/47-import-1600.png",
+      "compliance/confirmation/47-import-1280.png",
+      "compliance/confirmation/47-import-1366.png",
+      "compliance/confirmation/47-import-1600.png",
+      "data/47-integrations-1280.png",
+      "data/47-integrations-1366.png",
+      "data/47-integrations-1600.png",
+      "data/fixed-viewport/47-integrations-1280.png",
+      "data/fixed-viewport/47-integrations-1366.png",
+      "data/fixed-viewport/47-integrations-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  },
+  {
+    "id": 48,
+    "name": "48-login",
+    "title": "登录赤翎",
+    "route": "login",
+    "components": "App.vue",
+    "owner": "root",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "真实有效/无效登录、密码清除、外域Origin403",
+      "evidence": [
+        "shell/report.json"
+      ]
+    },
+    "screenshots": [
+      "shell/48-login-1280.png",
+      "shell/48-login-1366.png",
+      "shell/48-login-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 49,
+    "name": "49-workspaces",
+    "title": "工作区选择与访问状态",
+    "route": "workspace-selector",
+    "components": "App.vue",
+    "owner": "root",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "真实授权工作区选择与越权链接状态",
+      "evidence": [
+        "shell/report.json"
+      ]
+    },
+    "screenshots": [
+      "shell/49-workspaces-1280.png",
+      "shell/49-workspaces-1366.png",
+      "shell/49-workspaces-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 50,
+    "name": "50-shell-components",
+    "title": "导航与基础组件规范",
+    "route": "shared_state_specification_not_a_navigation_route",
+    "components": "App.vue Brand.vue Icon.vue",
+    "owner": "root",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "19个实际导航、角色和焦点；组件规格不新增导航",
+      "evidence": [
+        "shell/report.json"
+      ]
+    },
+    "screenshots": [
+      "shell/50-shell-1280.png",
+      "shell/50-shell-1366.png",
+      "shell/50-shell-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 51,
+    "name": "51-forms-overlays",
+    "title": "表单抽屉与确认状态规范",
+    "route": "shared_state_specification_not_a_navigation_route",
+    "components": "shared forms",
+    "owner": "root",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "原生快捷入口的键盘/焦点/Escape，真实掩码令牌及确认状态",
+      "evidence": [
+        "shell/report.json",
+        "security/token-qa.json"
+      ]
+    },
+    "screenshots": [
+      "security/51-one-time-token-1280.png",
+      "security/51-one-time-token-1366.png",
+      "security/51-one-time-token-1600.png",
+      "shell/51-navigation-dialog-1280.png",
+      "shell/51-navigation-dialog-1366.png",
+      "shell/51-navigation-dialog-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 52,
+    "name": "52-states",
+    "title": "加载空白失败与权限状态",
+    "route": "shared_state_specification_not_a_navigation_route",
+    "components": "shared views",
+    "owner": "root",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际空结果/只读/越权/版本冲突；仅加载和503会话读取状态使用明确标注的浏览器模拟",
+      "evidence": [
+        "shell/report.json",
+        "security/functional-qa.json",
+        "compliance/functional-results.json"
+      ]
+    },
+    "screenshots": [
+      "shell/52-login-error-1280.png",
+      "shell/52-login-error-1366.png",
+      "shell/52-login-error-1600.png",
+      "shell/52-session-failure-1600.png",
+      "shell/52-session-loading-1600.png",
+      "shell/52-workspace-forbidden-1280.png",
+      "shell/52-workspace-forbidden-1366.png",
+      "shell/52-workspace-forbidden-1600.png"
+    ],
+    "visualReview": "targeted_independent_review"
+  },
+  {
+    "id": 57,
+    "name": "57-catalog-conflict",
+    "title": "业务属性确认与CMDB冲突",
+    "route": "asset-catalog:metadata/cmdb",
+    "components": "AssetCatalogView.vue",
+    "owner": "data",
+    "implementation": "complete",
+    "desktopQa": "captured_at_1600x1000_1366x900_1280x900",
+    "functionalQa": {
+      "scope": "实际CMDB来源与确认值冲突；并发409保留草稿，显式重载替换",
+      "evidence": [
+        "data/catalog-conflict-report.json"
+      ]
+    },
+    "screenshots": [
+      "data/57-catalog-409-retained-draft-1600.png",
+      "data/57-catalog-confirmation-1280.png",
+      "data/57-catalog-confirmation-1366.png",
+      "data/57-catalog-confirmation-1600.png",
+      "data/57-catalog-real-conflict-1280.png",
+      "data/57-catalog-real-conflict-1366.png",
+      "data/57-catalog-real-conflict-1600.png",
+      "data/fixed-viewport/57-catalog-confirmation-1280.png",
+      "data/fixed-viewport/57-catalog-confirmation-1366.png",
+      "data/fixed-viewport/57-catalog-confirmation-1600.png",
+      "data/fixed-viewport/57-catalog-real-conflict-1280.png",
+      "data/fixed-viewport/57-catalog-real-conflict-1366.png",
+      "data/fixed-viewport/57-catalog-real-conflict-1600.png"
+    ],
+    "visualReview": "implementation_capture_and_layout_checks"
+  }
+]

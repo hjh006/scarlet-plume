@@ -13,6 +13,10 @@ const page = ref<ApiLifecycle | null>(null)
 const sources = ref<ApiLifecycle['sources']>([])
 const service = ref('')
 const sourceId = ref('')
+const selectedKey = ref('')
+const selectedRoute = computed(() => page.value?.items.find(item => item.service + ':' + item.method + ':' + item.routeKey === selectedKey.value) ?? page.value?.items[0] ?? null)
+const selectedComparison = computed(() => page.value?.comparisons.find(item => item.service === selectedRoute.value?.service) ?? null)
+const selectedChange = computed(() => selectedComparison.value?.changes.find(item => item.method === selectedRoute.value?.method && item.routeKey === selectedRoute.value?.routeKey) ?? null)
 const loading = ref(false)
 const exporting = ref(false)
 const error = ref('')
@@ -117,14 +121,14 @@ onBeforeUnmount(() => active.abort())
       </div>
     </section>
     <template v-if="page && !loading">
-      <section class="panel" aria-labelledby="lifecycle-directory-title">
+      <div class="lifecycle-workbench"><section class="panel" aria-labelledby="lifecycle-directory-title">
         <div class="panel-heading"><div><h2 id="lifecycle-directory-title">统一接口目录</h2><p>最新契约与运行时路由的并集。计数按来源分别保留，包含已撤销来源的历史观测。</p></div></div>
         <div v-if="page.items.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="lifecycle-directory-title">
           <table class="data-table lifecycle-table">
             <thead><tr><th scope="col">服务与接口</th><th scope="col">生命周期状态</th><th scope="col">声明与字段候选</th><th scope="col">观测来源</th><th scope="col">相关记录</th></tr></thead>
             <tbody>
-              <tr v-for="item in page.items.slice(0, visibleCount)" :key="item.service + item.method + item.routeKey">
-                <th scope="row"><span class="table-secondary">{{ item.service }}</span><code>{{ item.method }} {{ item.route }}</code><span v-if="item.paths.length > 1" class="table-secondary">归一化合并 {{ item.paths.length }} 个参数命名变体</span></th>
+              <tr v-for="item in page.items.slice(0, visibleCount)" :key="item.service + item.method + item.routeKey" :class="{'lifecycle-selected': selectedRoute === item}">
+                <th scope="row"><span class="table-secondary">{{ item.service }}</span><button type="button" class="table-link lifecycle-route-select" :aria-pressed="selectedRoute === item" @click="selectedKey = item.service + ':' + item.method + ':' + item.routeKey"><code>{{ item.method }} {{ item.route }}</code></button><span v-if="item.paths.length > 1" class="table-secondary">归一化合并 {{ item.paths.length }} 个参数命名变体</span></th>
                 <td>{{ lifecycleStateLabels[item.state] }}<span v-if="item.lastSeen" class="table-secondary">最后观测 {{ formatDate(item.lastSeen) }}</span></td>
                 <td>
                   <span>{{ item.auth.map(value => lifecycleAuthLabels[value] || value).join(' / ') || '无匹配契约声明' }}</span>
@@ -147,6 +151,7 @@ onBeforeUnmount(() => active.abort())
         <p v-else class="empty-state">所选范围暂无接口。可先导入 OpenAPI 契约或连接运行时来源。</p>
         <div v-if="page.items.length > visibleCount" class="lifecycle-more"><button type="button" class="button button-secondary" @click="visibleCount += 50">再显示 50 项（共 {{ page.items.length }} 项）</button></div>
       </section>
+      <aside class="context-rail lifecycle-context"><section class="panel"><div class="panel-heading"><div><h2>接口版本与依据</h2><p>选中目录中的接口查看真实版本对照。</p></div></div><div v-if="selectedRoute" class="lifecycle-context-body"><p class="eyebrow">{{ selectedRoute.service }}</p><h3><code>{{ selectedRoute.method }} {{ selectedRoute.route }}</code></h3><span class="badge">{{ lifecycleStateLabels[selectedRoute.state] }}</span><dl class="lifecycle-proof"><div><dt>当前契约</dt><dd><a v-if="selectedRoute.scanId" class="table-link" :href="home + '/api-security/' + selectedRoute.scanId">#{{ selectedRoute.scanId }}</a><span v-else>未登记</span></dd></div><div><dt>最后观测</dt><dd>{{ selectedRoute.lastSeen ? formatDate(selectedRoute.lastSeen) : '尚无匹配观测' }}</dd></div><div><dt>来源</dt><dd>{{ selectedRoute.sources.map(source => source.name).join('、') || '未接入匹配来源' }}</dd></div></dl><template v-if="selectedComparison"><h4>最近契约对照</h4><p class="lifecycle-version-strip"><span>{{ selectedComparison.previousScanId ? '#' + selectedComparison.previousScanId : '无前版' }}</span><Icon name="arrow" /><strong>#{{ selectedComparison.scanId }}</strong></p><template v-if="selectedChange"><p class="lifecycle-change-tags"><span v-for="kind in selectedChange.kinds" :key="kind" class="badge">{{ lifecycleChangeLabels[kind] }}</span></p><div class="lifecycle-selected-versions"><div v-for="version in [{label:'变更前',operation:selectedChange.before},{label:'变更后',operation:selectedChange.after}]" :key="version.label"><h4>{{ version.label }}</h4><template v-if="version.operation"><p>{{ version.operation.auth.map(value => lifecycleAuthLabels[value] || value).join(' / ') }}</p><p>{{ version.operation.deprecationMixed ? '部分变体弃用' : version.operation.deprecated ? '声明弃用' : '未声明弃用' }}</p><ul class="lifecycle-records"><li v-for="field in version.operation.sensitiveFields" :key="field.location + field.name + field.category"><code>{{ field.name }}</code> · {{ lifecycleCategoryLabels[field.category] || field.category }}</li></ul><p v-if="!version.operation.sensitiveFields.length" class="muted">未识别字段声明候选</p></template><p v-else class="muted">该版本无此接口</p></div></div></template><p v-else class="muted">{{ selectedComparison.initial ? '首个契约版本，尚无前版可比较。' : '最近两版在已支持维度未发现该接口变化。' }}</p></template><p v-else class="muted">暂无匹配的契约版本。</p><p class="lifecycle-boundary">无运行时观测不能证明接口已下线；契约候选也不代表实际数据内容。</p></div><p v-else class="empty-state">当前范围暂无接口记录。</p></section></aside></div>
       <section class="panel" aria-labelledby="lifecycle-changes-title">
         <div class="panel-heading"><div><h2 id="lifecycle-changes-title">最近版本变更</h2><p>每个服务仅比较最近前一版与当前契约；参数名称变体归一化后匹配。字段候选来自契约声明。</p></div></div>
         <div v-for="comparison in page.comparisons" :key="comparison.service" class="lifecycle-comparison">
@@ -199,4 +204,5 @@ onBeforeUnmount(() => active.abort())
 .lifecycle-inline-links { display: flex; flex-wrap: wrap; gap: .6rem; }
 .lifecycle-more { padding: 1rem 1.1rem; }
 @media (max-width: 640px) { .lifecycle-versions { grid-template-columns: 1fr; } .lifecycle-filters .field { max-width: none; } }
+.lifecycle-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.lifecycle-table{min-width:720px;font-size:12px}.lifecycle-route-select{display:block;text-align:left;border:0;padding:4px 0;background:transparent;max-width:100%;cursor:pointer;font-weight:600}.lifecycle-selected{background:#eff7fb}.lifecycle-context-body{padding:18px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.lifecycle-context-body h3{font-size:14px;margin:8px 0 14px}.lifecycle-context-body h4{font-size:12px;margin:18px 0 8px}.lifecycle-context-body code{white-space:normal}.lifecycle-proof{display:grid;gap:12px;margin:18px 0;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.lifecycle-proof>div{display:grid;grid-template-columns:65px minmax(0,1fr);gap:10px}.lifecycle-proof dt{color:var(--secondary)}.lifecycle-proof dd{margin:0}.lifecycle-version-strip{display:flex;gap:16px;align-items:center;padding:12px;background:#f6f4ff;color:#6554c0;border-radius:8px}.lifecycle-version-strip svg{width:16px}.lifecycle-change-tags{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.lifecycle-change-tags .badge{background:#f0edff;color:#6554c0}.lifecycle-selected-versions{display:grid;gap:12px}.lifecycle-selected-versions>div{padding:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:8px}.lifecycle-selected-versions h4{margin-top:0}.lifecycle-boundary{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);color:var(--secondary);font-size:11px}.lifecycle-comparison h3{font-size:14px}.lifecycle-changes-title{font-size:14px}.lifecycle-filters{padding:16px 18px}.lifecycle-filters .field{max-width:300px}.lifecycle-summary{display:flex;gap:20px;padding:12px 18px;border-top:1px solid var(--line);background:#fafcff;font-size:12px;align-items:center}.lifecycle-summary p:last-child{flex:1}.lifecycle-change summary{font-size:12px}.lifecycle-context .panel-heading h2{font-size:14px}@media(min-width:1100px) and (max-width:1400px){.lifecycle-workbench{grid-template-columns:minmax(0,1fr) 280px}.lifecycle-table{min-width:650px}}
 </style>

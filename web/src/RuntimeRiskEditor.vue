@@ -54,7 +54,7 @@ async function save() {
     close()
   } catch (cause) {
     if (cause instanceof ApiError && cause.status === 401) emit('sessionExpired')
-    else if (cause instanceof ApiError && cause.status === 409) error.value = '风险状态或版本已变化，请刷新后重试。'
+    else if (cause instanceof ApiError && cause.status === 409) error.value = '风险状态或版本已变化。本次草稿已保留，请核对最新状态后重试。'
     else if (!active.signal.aborted) error.value = describeError(cause)
   } finally {
     pending.value = false
@@ -65,7 +65,7 @@ async function save() {
 <template>
   <div class="runtime-risk">
     <template v-if="risk">
-      <strong>{{ runtimeRiskSeverityLabels[risk.severity] }}风险</strong>
+      <div class="runtime-risk-revision"><strong>{{ runtimeRiskSeverityLabels[risk.severity] }}风险</strong><span>研判 v{{ risk.revision }}</span></div>
       <span class="api-secondary">{{ risk.ownerTeam }}</span>
       <span v-if="risk.dueDate" class="api-secondary">
         <span v-if="overdue" class="badge status-needs_work">已逾期</span> {{ risk.dueDate }}
@@ -106,4 +106,6 @@ async function save() {
 .runtime-risk-form label { display: grid; gap: .2rem; font-size: .85rem; }
 .runtime-risk-form input, .runtime-risk-form select, .runtime-risk-form textarea { width: 100%; min-width: 0; }
 .runtime-risk-form button { justify-self: start; }
+.runtime-risk{font-size:12px;line-height:1.7}.runtime-risk-revision{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:8px 0}.runtime-risk-revision>span{font-size:10px;color:var(--secondary)}.runtime-risk-basis{margin-top:12px;padding:12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px;font-size:12px}.runtime-risk-basis summary{font-weight:600;color:var(--accent)}.runtime-risk-basis p{margin-top:8px;white-space:pre-wrap}.runtime-risk-edit{width:100%;margin-top:16px;min-height:36px}.runtime-risk-form{gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.runtime-risk-form label{font-size:11px;gap:6px;color:var(--secondary)}.runtime-risk-form input,.runtime-risk-form select,.runtime-risk-form textarea{color:var(--primary);font-size:12px}.runtime-risk-form textarea{min-height:90px}.runtime-risk-form button{width:100%}
+.runtime-risk-form input,.runtime-risk-form select,.runtime-risk-form textarea{border:1px solid var(--input-line,#b7cae6);border-radius:6px;background:white;min-height:36px;padding:8px 10px;outline:none;font-family:inherit}.runtime-risk-form input:focus,.runtime-risk-form select:focus,.runtime-risk-form textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #076ca715}
 </style>
