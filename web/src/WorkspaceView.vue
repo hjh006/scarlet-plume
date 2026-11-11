@@ -114,7 +114,7 @@ onBeforeUnmount(() => active?.abort())
 </script>
 
 <template>
-  <WorkspaceOverview v-if="page === 'overview'" :home="home" :overview="overview" />
+  <WorkspaceOverview v-if="page === 'overview'" :home="home" :overview="overview" :loading="loading" @refresh="load()" />
 
   <header v-else class="page-header">
     <div>

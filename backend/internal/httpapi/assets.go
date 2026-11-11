@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 )
@@ -30,6 +31,17 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request, _ store.User, 
 		storeFailure(w, err)
 		return
 	}
+	sources, err := s.store.OverviewSources(r.Context(), workspace.ID)
+	if err != nil {
+		storeFailure(w, err)
+		return
+	}
+	findings, err := s.store.ListRuntimeFindings(r.Context(), workspace.ID)
+	if err != nil {
+		storeFailure(w, err)
+		return
+	}
+	slices.SortStableFunc(findings, func(a, b store.RuntimeFinding) int { return b.LastSeen.Compare(a.LastSeen) })
 	active := 0
 	for _, item := range integrations {
 		if item.Status == "available" {
@@ -37,13 +49,16 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request, _ store.User, 
 		}
 	}
 	respond(w, http.StatusOK, map[string]any{
-		"workspace": workspace,
+		"workspace":   workspace,
+		"generatedAt": time.Now().UTC(),
 		"counts": struct {
 			store.OverviewCounts
 			Integrations int `json:"integrations"`
 		}{OverviewCounts: counts, Integrations: active},
-		"recentAssets":  assets,
-		"recentImports": runs[:min(len(runs), 20)],
+		"recentAssets":      assets,
+		"recentImports":     runs[:min(len(runs), 20)],
+		"recentFindings":    findings[:min(len(findings), 5)],
+		"collectionSources": sources,
 	})
 }
 

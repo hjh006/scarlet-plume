@@ -174,6 +174,27 @@ func TestAutomaticClassificationSourcePersistence(t *testing.T) {
 	if manual.Origin != "manual" || manual.Revision != manualBefore.Revision || manual.Asset.Category != "business" || len(manual.History) != 1 || manual.Automatic == nil || manual.Automatic.Comparison != "conflict" {
 		t.Fatalf("automatic observation overwrote a human determination: %+v", manual)
 	}
+	audit, err := repo.ActionAudit(ctx, workspace.ID, 24)
+	want(err, nil)
+	if !slices.ContainsFunc(audit.Items, func(entry store.ActionAuditEntry) bool {
+		return entry.TargetType == "asset" && entry.TargetID == first.Asset.ID && entry.Action == "classification.detected" && entry.Automated
+	}) || !slices.ContainsFunc(audit.Items, func(entry store.ActionAuditEntry) bool {
+		return entry.TargetType == "asset" && entry.TargetID == manual.Asset.ID && entry.Action == "classification.reviewed" && !entry.Automated
+	}) {
+		t.Fatal("audit did not distinguish source-driven classification from human confirmation")
+	}
+	overview, err := repo.OverviewCounts(ctx, workspace.ID)
+	want(err, nil)
+	if overview.PendingClassification < 3 || overview.ActiveSources < 1 {
+		t.Fatalf("overview omitted unconfirmed automatic assets or active source: %+v", overview)
+	}
+	sources, err := repo.OverviewSources(ctx, workspace.ID)
+	want(err, nil)
+	if len(sources) == 0 || len(sources) > 6 || !slices.ContainsFunc(sources, func(source store.OverviewSource) bool {
+		return source.Kind == "automation" && source.Provider == "postgresql" && source.LastRunAt != nil
+	}) {
+		t.Fatal("overview source preview omitted actual collection history")
+	}
 	legacy := detail("legacy")
 	if legacy.Revision != 0 || legacy.Asset.Category != "business" || len(legacy.History) != 0 || legacy.Automatic == nil || legacy.Automatic.Comparison != "unconfirmed" {
 		t.Fatal("legacy classification was silently overwritten")

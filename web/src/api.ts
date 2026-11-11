@@ -75,6 +75,7 @@ export interface ImportManifest {
 
 export interface Overview {
   workspace: Workspace
+  generatedAt?: string
   counts: {
     assets: number
     integrations: number
@@ -84,9 +85,22 @@ export interface Overview {
     inReview: number
     needsWork: number
     verified: number
+    activeSources?: number
+    openRuntimeFindings?: number
+    pendingClassification?: number
   }
   recentAssets: Asset[]
   recentImports: ImportRun[]
+  recentFindings?: import('./runtime-findings').RuntimeFinding[]
+  collectionSources?: {
+    id: number
+    name: string
+    provider: string
+    kind: 'automation' | 'runtime'
+    state: 'collecting' | 'queued' | 'paused' | 'enabled' | 'failed' | 'never_run' | 'observing'
+    lastObservedAt?: string
+    lastRunAt?: string
+  }[]
 }
 
 export const sessionPath = '/api/v1/session'

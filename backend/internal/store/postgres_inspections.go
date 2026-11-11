@@ -215,7 +215,7 @@ func persistPostgresInspections(ctx context.Context, tx pgx.Tx, job AutomationJo
 	run AutomationRun, tables []collector.PostgreSQLTable,
 ) error {
 	if len(tables) == 0 {
-		return nil
+		return captureDataFlowSnapshot(ctx, tx, job.workspaceID, job.actorID, "postgresql")
 	}
 	refs := make([]string, len(tables))
 	for i, table := range tables {
@@ -257,7 +257,10 @@ func persistPostgresInspections(ctx context.Context, tx pgx.Tx, job AutomationJo
 	if err := persistAutomaticClassifications(ctx, tx, job, run, tables, assetIDs); err != nil {
 		return err
 	}
-	return addPostgresCheckEvidence(ctx, tx, job, cfg, run, tables, assetIDs)
+	if err := addPostgresCheckEvidence(ctx, tx, job, cfg, run, tables, assetIDs); err != nil {
+		return err
+	}
+	return captureDataFlowSnapshot(ctx, tx, job.workspaceID, job.actorID, "postgresql")
 }
 
 func addPostgresCheckEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg ManagedPostgresConfig,

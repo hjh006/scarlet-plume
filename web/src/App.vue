@@ -18,28 +18,36 @@ import ReportArchiveView from './ReportArchiveView.vue'
 import AutomationView from './AutomationView.vue'
 import ApiSecurityView from './ApiSecurityView.vue'
 import ApiRuntimeView from './ApiRuntimeView.vue'
+import ApiLifecycleView from './ApiLifecycleView.vue'
+import DataFlowsView from './DataFlowsView.vue'
 import AuditView from './AuditView.vue'
 import ClassificationView from './ClassificationView.vue'
 import ClassificationStandardsView from './ClassificationStandardsView.vue'
 
 const pageGroups = [
-  { label: '治理', items: [
+  { label: '', items: [
     { id: 'overview', label: '概览' },
+  ] },
+  { label: '数据治理', items: [
     { id: 'assets', label: '数据资产' },
     { id: 'classification', label: '分类分级' },
+    { id: 'data-flows', label: '数据流转' },
     { id: 'activities', label: '处理活动' },
-    { id: 'checks', label: '监管检查' },
-    { id: 'templates', label: '检查模板' },
-    { id: 'reports', label: '合规报告' },
   ] },
-  { label: '安全与集成', items: [
+  { label: '安全运营', items: [
     { id: 'api-security', label: 'API 安全' },
+    { id: 'api-lifecycle', label: '接口生命周期' },
+    { id: 'checks', label: '监管检查' },
+    { id: 'reports', label: '合规报告' },
     { id: 'audit', label: '审计中心' },
+  ] },
+  { label: '配置与接入', items: [
     { id: 'automation', label: '自动采集' },
+    { id: 'templates', label: '检查模板' },
     { id: 'integrations', label: '集成与导入' },
   ] },
 ] as const
-const pages = [...pageGroups[0].items, ...pageGroups[1].items]
+const pages = [...pageGroups[0].items, ...pageGroups[1].items, ...pageGroups[2].items, ...pageGroups[3].items]
 
 function readRoute() {
   const [, rawSlug, requestedPage, recordId = '', contextId = ''] = window.location.hash.split('/')
@@ -179,7 +187,7 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
       </button>
       <nav id="workspace-navigation" class="sidebar-nav" aria-label="工作区导航">
         <div v-for="group in pageGroups" :key="group.label" class="nav-group">
-          <span class="nav-label">{{ group.label }}</span>
+          <span v-if="group.label" class="nav-label">{{ group.label }}</span>
           <a v-for="item in group.items" :key="item.id" :href="`#/${encodeURIComponent(workspace.slug)}/${item.id}`"
              :aria-current="item.id === route.page ? 'page' : undefined"
              @click="item.id === route.page && !route.recordId && closeMenu()">
@@ -194,6 +202,8 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
     <div class="workspace-shell">
       <header class="topbar">
         <div class="workspace-name">
+          <a class="workspace-switcher" href="#/">工作空间</a>
+          <Icon class="breadcrumb-divider" name="chevron" />
           <span class="workspace-crumb">{{ workspace.name }}</span>
           <span class="breadcrumb-divider" aria-hidden="true">/</span>
           <span class="page-crumb">{{ activePage }}</span>
@@ -251,6 +261,10 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <ApiSecurityView v-else :key="`${workspace.slug}/api-security/${route.recordId}`"
                            :workspace="workspace" :scan-id="route.recordId" @session-expired="sessionExpired" />
         </template>
+        <ApiLifecycleView v-else-if="route.page === 'api-lifecycle'" :key="workspace.slug"
+                          :workspace="workspace" @session-expired="sessionExpired" />
+        <DataFlowsView v-else-if="route.page === 'data-flows'" :key="workspace.slug"
+                       :workspace="workspace" @session-expired="sessionExpired" />
         <template v-else-if="route.page === 'classification'">
           <ClassificationStandardsView v-if="route.recordId === 'standards'" :key="workspace.slug"
                                        :workspace="workspace" @session-expired="sessionExpired" />

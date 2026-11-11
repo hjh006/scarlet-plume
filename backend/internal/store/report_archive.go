@@ -84,6 +84,9 @@ func archiveManagedPostgresReport(ctx context.Context, tx pgx.Tx, job Automation
 		if err := readReportHistory(ctx, reportTx, job.workspaceID, &report); err != nil {
 			return err
 		}
+		if err := readReportDataFlows(ctx, reportTx, job.workspaceID, &report); err != nil {
+			return err
+		}
 		snapshot, err := json.Marshal(report)
 		if err != nil {
 			return err

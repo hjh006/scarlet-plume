@@ -245,7 +245,10 @@ func (s *Store) UpdateAssetClassification(ctx context.Context, workspaceID, acto
 			return err
 		}
 		detail, err = classificationDetail(ctx, tx, workspaceID, item)
-		return err
+		if err != nil {
+			return err
+		}
+		return captureDataFlowSnapshot(ctx, tx, workspaceID, actorID, "classification")
 	})
 	return detail, storeError(err)
 }

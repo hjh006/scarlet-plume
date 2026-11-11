@@ -39,7 +39,9 @@ func (s *Store) ActionAudit(ctx context.Context, workspaceID int64, hours int) (
 			FROM plume.check_events e JOIN plume.checks c ON c.id = e.check_id
 			WHERE c.workspace_id = $1 AND e.created_at >= $2
 			UNION ALL
-			SELECT created_at, actor_id, 'classification.reviewed', 'asset', asset_id, id, false
+			SELECT created_at, actor_id,
+			       CASE WHEN origin = 'automatic' THEN 'classification.detected' ELSE 'classification.reviewed' END,
+			       'asset', asset_id, id, origin = 'automatic'
 			FROM plume.asset_classification_history WHERE workspace_id = $1 AND created_at >= $2
 			UNION ALL
 			SELECT created_at, actor_id, 'risk.triaged', 'runtime_finding', finding_id, id, false

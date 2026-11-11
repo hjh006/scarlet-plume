@@ -41,13 +41,16 @@ type CollectedAsset struct {
 }
 
 type OverviewCounts struct {
-	Assets     int64 `json:"assets"`
-	Activities int64 `json:"activities"`
-	Checks     int64 `json:"checks"`
-	Draft      int64 `json:"draft"`
-	InReview   int64 `json:"inReview"`
-	NeedsWork  int64 `json:"needsWork"`
-	Verified   int64 `json:"verified"`
+	Assets                int64 `json:"assets"`
+	Activities            int64 `json:"activities"`
+	Checks                int64 `json:"checks"`
+	Draft                 int64 `json:"draft"`
+	InReview              int64 `json:"inReview"`
+	NeedsWork             int64 `json:"needsWork"`
+	Verified              int64 `json:"verified"`
+	ActiveSources         int64 `json:"activeSources"`
+	OpenRuntimeFindings   int64 `json:"openRuntimeFindings"`
+	PendingClassification int64 `json:"pendingClassification"`
 }
 
 const assetColumns = "id, name, system, owner_team, COALESCE(source_provider, ''), COALESCE(source, ''), COALESCE(source_ref, ''), " +
@@ -102,10 +105,16 @@ func (s *Store) OverviewCounts(ctx context.Context, workspaceID int64) (Overview
 		       count(*) FILTER (WHERE status = 'draft'),
 		       count(*) FILTER (WHERE status = 'in_review'),
 		       count(*) FILTER (WHERE status = 'needs_work'),
-		       count(*) FILTER (WHERE status = 'verified')
+		       count(*) FILTER (WHERE status = 'verified'),
+		       (SELECT count(*) FROM plume.automation_jobs WHERE workspace_id = $1 AND revoked_at IS NULL)
+		       + (SELECT count(*) FROM plume.runtime_security_sources WHERE workspace_id = $1 AND revoked_at IS NULL),
+		       (SELECT count(*) FROM plume.runtime_findings f JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
+		        WHERE f.workspace_id = $1 AND c.status <> 'verified'),
+		       (SELECT count(*) FROM plume.assets WHERE workspace_id = $1 AND (classification_revision = 0 OR classification_origin = 'automatic'))
 		FROM plume.checks WHERE workspace_id = $1
 	`, workspaceID).Scan(&counts.Assets, &counts.Activities, &counts.Checks, &counts.Draft,
-		&counts.InReview, &counts.NeedsWork, &counts.Verified)
+		&counts.InReview, &counts.NeedsWork, &counts.Verified, &counts.ActiveSources,
+		&counts.OpenRuntimeFindings, &counts.PendingClassification)
 	return counts, err
 }
 

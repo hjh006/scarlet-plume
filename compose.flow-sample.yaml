@@ -1,0 +1,29 @@
+# Optional explicit-instrumentation fixture. Combine with compose.local.yaml
+# and compose.sample.yaml; credentials belong in the ignored local env file.
+services:
+  flow-sample:
+    build:
+      context: ./backend
+      dockerfile: ../docker/flow-sample/Dockerfile
+    image: scarlet-plume-flow-sample:local
+    environment:
+      SCARLET_SAMPLE_READER_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:?Set the existing sample reader password}
+      SCARLET_FLOW_PASSWORD: ${SCARLET_FLOW_PASSWORD:?Set a random sample BasicAuth password}
+      SCARLET_FLOW_SUBJECT_SALT: ${SCARLET_FLOW_SUBJECT_SALT:?Set a random subject HMAC salt}
+      SCARLET_FLOW_OTLP_TOKEN: ${SCARLET_FLOW_OTLP_TOKEN:?Create an OTLP source for the flow sample}
+      SCARLET_FLOW_DATA_SOURCE: ${SCARLET_FLOW_DATA_SOURCE:?Use the exact PostgreSQL collection source alias}
+    ports: ["127.0.0.1:${SCARLET_FLOW_PORT:-8893}:8080"]
+    networks: [default, sample, private]
+    depends_on:
+      app:
+        condition: service_healthy
+      sample-db:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 12

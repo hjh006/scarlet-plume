@@ -13,11 +13,17 @@ import (
 var requestID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 type gatewayEntry struct {
-	Method     string          `json:"method"`
-	Route      string          `json:"route"`
-	Status     json.RawMessage `json:"status"`
-	ObservedAt time.Time       `json:"observedAt"`
-	EventID    string          `json:"eventId"`
+	Method          string           `json:"method"`
+	Route           string           `json:"route"`
+	Status          json.RawMessage  `json:"status"`
+	ObservedAt      time.Time        `json:"observedAt"`
+	EventID         string           `json:"eventId"`
+	TraceRef        string           `json:"traceRef,omitempty"`
+	SpanRef         string           `json:"spanRef,omitempty"`
+	SubjectRef      string           `json:"subjectRef,omitempty"`
+	DatabaseTargets []DatabaseTarget `json:"databaseTargets,omitempty"`
+	DataFields      []DataField      `json:"dataFields,omitempty"`
+	CaptureWarnings []string         `json:"captureWarnings,omitempty"`
 }
 
 // ParseGateway accepts a batch of sanitized, vendor-neutral edge observations.
@@ -40,7 +46,7 @@ func ParseGateway(raw []byte) ([]Observation, error) {
 			return nil, ErrInvalidObservation
 		}
 		seen[e.EventID] = true
-		obs, err := NormalizeObservation(Observation{Method: e.Method, Route: e.Route, Status: status, ObservedAt: e.ObservedAt})
+		obs, err := NormalizeObservation(Observation{Method: e.Method, Route: e.Route, Status: status, ObservedAt: e.ObservedAt, TraceRef: e.TraceRef, SpanRef: e.SpanRef, SubjectRef: e.SubjectRef, DatabaseTargets: e.DatabaseTargets, DataFields: e.DataFields, CaptureWarnings: e.CaptureWarnings})
 		if err != nil {
 			return nil, err
 		}

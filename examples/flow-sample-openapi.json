@@ -1,0 +1,23 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Scarlet Flow Sample", "version": "1.0.0" },
+  "components": { "securitySchemes": { "fixtureBasic": { "type": "http", "scheme": "basic" } } },
+  "security": [{ "fixtureBasic": [] }],
+  "paths": {
+    "/api/contacts": {
+      "get": {
+        "summary": "Read a bounded synthetic contact fixture",
+        "responses": {
+          "200": {
+            "description": "At most twenty synthetic contacts",
+            "content": { "application/json": { "schema": { "type": "object", "properties": {
+              "contacts": { "type": "array", "maxItems": 20, "items": { "type": "object", "properties": { "contact_value": { "type": "string", "format": "email" } } } }
+            } } } }
+          },
+          "401": { "description": "Basic authentication required" },
+          "503": { "description": "Sample database unavailable" }
+        }
+      }
+    }
+  }
+}

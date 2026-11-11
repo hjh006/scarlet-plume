@@ -52,6 +52,7 @@ services:
       - -url
       - http://app:8080
       - -local
+      - -inspect-json
       - -tls-cert
       - /tls/server.crt
       - -tls-key
@@ -83,6 +84,7 @@ services:
       - -url
       - http://app:8080
       - -local
+      - -inspect-json
       - -tls-cert
       - /tls/server.crt
       - -tls-key
