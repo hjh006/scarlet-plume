@@ -1,0 +1,82 @@
+# Real manager + fixed synthetic export probe; no public manager/API listener.
+services:
+  wazuh-manager:
+    build:
+      context: ./docker/wazuh
+      dockerfile: manager.Dockerfile
+    image: scarlet-plume-wazuh-manager:local
+    hostname: scarlet-wazuh-manager
+    environment:
+      API_USERNAME: ${SCARLET_WAZUH_API_USER:?Set a dedicated local Wazuh API user}
+      API_PASSWORD: ${SCARLET_WAZUH_API_PASSWORD:?Set a random local Wazuh API password}
+    volumes:
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_input:/scarlet-input:ro
+      - wazuh_spool:/scarlet-spool
+    networks: [wazuh]
+    restart: unless-stopped
+    mem_limit: 768m
+    healthcheck:
+      test: [CMD-SHELL, "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-analysisd is running' && /var/ossec/bin/wazuh-control status | grep -q 'wazuh-logcollector is running'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+  wazuh-export-sample:
+    build:
+      context: ./docker/wazuh
+      dockerfile: sample.Dockerfile
+    image: scarlet-plume-wazuh-sample:local
+    volumes: ["wazuh_sample:/data"]
+    ports: ["127.0.0.1:${SCARLET_WAZUH_SAMPLE_PORT:-8897}:8080"]
+    networks: [default, wazuh]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 96m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  wazuh-checker:
+    image: scarlet-plume-wazuh-sample:local
+    command: [check]
+    volumes: ["wazuh_input:/logs"]
+    networks: [wazuh]
+    depends_on:
+      wazuh-export-sample: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 96m
+  wazuh-bridge:
+    # Match the pinned manager integrator UID; spool files remain mode0600.
+    user: "999:999"
+    build:
+      context: ./docker/wazuh
+      dockerfile: worker.Dockerfile
+    image: scarlet-plume-wazuh-bridge:local
+    environment:
+      SCARLET_OPERATIONS_TOKEN: ${SCARLET_WAZUH_SOURCE_TOKEN:?Create a dedicated real Wazuh security-events source}
+    volumes: ["wazuh_spool:/scarlet-spool"]
+    networks: [default]
+    depends_on:
+      app: {condition: service_healthy}
+      wazuh-manager: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 96m
+networks:
+  wazuh:
+    internal: true
+volumes:
+  wazuh_logs:
+  wazuh_queue:
+  wazuh_input:
+  wazuh_sample:
+  wazuh_spool:

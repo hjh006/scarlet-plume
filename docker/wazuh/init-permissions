@@ -1,0 +1,5 @@
+#!/usr/bin/with-contenv bash
+set -euo pipefail
+chown root:wazuh /var/ossec/integrations/custom-scarlet-export /var/ossec/etc/rules/scarlet_rules.xml
+chmod 750 /var/ossec/integrations/custom-scarlet-export
+chmod 640 /var/ossec/etc/rules/scarlet_rules.xml

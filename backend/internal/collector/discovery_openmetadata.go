@@ -37,8 +37,14 @@ type deepMetadataTable struct {
 	} `json:"tableConstraints"`
 }
 
-func discoverOpenMetadata(ctx context.Context, c DiscoveryConfig, endpoint, token string, insecure bool) (DiscoveryResult, error) {
+func discoverOpenMetadata(ctx context.Context, c DiscoveryConfig, endpoint, token string, insecure, localDocker bool) (DiscoveryResult, error) {
 	base, e := metadataURL(endpoint, insecure)
+	if localDocker {
+		if err := ValidateDiscoveryConnection(c, DiscoveryConnection{DSN: endpoint, LocalDocker: true}); err != nil {
+			return DiscoveryResult{}, err
+		}
+		base, e = url.URL{Scheme: "http", Host: "openmetadata:8585", Path: "/api"}, nil
+	}
 	if e != nil {
 		return DiscoveryResult{}, e
 	}

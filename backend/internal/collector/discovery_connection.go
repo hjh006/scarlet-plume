@@ -40,6 +40,10 @@ func ValidateDiscoveryConnection(c DiscoveryConfig, connection DiscoveryConnecti
 		if e != nil || (u.Scheme != "postgresql" && u.Scheme != "postgres") || u.Host != "sample-db:5432" || strings.TrimPrefix(u.Path, "/") != "scarlet_sample" || c.Database != "scarlet_sample" || u.Query().Get("sslmode") != "disable" {
 			return invalid
 		}
+	case "openmetadata":
+		if (connection.DSN != "http://openmetadata:8585" && connection.DSN != "http://openmetadata:8585/api") || c.System != "postgresql" || c.Database != "scarlet_sample" || len(c.Scopes) != 1 || c.Scopes[0] != "inventory" {
+			return invalid
+		}
 	default:
 		return invalid
 	}
