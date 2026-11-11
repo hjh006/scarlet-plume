@@ -81,7 +81,7 @@ func archiveManagedPostgresReport(ctx context.Context, tx pgx.Tx, job Automation
 		if err := readArchiveChecks(ctx, reportTx, job, cfg, run, tables, &report); err != nil {
 			return err
 		}
-		if err := readReportHistory(ctx, reportTx, &report); err != nil {
+		if err := readReportHistory(ctx, reportTx, job.workspaceID, &report); err != nil {
 			return err
 		}
 		snapshot, err := json.Marshal(report)
@@ -133,13 +133,9 @@ func summarizeReportIdentification(tables []collector.PostgreSQLTable) *ReportId
 	summary := ReportIdentification{Tables: len(tables)}
 	for _, table := range tables {
 		summary.Columns += len(table.Columns)
-		previousCandidates := summary.SensitiveCandidates
-		for _, column := range table.Columns {
-			if column.Sensitivity != "" {
-				summary.SensitiveCandidates++
-			}
-		}
-		if summary.SensitiveCandidates > previousCandidates {
+		candidates := len(postgresSensitiveFields(table))
+		summary.SensitiveCandidates += candidates
+		if candidates > 0 {
 			summary.TablesWithCandidates++
 		}
 		if table.PublicSelect {

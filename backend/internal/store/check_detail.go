@@ -20,6 +20,14 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 			return err
 		}
 		detail.Check = check
+		classifications, err := readClassifications(ctx, tx, workspaceID, []int64{check.AssetID})
+		if err != nil {
+			return err
+		}
+		if len(classifications) != 1 {
+			return ErrNotFound
+		}
+		detail.Classification = &classifications[0]
 		if err := loadCheckPostgresBinding(ctx, tx, &detail, role); err != nil {
 			return err
 		}

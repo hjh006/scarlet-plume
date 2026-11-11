@@ -97,6 +97,20 @@ var reportLabels = map[string]string{
 	"sensitive_candidate": "发现疑似敏感字段", "no_sensitive_candidate": "未识别疑似敏感字段",
 	"public_select": "发现 PUBLIC 直接 SELECT 授权", "named_select": "发现非所有者具名 SELECT 授权",
 	"no_non_owner_select": "未观察到非所有者直接 SELECT 授权",
+	"detected":            "已识别属性信号", "insufficient_data": "采证条件不足",
+	"matched": "与当前分类相容", "conflict": "与当前分类存在差异", "unconfirmed": "待确认分类", "insufficient": "继续采证",
+	"classification_matched": "自动识别属性与分类相容", "classification_conflict": "自动识别与当前分类存在差异",
+	"classification_unconfirmed": "已有分类待确认", "classification_insufficient": "自动定级条件待补充",
+	"column_count": "字段数", "constraint_count": "约束数", "estimated_row_count": "估计行数", "row_security": "行级安全",
+	"sampled_row_count": "本次观察行数", "metadata_candidate": "元数据识别", "format_match": "格式校验命中", "content_scope": "内容统计范围",
+	"catalog": "数据库目录", "column_name": "字段名", "column_comment": "字段注释", "source_aggregate": "源内聚合",
+}
+
+var classificationReportLabels = map[string]string{
+	"origin_manual": "人工确认", "origin_automatic": "自动识别",
+	"category_unknown": "待识别", "category_business": "业务数据", "category_personal": "个人信息", "category_sensitive_personal": "敏感个人信息",
+	"business_unknown": "待分级", "business_internal": "企业内部", "business_confidential": "机密",
+	"statutory_unknown": "待评定", "statutory_general": "一般数据", "statutory_important": "重要数据", "statutory_core": "核心数据",
 }
 
 var reportClock = time.FixedZone("CST", 8*60*60)
@@ -113,6 +127,12 @@ var complianceHTML = template.Must(template.New("compliance").Funcs(template.Fun
 			return "复核通过"
 		}
 		return reportLabels[key]
+	},
+	"classLabel": func(kind, value string) string {
+		if label, ok := classificationReportLabels[kind+"_"+value]; ok {
+			return label
+		}
+		return value
 	},
 	"date": func(t time.Time) string { return t.In(reportClock).Format("2006-01-02 15:04:05") },
 }).Parse(`<!doctype html>
@@ -172,7 +192,7 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <div><dt>PUBLIC 表级 SELECT</dt><dd>{{.PublicTableSelect}} 张表</dd></div>
 <div><dt>PUBLIC 字段级 SELECT</dt><dd>{{.PublicColumnSelect}} 个字段</dd></div>
 </dl>
-<p class="muted">识别依据为字段名、数据类型和 PostgreSQL 目录中的直接授权。本次采集未读取业务记录。</p>
+<p class="muted">采集范围包括字段、约束、直接授权及可读取范围内的有界格式统计。各项证据列明实际观察范围和仍需补充的条件。</p>
 </section>
 {{end}}
 <section class="panel">
@@ -209,6 +229,18 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <dt>验收标准</dt><dd class="wrap">{{.Item.AcceptanceCriteria}}</dd>
 </dl>
 {{else}}<p class="muted">未关联模板</p>{{end}}
+{{with .Classification}}
+<h3>分类分级记录</h3>
+<dl class="facts">
+<dt>来源和版本</dt><dd>{{classLabel "origin" .Origin}} · v{{.Revision}}</dd>
+<dt>数据属性</dt><dd>{{classLabel "category" .Asset.Category}}</dd>
+<dt>内部级别</dt><dd>{{classLabel "business" .Asset.BusinessLevel}}</dd>
+<dt>法定类别</dt><dd>{{classLabel "statutory" .Asset.StatutoryCategory}}</dd>
+<dt>判定依据</dt><dd class="wrap">{{.Asset.ClassificationBasis}}</dd>
+{{with .Standard}}<dt>采用标准</dt><dd class="wrap">{{.Code}} · {{.Title}}{{if .LevelLabel}} · {{.LevelLabel}}{{end}}{{if .RuleClause}} · {{.RuleClause}}{{end}}</dd>{{end}}
+</dl>
+{{with .Automatic}}{{template "automatic-classification" .}}{{end}}
+{{end}}
 {{with .AutomaticEvaluation}}
 <h3>本次自动判定</h3>
 <p><strong>{{label .Assessment}}</strong>{{range .AssessmentReasons}} · {{label .}}{{end}}</p>
@@ -229,6 +261,7 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <div>PUBLIC 表级 SELECT {{if .PublicSelect}}已观察到{{else}}未观察到{{end}} · PUBLIC 列级 SELECT {{.PublicSelectColumnCount}} 列 · PUBLIC schema USAGE {{if .PublicSchemaUsage}}已观察到{{else}}未观察到{{end}}</div>
 {{if .SensitiveFields}}<div>候选字段 {{range $index, $field := .SensitiveFields}}{{if $index}}、{{end}}<span class="wrap">{{$field.Name}}（{{label $field.Sensitivity}}）</span>{{end}}{{if .SensitiveFieldsOmitted}}，另有 {{.SensitiveFieldsOmitted}} 项{{end}}</div>{{end}}
 {{if .SelectGrants}}<div>非所有者 SELECT {{range $index, $grant := .SelectGrants}}{{if $index}}、{{end}}<span class="wrap">{{$grant.Grantee}}{{if $grant.Column}} / {{$grant.Column}}{{else}} / 整表{{end}}（schema USAGE {{if $grant.SchemaUsage}}已观察到{{else}}未观察到{{end}}）</span>{{end}}{{if .SelectGrantsOmitted}}，另有 {{.SelectGrantsOmitted}} 项{{end}}</div>{{end}}
+{{with .Classification}}{{template "automatic-classification" .}}{{end}}
 {{end}}</li>
 {{end}}</ul>{{else}}<p class="muted">暂无证据记录</p>{{end}}
 <h3>操作和独立复核</h3>
@@ -241,4 +274,20 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 {{end}}
 </main>
 </body>
-</html>`))
+</html>
+{{define "automatic-classification"}}
+<h4>自动分类与采证快照</h4>
+<dl class="facts">
+<dt>采集运行</dt><dd class="wrap">任务 #{{.JobID}} · {{.RunID}} · {{date .ObservedAt}}</dd>
+<dt>比对结果</dt><dd class="wrap">{{label .Comparison}} · 分类版本 {{.ClassificationRevision}}{{if .Stale}} · 当前条件已变化，需重新采集{{end}}{{range .ComparisonReasons}}<br>{{.}}{{end}}</dd>
+<dt>采用标准</dt><dd class="wrap">{{.Evaluation.Standard.Code}} · {{.Evaluation.Standard.Title}}<br>{{.Evaluation.Standard.URL}}</dd>
+<dt>自动属性判定</dt><dd>{{label .Evaluation.Status}} · {{classLabel "category" .Evaluation.Category}} · {{classLabel "business" .Evaluation.BusinessLevel}}</dd>
+</dl>
+<h4>自动获取的条件</h4>
+<ul class="records">{{range .Evaluation.Facts}}<li class="wrap">{{label .Kind}}{{if .Column}} · {{.Column}}{{end}}{{if .Category}} · {{label .Category}}{{end}}{{if .Count}} · {{.Count}}{{end}} · {{label .Source}}{{if .Note}}<br>{{.Note}}{{end}}</li>{{else}}<li>当前条件待采集</li>{{end}}</ul>
+<h4>规则与取证要求</h4>
+<ul class="records">{{range .Evaluation.Rules}}<li class="wrap"><strong>{{.Rule.Clause}} · {{.Rule.Title}} · {{label .Status}}</strong><br>{{.Rule.Criterion}}<br>取证要求 {{.Rule.Evidence}}
+{{range .Facts}}<div>{{label .Kind}}{{if .Column}} · {{.Column}}{{end}}{{if .Category}} · {{label .Category}}{{end}}{{if .Count}} · {{.Count}}{{end}} · {{label .Source}}</div>{{end}}
+{{range .MissingConditions}}<div>待采证 {{.}}</div>{{end}}</li>{{else}}<li>所选版本的正式条款规则待补充</li>{{end}}</ul>
+<h4>定级采证缺口</h4><ul>{{range .Evaluation.MissingConditions}}<li class="wrap">{{.}}</li>{{end}}</ul>
+{{end}}`))

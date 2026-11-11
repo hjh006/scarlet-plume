@@ -28,7 +28,7 @@ func checkFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrForbidden):
 		fail(w, http.StatusForbidden, "当前账号无权执行此操作。检查创建人、提交人和证据登记人须回避复核。")
 	case errors.Is(err, store.ErrEvidenceRequired):
-		fail(w, http.StatusConflict, "缺少当前检查所需的证据。整改后须有新复测。运行时检查须由原观测源自动取证；飞书检查须用同一目标的新清单核对授权已移除。")
+		fail(w, http.StatusConflict, "缺少当前检查所需的证据。整改后须有新复测，关联自动取证的检查需从原来源采集。分类证据需匹配当前分类版本和标准，飞书检查需核对同一目标的新授权清单。")
 	case errors.Is(err, store.ErrInvalid):
 		fail(w, http.StatusBadRequest, "检查、证据或复核字段无效。请核对来源、检查目标、模板适用场景及时间。")
 	case errors.Is(err, store.ErrConflict):
@@ -138,6 +138,7 @@ func (s *server) exportCheck(w http.ResponseWriter, r *http.Request, user store.
 		"workspace": workspace.Slug, "exportedAt": time.Now().UTC(),
 		"check": detail.Check, "requirement": detail.Requirement,
 		"evidence": detail.Evidence, "events": detail.Events,
+		"classification": detail.Classification,
 	}
 	if detail.RuntimeFinding != nil {
 		payload["runtimeFinding"] = detail.RuntimeFinding

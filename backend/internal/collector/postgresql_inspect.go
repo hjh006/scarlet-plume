@@ -17,13 +17,20 @@ const (
 
 type PostgreSQLTable struct {
 	Asset
-	Schema              string             `json:"schema"`
-	Owner               string             `json:"owner"`
-	Columns             []PostgreSQLColumn `json:"columns"`
-	Grants              []PostgreSQLGrant  `json:"grants"`
-	PublicSchemaUsage   bool               `json:"publicSchemaUsage"`
-	PublicSelect        bool               `json:"publicSelect"`
-	PublicSelectColumns []string           `json:"publicSelectColumns"`
+	Schema              string                     `json:"schema"`
+	Owner               string                     `json:"owner"`
+	Columns             []PostgreSQLColumn         `json:"columns"`
+	Grants              []PostgreSQLGrant          `json:"grants"`
+	PublicSchemaUsage   bool                       `json:"publicSchemaUsage"`
+	PublicSelect        bool                       `json:"publicSelect"`
+	PublicSelectColumns []string                   `json:"publicSelectColumns"`
+	Comment             string                     `json:"comment,omitempty"`
+	MetadataStatus      string                     `json:"metadataStatus,omitempty"`
+	EstimatedRows       *int64                     `json:"estimatedRows,omitempty"`
+	RowSecurity         *PostgreSQLRowSecurity     `json:"rowSecurity,omitempty"`
+	Constraints         []PostgreSQLConstraint     `json:"constraints"`
+	ContentAnalysis     *PostgreSQLContentAnalysis `json:"contentAnalysis,omitempty"`
+	Warnings            []string                   `json:"warnings"`
 }
 
 type PostgreSQLColumn struct {
@@ -32,6 +39,9 @@ type PostgreSQLColumn struct {
 	Ordinal     int    `json:"ordinal"`
 	Nullable    bool   `json:"nullable"`
 	Sensitivity string `json:"sensitivity,omitempty"`
+	Comment     string `json:"comment,omitempty"`
+	BaseType    string `json:"baseType,omitempty"`
+	CanSelect   bool   `json:"canSelect"`
 }
 
 type PostgreSQLGrant struct {
@@ -50,7 +60,10 @@ SELECT c.oid, pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident
        EXISTS (
            SELECT FROM pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) AS a
            WHERE a.grantee = 0 AND a.privilege_type = 'USAGE'
-       )
+       ), pg_catalog.left(COALESCE(pg_catalog.obj_description(c.oid, 'pg_class'), ''),512),
+       CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END,
+       c.relrowsecurity, c.relforcerowsecurity, pg_catalog.row_security_active(c.oid),
+       pg_catalog.char_length(COALESCE(pg_catalog.obj_description(c.oid, 'pg_class'),'')) > 512
 FROM pg_catalog.pg_class AS c
 JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
 WHERE n.nspname::text = ANY ($1::text[])
@@ -62,9 +75,15 @@ LIMIT $2`
 const postgresInspectColumnQuery = `
 SELECT a.attrelid, a.attname, pg_catalog.format_type(a.atttypid, CASE WHEN t.typnamespace = 'pg_catalog'::pg_catalog.regnamespace
                                               THEN a.atttypmod ELSE -1 END), a.attnum::integer,
-       NOT (a.attnotnull OR t.typnotnull)
+       NOT (a.attnotnull OR t.typnotnull),
+       pg_catalog.left(COALESCE(pg_catalog.col_description(a.attrelid,a.attnum),''),512),
+       CASE WHEN t.typnamespace = 'pg_catalog'::pg_catalog.regnamespace THEN t.typname::text
+            WHEN base.typnamespace = 'pg_catalog'::pg_catalog.regnamespace THEN base.typname::text ELSE '' END,
+       pg_catalog.has_column_privilege(a.attrelid,a.attnum,'SELECT'),
+       pg_catalog.char_length(COALESCE(pg_catalog.col_description(a.attrelid,a.attnum),'')) > 512
 FROM pg_catalog.pg_attribute AS a
 JOIN pg_catalog.pg_type AS t ON t.oid = a.atttypid
+LEFT JOIN pg_catalog.pg_type AS base ON base.oid = t.typbasetype
 WHERE a.attrelid = ANY ($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY a.attrelid, a.attnum
 LIMIT $2`
@@ -103,7 +122,8 @@ JOIN target AS t USING (oid)
 ORDER BY g.oid, g.ordinal, g.grantee, g.privilege_type, g.grantor
 LIMIT $2`
 
-// InspectPostgreSQL reads column and ACL metadata within a single catalog snapshot.
+// InspectPostgreSQL reads metadata and bounded identification aggregates in one
+// read-only snapshot. Business row values never leave the source database.
 func InspectPostgreSQL(ctx context.Context, dsn string, schemas []string, allowInsecureLoopback bool) ([]PostgreSQLTable, error) {
 	return inspectPostgreSQL(ctx, dsn, schemas, allowInsecureLoopback, false)
 }
@@ -123,7 +143,11 @@ func inspectPostgreSQL(ctx context.Context, dsn string, schemas []string, allowI
 		if err := postgresInspectColumns(ctx, tx, ids, positions, tables); err != nil {
 			return err
 		}
-		return postgresInspectGrants(ctx, tx, ids, positions, tables)
+		if err := postgresInspectGrants(ctx, tx, ids, positions, tables); err != nil {
+			return err
+		}
+		postgresInspectProfiles(ctx, tx, ids, positions, tables)
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -144,11 +168,19 @@ func postgresInspectTables(ctx context.Context, tx pgx.Tx, schemas []string, tab
 			return nil, nil, errors.New("PostgreSQL 表超过单批 1000 项上限，请缩小 schema 范围")
 		}
 		var id uint32
+		var commentTruncated bool
 		table := PostgreSQLTable{
 			Columns: []PostgreSQLColumn{}, Grants: []PostgreSQLGrant{}, PublicSelectColumns: []string{},
+			Constraints: []PostgreSQLConstraint{}, Warnings: []string{}, MetadataStatus: "complete",
+			RowSecurity: &PostgreSQLRowSecurity{},
 		}
-		if err := rows.Scan(&id, &table.SourceRef, &table.Name, &table.Schema, &table.Owner, &table.PublicSchemaUsage); err != nil {
+		if err := rows.Scan(&id, &table.SourceRef, &table.Name, &table.Schema, &table.Owner, &table.PublicSchemaUsage,
+			&table.Comment, &table.EstimatedRows, &table.RowSecurity.Enabled, &table.RowSecurity.Forced, &table.RowSecurity.Active, &commentTruncated); err != nil {
 			return nil, nil, errReadPostgreSQLCatalog
+		}
+		if commentTruncated {
+			table.MetadataStatus = "partial"
+			table.Warnings = append(table.Warnings, "comments_truncated")
 		}
 		positions[id] = len(*tables)
 		ids = append(ids, id)
@@ -173,11 +205,17 @@ func postgresInspectColumns(ctx context.Context, tx pgx.Tx, ids []uint32, positi
 		}
 		var id uint32
 		var column PostgreSQLColumn
-		if err := rows.Scan(&id, &column.Name, &column.Type, &column.Ordinal, &column.Nullable); err != nil {
+		var commentTruncated bool
+		if err := rows.Scan(&id, &column.Name, &column.Type, &column.Ordinal, &column.Nullable,
+			&column.Comment, &column.BaseType, &column.CanSelect, &commentTruncated); err != nil {
 			return errReadPostgreSQLCatalog
 		}
-		column.Sensitivity = MetadataSensitivity(column.Name, column.Type)
+		column.Sensitivity = PostgreSQLMetadataSensitivity(column.Name, column.Type, column.Comment)
 		table := &tables[positions[id]]
+		if commentTruncated {
+			table.MetadataStatus = "partial"
+			table.Warnings = append(table.Warnings, "comments_truncated")
+		}
 		table.Columns = append(table.Columns, column)
 		count++
 	}

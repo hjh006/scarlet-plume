@@ -6,13 +6,15 @@ import { checkStatusLabels, eventLabels, type Check, type CheckEvent, type Evide
 import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPublicSelect, type PostgresEvidence } from './postgresql'
 import type { ReportCounts, ReportIdentification, ReportSource } from './reports'
 import Icon from './Icon.vue'
+import ClassificationEvaluation from './ClassificationEvaluation.vue'
+import type { ClassificationRecord } from './classification-standards'
 
 interface ComplianceReport {
   generatedAt: string
   scope: { activityId?: number; activityName?: string; source?: ReportSource }
   counts: ReportCounts
   identification?: ReportIdentification
-  checks: { check: Check; evidence: Evidence[]; events: CheckEvent[]; automaticEvaluation?: PostgresEvidence }[]
+  checks: { check: Check; evidence: Evidence[]; events: CheckEvent[]; automaticEvaluation?: PostgresEvidence; classification?: ClassificationRecord }[]
 }
 
 const props = defineProps<{ workspace: Workspace; activityContext?: string; archiveId?: string }>()
@@ -46,6 +48,8 @@ const activityMissing = computed(() => activityId.value && !activities.value.som
 const reportChecks = computed(() => report.value?.checks.map(entry => ({
   ...entry, postgresEvidence: entry.evidence.find(evidence => evidence.postgres)?.postgres,
   evaluation: props.archiveId ? entry.automaticEvaluation : entry.evidence.find(evidence => evidence.postgres?.assessment)?.postgres,
+  automaticSnapshot: entry.automaticEvaluation?.classification ?? entry.classification?.automatic ??
+    entry.evidence.find(evidence => evidence.postgres?.classification)?.postgres?.classification,
 })) ?? [])
 
 function errorText(error: unknown) {
@@ -229,6 +233,13 @@ onBeforeUnmount(() => active.abort())
                 <span class="table-secondary">{{ entry.postgresEvidence.columnCount }} 个字段 · {{ entry.postgresEvidence.sensitiveCandidateCount }} 个疑似敏感</span>
                 <span class="table-secondary">{{ postgresPublicSelect(entry.postgresEvidence.publicSelect, entry.postgresEvidence.publicSelectColumnCount) }}</span>
               </template>
+              <span v-if="entry.classification?.revision" class="table-secondary">
+                {{ entry.classification.origin === 'automatic' ? '自动识别' : '人工确认' }} · 分类版本 {{ entry.classification.revision }}
+              </span>
+              <details v-if="entry.automaticSnapshot" class="report-classification-snapshot">
+                <summary class="table-link">查看自动判定快照</summary>
+                <ClassificationEvaluation :automatic="entry.automaticSnapshot" compact />
+              </details>
             </td>
             <td>
               <template v-if="latestDecision(entry.events)">
@@ -244,3 +255,9 @@ onBeforeUnmount(() => active.abort())
     <div v-else class="empty-state"><strong>此范围暂无检查</strong><p>{{ archiveId ? '此归档保留了本次采集的识别汇总。' : '新建检查后，报告将纳入该记录和后续操作。' }}</p></div>
   </section>
 </template>
+
+<style scoped>
+.report-classification-snapshot { min-width: 0; }
+.report-classification-snapshot > summary { min-height: 2.5rem; padding-block: .5rem; cursor: pointer; }
+.report-classification-snapshot[open] { min-width: min(37rem, 100%); }
+</style>

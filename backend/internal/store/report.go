@@ -51,11 +51,12 @@ type ReportCounts struct {
 }
 
 type ReportCheck struct {
-	Check               Check                `json:"check"`
-	Evidence            []Evidence           `json:"evidence"`
-	Events              []CheckEvent         `json:"events"`
-	LatestReview        *CheckEvent          `json:"latestReview,omitempty"`
-	AutomaticEvaluation *PostgresObservation `json:"automaticEvaluation,omitempty"`
+	Check               Check                    `json:"check"`
+	Evidence            []Evidence               `json:"evidence"`
+	Events              []CheckEvent             `json:"events"`
+	LatestReview        *CheckEvent              `json:"latestReview,omitempty"`
+	AutomaticEvaluation *PostgresObservation     `json:"automaticEvaluation,omitempty"`
+	Classification      *AssetClassificationItem `json:"classification,omitempty"`
 }
 
 const reportBasis = "报告范围以列明的已创建检查为准。已验证指对应检查完成独立复核。整体合规结论需结合实际适用范围及其他证据另行评定。"
@@ -89,7 +90,7 @@ func (s *Store) ComplianceReport(ctx context.Context, workspaceID, actorID, acti
 		if err := readReportChecks(ctx, tx, workspaceID, activityID, &report); err != nil {
 			return err
 		}
-		return readReportHistory(ctx, tx, &report)
+		return readReportHistory(ctx, tx, workspaceID, &report)
 	})
 	if err != nil {
 		return ComplianceReport{}, err
@@ -137,9 +138,12 @@ func readReportCheckRows(rows pgx.Rows, report *ComplianceReport) error {
 	return rows.Err()
 }
 
-func readReportHistory(ctx context.Context, tx pgx.Tx, report *ComplianceReport) error {
+func readReportHistory(ctx context.Context, tx pgx.Tx, workspaceID int64, report *ComplianceReport) error {
 	if len(report.Checks) == 0 {
 		return nil
+	}
+	if err := readReportClassifications(ctx, tx, workspaceID, report); err != nil {
+		return err
 	}
 	ids := make([]int64, 0, len(report.Checks))
 	positions := make(map[int64]int, len(report.Checks))
@@ -151,6 +155,35 @@ func readReportHistory(ctx context.Context, tx pgx.Tx, report *ComplianceReport)
 		return err
 	}
 	return readReportEvents(ctx, tx, ids, positions, report)
+}
+
+func readReportClassifications(ctx context.Context, tx pgx.Tx, workspaceID int64, report *ComplianceReport) error {
+	ids := make([]int64, 0, len(report.Checks))
+	for _, entry := range report.Checks {
+		ids = append(ids, entry.Check.AssetID)
+	}
+	items, err := readClassifications(ctx, tx, workspaceID, ids)
+	if err != nil {
+		return err
+	}
+	byID := make(map[int64]*AssetClassificationItem, len(items))
+	for i := range items {
+		byID[items[i].Asset.ID] = &items[i]
+	}
+	for i := range report.Checks {
+		report.Checks[i].Classification = byID[report.Checks[i].Check.AssetID]
+		if report.Checks[i].Classification == nil {
+			return ErrNotFound
+		}
+		if automatic := report.Checks[i].Classification.Automatic; automatic != nil && report.Checks[i].AutomaticEvaluation != nil &&
+			report.Checks[i].Check.Requirement.Code == "G02" {
+			report.Checks[i].AutomaticEvaluation.Classification = automatic
+			report.Checks[i].AutomaticEvaluation.Assessment = "review_required"
+			report.Checks[i].AutomaticEvaluation.AssessmentReasons = []string{"classification_" + automatic.Comparison}
+			report.Checks[i].AutomaticEvaluation.Scope = "按所采用标准核对源内有界统计、自动分类与本次采证缺口。"
+		}
+	}
+	return nil
 }
 
 func readReportEvidence(ctx context.Context, tx pgx.Tx, ids []int64, positions map[int64]int, report *ComplianceReport) error {

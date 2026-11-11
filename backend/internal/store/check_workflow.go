@@ -182,6 +182,9 @@ func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error
 		err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM plume.check_evidence WHERE check_id = $1)", check.ID).Scan(&exists)
 		return exists, err
 	}
+	if handled, allowed, err := automaticClassificationCheckAllowed(ctx, tx, check, true); handled || err != nil {
+		return allowed, err
+	}
 	finding, err := runtimeFindingForCheck(ctx, tx, check)
 	if err != nil {
 		return false, err
@@ -243,6 +246,9 @@ func verificationAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, err
 		if finding != nil {
 			return runtimeRetestAllowed(ctx, tx, finding)
 		}
+		if handled, allowed, err := automaticClassificationCheckAllowed(ctx, tx, check, false); handled || err != nil {
+			return allowed, err
+		}
 		return true, nil
 	}
 	evidence, present, err := latestFeishuEvidence(ctx, tx, check.ID)
@@ -272,6 +278,9 @@ func (s *Store) ReviewCheck(ctx context.Context, workspaceID, actorID, checkID, 
 			return err
 		}
 		if decision == "verified" {
+			if err := lockClassificationAssetForCheck(ctx, tx, workspaceID, checkID); err != nil {
+				return err
+			}
 			if err := lockRuntimeBaselineForCheck(ctx, tx, workspaceID, checkID); err != nil {
 				return err
 			}

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
-import { postgresPermissionScope, postgresPublicSelect, postgresSensitivityLabel, type PostgresInspection } from './postgresql'
+import { postgresPermissionScope, postgresProfileStatusLabels, postgresProfileWarning, postgresPublicSelect, postgresSensitivityLabel, type PostgresInspection } from './postgresql'
 import Icon from './Icon.vue'
+import ClassificationEvaluation from './ClassificationEvaluation.vue'
 
 const props = defineProps<{ workspace: Workspace; assetId: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -20,6 +21,8 @@ const candidates = computed(() => table.value?.columns.filter(column => column.s
 const visibleColumns = computed(() => candidatesOnly.value ? candidates.value : table.value?.columns ?? [])
 const publicColumnCount = computed(() => table.value?.publicSelectColumns?.length ?? 0)
 const hasPublicSelect = computed(() => table.value?.publicSelect || publicColumnCount.value > 0)
+const analysis = computed(() => table.value?.contentAnalysis)
+const constraintLabels: Record<string, string> = { p: '主键', f: '外键', u: '唯一约束', c: '检查约束', x: '排他约束', n: '非空约束' }
 
 async function load() {
   loading.value = true
@@ -54,6 +57,7 @@ onBeforeUnmount(() => active.abort())
         <p v-else>查看自动采集的字段、疑似敏感标记和授权。</p>
       </div>
       <div class="page-actions">
+        <a class="button button-secondary" :href="home + '/classification/' + assetId">分类与自动判定</a>
         <button type="button" class="button button-secondary" :disabled="loading" @click="load">刷新采集结果</button>
       </div>
     </header>
@@ -73,6 +77,10 @@ onBeforeUnmount(() => active.abort())
         <dl class="detail-list">
           <div><dt>表所有者</dt><dd class="mono">{{ table.owner || '未记录' }}</dd></div>
           <div><dt>字段自动识别</dt><dd>{{ table.columns.length }} 个字段 · {{ candidates.length }} 个疑似敏感</dd></div>
+          <div v-if="table.metadataStatus"><dt>元数据范围</dt><dd>{{ postgresProfileStatusLabels[table.metadataStatus] || table.metadataStatus }}</dd></div>
+          <div v-if="table.estimatedRows !== undefined"><dt>优化器估计行数</dt><dd>{{ table.estimatedRows }}<span class="table-secondary">估计可能陈旧，实际规模待核验。</span></dd></div>
+          <div v-if="table.rowSecurity"><dt>行级策略</dt><dd>{{ table.rowSecurity.active ? '当前角色受行级策略限制' : '当前角色无行级策略过滤' }}</dd></div>
+          <div v-if="table.comment" class="detail-wide"><dt>表注释</dt><dd class="text-block">{{ table.comment }}</dd></div>
           <div><dt>采集时间</dt><dd><time :datetime="record.observedAt">{{ formatDate(record.observedAt) }}</time></dd></div>
           <div>
             <dt>运行来源</dt>
@@ -86,6 +94,38 @@ onBeforeUnmount(() => active.abort())
             </dd>
           </div>
         </dl>
+        <ul v-if="table.warnings?.length" class="postgres-profile-warnings"><li v-for="warning in table.warnings" :key="warning">{{ postgresProfileWarning(warning) }}</li></ul>
+      </section>
+      <section v-if="record.classification" class="panel postgres-panel" aria-labelledby="postgres-classification-title">
+        <div class="panel-heading"><h2 id="postgres-classification-title">本次采集的自动判定</h2></div>
+        <div class="postgres-profile-body"><ClassificationEvaluation :automatic="record.classification" compact /></div>
+      </section>
+      <section v-if="analysis" class="panel postgres-panel" aria-labelledby="postgres-content-title">
+        <div class="panel-heading">
+          <div><h2 id="postgres-content-title">源库格式聚合</h2><p>展示源库返回的计数，业务值保留在来源系统。</p></div>
+          <span class="badge status-draft">{{ postgresProfileStatusLabels[analysis.status] || analysis.status }}</span>
+        </div>
+        <dl class="detail-list">
+          <div><dt>样本可见行数</dt><dd>{{ analysis.rowsScanned }} 行</dd></div>
+          <div><dt>本轮行数上限</dt><dd>{{ analysis.rowLimit }} 行</dd></div>
+        </dl>
+        <p class="postgres-profile-hint">计数来自有界前缀样本，规模和人数需另行核验。</p>
+        <ul v-if="analysis.warnings?.length" class="postgres-profile-warnings"><li v-for="warning in analysis.warnings" :key="warning">{{ postgresProfileWarning(warning) }}</li></ul>
+        <div v-if="analysis.columns?.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-content-title">
+          <table class="data-table postgres-table">
+            <thead><tr><th scope="col">字段</th><th scope="col">可见非空行数</th><th scope="col">格式命中行数</th></tr></thead>
+            <tbody>
+              <tr v-for="column in analysis.columns" :key="column.column">
+                <th scope="row" class="mono">{{ column.column }}</th>
+                <td>{{ column.nonNullRows }}<span v-if="column.limitedRows" class="table-secondary">{{ column.limitedRows }} 行超出格式分析长度</span></td>
+                <td>
+                  <span v-for="match in column.matches" :key="match.category" class="table-secondary">{{ postgresSensitivityLabel(match.category) }} · {{ match.count }} 行</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty-state">本次没有可用的字段聚合结果。</p>
       </section>
       <section class="panel postgres-panel" aria-labelledby="postgres-columns-title">
         <div class="panel-heading">
@@ -97,19 +137,32 @@ onBeforeUnmount(() => active.abort())
         <div v-if="visibleColumns.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-columns-title">
           <table class="data-table postgres-table">
             <thead>
-              <tr><th scope="col">字段</th><th scope="col">数据类型</th><th scope="col">可为空</th><th scope="col">疑似敏感</th></tr>
+              <tr><th scope="col">字段</th><th scope="col">数据类型</th><th scope="col">可为空</th><th scope="col">疑似敏感</th><th scope="col">采集角色读取权限</th></tr>
             </thead>
             <tbody>
               <tr v-for="column in visibleColumns" :key="column.ordinal">
-                <th scope="row" class="mono">{{ column.name }}</th>
+                <th scope="row"><span class="mono">{{ column.name }}</span><span v-if="column.comment" class="table-secondary">{{ column.comment }}</span></th>
                 <td class="mono">{{ column.type }}</td>
                 <td>{{ column.nullable ? '是' : '否' }}</td>
                 <td><span v-if="column.sensitivity" class="badge status-needs_work">{{ postgresSensitivityLabel(column.sensitivity) }}</span><span v-else>—</span></td>
+                <td>{{ column.canSelect === undefined ? '未记录' : column.canSelect ? '有 SELECT 权限' : '缺少 SELECT 权限' }}</td>
               </tr>
             </tbody>
           </table>
         </div>
         <p v-else class="empty-state">{{ candidatesOnly ? '此快照未识别到疑似敏感字段。' : '此表暂无字段。' }}</p>
+      </section>
+      <section v-if="table.constraints?.length" class="panel postgres-panel" aria-labelledby="postgres-constraints-title">
+        <div class="panel-heading"><h2 id="postgres-constraints-title">表约束</h2></div>
+        <div class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-constraints-title">
+          <table class="data-table postgres-table">
+            <thead><tr><th scope="col">约束</th><th scope="col">类型</th><th scope="col">字段</th><th scope="col">验证状态</th></tr></thead>
+            <tbody><tr v-for="constraint in table.constraints" :key="constraint.name">
+              <th scope="row" class="mono">{{ constraint.name }}</th><td>{{ constraintLabels[constraint.type] || constraint.type }}</td>
+              <td class="mono">{{ constraint.columns?.join('、') || '—' }}</td><td>{{ constraint.validated ? '已验证' : '待验证' }}</td>
+            </tr></tbody>
+          </table>
+        </div>
       </section>
       <section class="panel postgres-panel" aria-labelledby="postgres-grants-title">
         <div class="panel-heading">
@@ -144,3 +197,9 @@ onBeforeUnmount(() => active.abort())
     </template>
   </div>
 </template>
+
+<style scoped>
+.postgres-profile-body { padding: .85rem 1.1rem; }
+.postgres-profile-hint { margin: 0 1.1rem .65rem; color: var(--secondary); font-size: .83rem; }
+.postgres-profile-warnings { margin: .45rem 1.1rem .8rem; padding-left: 1.1rem; color: var(--warning); font-size: .83rem; }
+</style>

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,11 +16,12 @@ import (
 )
 
 type PostgresInspection struct {
-	AssetID    int64                     `json:"assetId"`
-	JobID      int64                     `json:"jobId"`
-	RunID      string                    `json:"runId"`
-	ObservedAt time.Time                 `json:"observedAt"`
-	Table      collector.PostgreSQLTable `json:"table"`
+	AssetID        int64                     `json:"assetId"`
+	JobID          int64                     `json:"jobId"`
+	RunID          string                    `json:"runId"`
+	ObservedAt     time.Time                 `json:"observedAt"`
+	Table          collector.PostgreSQLTable `json:"table"`
+	Classification *AutomaticClassification  `json:"classification,omitempty"`
 }
 
 type PostgresSensitiveField struct {
@@ -52,12 +54,14 @@ type PostgresObservation struct {
 	SelectGrants            []PostgresSelectGrant    `json:"selectGrants,omitempty"`
 	SensitiveFieldsOmitted  int                      `json:"sensitiveFieldsOmitted,omitempty"`
 	SelectGrantsOmitted     int                      `json:"selectGrantsOmitted,omitempty"`
+	Classification          *AutomaticClassification `json:"classification,omitempty"`
 }
 
 func (s *Store) GetAssetPostgresInspection(ctx context.Context, workspaceID, actorID, assetID int64) (PostgresInspection, error) {
 	var result PostgresInspection
-	err := s.pool.QueryRow(ctx, `
-		SELECT i.asset_id, i.job_id, r.run_id, r.observed_at, i.inspection
+	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `
+		SELECT i.asset_id, i.job_id, r.run_id, r.observed_at, i.inspection, i.classification
 		FROM plume.postgres_asset_inspections i
 		JOIN plume.assets a ON a.id = i.asset_id
 		JOIN plume.automation_runs r ON r.id = i.automation_run_id AND r.job_id = i.job_id
@@ -65,7 +69,20 @@ func (s *Store) GetAssetPostgresInspection(ctx context.Context, workspaceID, act
 		JOIN plume.memberships m ON m.workspace_id = a.workspace_id
 		WHERE a.workspace_id = $1 AND m.user_id = $2 AND a.id = $3
 	`, workspaceID, actorID, assetID).
-		Scan(&result.AssetID, &result.JobID, &result.RunID, &result.ObservedAt, &result.Table)
+			Scan(&result.AssetID, &result.JobID, &result.RunID, &result.ObservedAt, &result.Table, &result.Classification)
+		if err != nil {
+			return storeError(err)
+		}
+		items, err := readClassifications(ctx, tx, workspaceID, []int64{assetID})
+		if err != nil {
+			return err
+		}
+		if len(items) != 1 {
+			return ErrNotFound
+		}
+		result.Classification = items[0].Automatic
+		return nil
+	})
 	return result, storeError(err)
 }
 
@@ -237,6 +254,9 @@ func persistPostgresInspections(ctx context.Context, tx pgx.Tx, job AutomationJo
 	if len(assetIDs) != len(tables) {
 		return ErrInvalid
 	}
+	if err := persistAutomaticClassifications(ctx, tx, job, run, tables, assetIDs); err != nil {
+		return err
+	}
 	return addPostgresCheckEvidence(ctx, tx, job, cfg, run, tables, assetIDs)
 }
 
@@ -292,7 +312,7 @@ func ensurePostgresChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg
 			SELECT a.workspace_id, a.id, rule.code, COALESCE(NULLIF(left(a.owner_team, 80), ''), '自动采集'), rule.note, $7
 			FROM plume.assets a
 			CROSS JOIN (VALUES
-				('G02', '由 PostgreSQL 采集生成。基于字段元数据识别可能敏感的字段，分类分级需要复核。'),
+				('G02', '由 PostgreSQL 采集生成。依据采用的标准核对源内统计、自动分类及尚待采证的定级条件。'),
 				('G03', '由 PostgreSQL 采集生成。检查表和字段的直接 SELECT 授权，实际访问及其他保护措施需要复核。')
 			) AS rule(code, note)
 			WHERE a.workspace_id = $1 AND a.id = ANY($2)
@@ -302,6 +322,9 @@ func ensurePostgresChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg
 				WHERE b.job_id = $3 AND c.workspace_id = a.workspace_id AND c.asset_id = a.id
 				  AND c.requirement_code = rule.code AND c.feishu_target_digest IS NULL
 				  AND (b.source_host, b.source_port, b.source_database) = ($4, $5, $6)
+				  AND (c.status <> 'verified' OR rule.code <> 'G02' OR COALESCE((
+				      SELECT i.classification->>'comparison' FROM plume.postgres_asset_inspections i WHERE i.asset_id = a.id
+				  ), '') <> 'conflict')
 			  )
 			ORDER BY a.id, rule.code
 			RETURNING id
@@ -340,11 +363,25 @@ func appendPostgresEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, c
 	}
 
 	observation, summary, facts := evaluatePostgresInspection(table, cfg.Database, check.Requirement.Code)
+	if check.Requirement.Code == "G02" {
+		if err := tx.QueryRow(ctx, "SELECT classification FROM plume.postgres_asset_inspections WHERE asset_id = $1 AND automation_run_id = $2",
+			check.AssetID, run.ID).Scan(&observation.Classification); err != nil {
+			return err
+		}
+		if observation.Classification != nil {
+			observation.Scope = "依据所采用标准和源内有界聚合判定数据属性，抽样范围与定级取证缺口见规则快照。"
+			summary = fmt.Sprintf("已采集 %d 个字段，采用 %s 自动判定并与分类版本 %d 比对。",
+				observation.ColumnCount, observation.Classification.Evaluation.Standard.Code, observation.Classification.ClassificationRevision)
+			observation.Assessment = "review_required"
+			observation.AssessmentReasons = []string{"classification_" + observation.Classification.Comparison}
+		}
+	}
 	payload, err := json.Marshal(struct {
 		Assessment        string
 		AssessmentReasons []string
 		Facts             any
-	}{observation.Assessment, observation.AssessmentReasons, facts})
+		Classification    json.RawMessage
+	}{observation.Assessment, observation.AssessmentReasons, facts, automaticClassificationFacts(observation.Classification)})
 	if err != nil {
 		return err
 	}
@@ -388,7 +425,7 @@ func evaluatePostgresInspection(table collector.PostgreSQLTable, database, requi
 	observation := summarizePostgresInspection(table, database)
 	var facts any
 	if requirementCode == "G02" {
-		scope = "按字段名和类型识别候选，未读取业务行。数据分类分级需要复核。"
+		scope = "依据字段名、注释、类型和可用的源内格式统计识别属性，实际观察范围与业务定级条件需要核对。"
 		summary = fmt.Sprintf("已观测 %d 个字段，其中 %d 个字段的名称或类型提示可能涉及敏感数据。", observation.ColumnCount, observation.SensitiveCandidateCount)
 		observation.Assessment = "no_signal"
 		observation.AssessmentReasons = []string{"no_sensitive_candidate"}
@@ -442,18 +479,13 @@ func summarizePostgresInspection(table collector.PostgreSQLTable, database strin
 		PublicSchemaUsage: table.PublicSchemaUsage, PublicSelect: table.PublicSelect,
 		PublicSelectColumnCount: len(table.PublicSelectColumns),
 	}
-	for _, column := range table.Columns {
-		if column.Sensitivity == "" {
-			continue
-		}
+	for _, field := range postgresSensitiveFields(table) {
 		observation.SensitiveCandidateCount++
 		if len(observation.SensitiveFields) == maxDetail {
 			observation.SensitiveFieldsOmitted++
 			continue
 		}
-		observation.SensitiveFields = append(observation.SensitiveFields, PostgresSensitiveField{
-			Name: column.Name, Sensitivity: column.Sensitivity,
-		})
+		observation.SensitiveFields = append(observation.SensitiveFields, field)
 	}
 	for _, grant := range table.Grants {
 		if grant.Privilege != "SELECT" || (!grant.Public && grant.Grantee == table.Owner) {
@@ -468,4 +500,37 @@ func summarizePostgresInspection(table collector.PostgreSQLTable, database strin
 		})
 	}
 	return observation
+}
+
+func postgresSensitiveFields(table collector.PostgreSQLTable) []PostgresSensitiveField {
+	priorities := []string{"national_id", "financial_account", "credential", "email", "phone", "personal_name", "address", "ip_address"}
+	byColumn := make(map[string]string, len(table.Columns))
+	for _, column := range table.Columns {
+		if slices.Contains(priorities, column.Sensitivity) {
+			byColumn[column.Name] = column.Sensitivity
+		}
+	}
+	if analysis := table.ContentAnalysis; analysis != nil && (analysis.Status == "complete" || analysis.Status == "partial") {
+		for _, column := range analysis.Columns {
+			if column.Status != "complete" {
+				continue
+			}
+			for _, match := range column.Matches {
+				rank := slices.Index(priorities, match.Category)
+				if rank < 0 || match.Count <= 0 || match.Count > column.NonNullRows {
+					continue
+				}
+				if current := byColumn[column.Column]; current == "" || rank < slices.Index(priorities, current) {
+					byColumn[column.Column] = match.Category
+				}
+			}
+		}
+	}
+	fields := make([]PostgresSensitiveField, 0, len(byColumn))
+	for _, column := range table.Columns {
+		if category := byColumn[column.Name]; category != "" {
+			fields = append(fields, PostgresSensitiveField{Name: column.Name, Sensitivity: category})
+		}
+	}
+	return fields
 }

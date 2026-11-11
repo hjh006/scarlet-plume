@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestClassificationReferenceMayRetainUnassessedNativeGrade(t *testing.T) {
+	reference, err := Select(DefaultID, "", "industry-business-classification", "unknown")
+	if err != nil || reference.LevelCode != "" || reference.StatutoryCategory != "" || reference.RuleEvidence == "" {
+		t.Fatalf("attribute-only confirmation cannot preserve an unassessed grade with rule evidence: %+v, %v", reference, err)
+	}
+	for _, input := range []struct{ rule, category string }{
+		{"industry-business-classification", "general"},
+		{"ordinary-grading", "unknown"},
+	} {
+		if _, err := Select(DefaultID, "", input.rule, input.category); !errors.Is(err, ErrSelection) {
+			t.Errorf("empty grade accepted with rule=%s, category=%s: %v", input.rule, input.category, err)
+		}
+	}
+}
+
 // Exercise the complete shipped rule library through the same selection and
 // JSON projection used when saving an asset, without fixing a catalog count.
 func TestEveryEffectiveRuleProducesCompleteSnapshot(t *testing.T) {

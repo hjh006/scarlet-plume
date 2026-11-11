@@ -2,6 +2,7 @@ import type { ActivityLink } from './activity'
 import type { TemplateBinding } from './template'
 import type { PostgresEvidence } from './postgresql'
 import type { RuntimeFindingContext } from './runtime-findings'
+import type { ClassificationRecord } from './classification-standards'
 
 export const checkStatusLabels = {
   draft: '待取证',
@@ -92,6 +93,7 @@ export interface CheckDetail extends Check {
   postgresJobId?: number
   availablePostgresJobId?: number
   runtimeFinding?: RuntimeFindingContext
+  classification?: ClassificationRecord
   reviewRevision?: number
 }
 

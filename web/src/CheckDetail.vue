@@ -8,6 +8,7 @@ import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } 
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
 import Icon from './Icon.vue'
 import TemplateCriteria from './TemplateCriteria.vue'
+import ClassificationEvaluation from './ClassificationEvaluation.vue'
 
 const props = defineProps<{ workspace: Workspace; checkId: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -190,6 +191,20 @@ onBeforeUnmount(() => active.abort())
         </dl>
       </section>
 
+      <section v-if="record.classification" class="panel current-classification" aria-labelledby="check-classification-title">
+        <div class="panel-heading">
+          <div><h2 id="check-classification-title">当前分类与自动判定</h2><p>查看资产当前记录，并在证据中追溯各次采集快照。</p></div>
+          <a class="button button-secondary" :href="home + '/classification/' + record.assetId">查看资产分类</a>
+        </div>
+        <div class="check-classification-body">
+          <p v-if="record.classification.revision" class="field-hint">
+            {{ record.classification.origin === 'automatic' ? '自动识别' : '人工确认' }} · 分类版本 {{ record.classification.revision }}
+          </p>
+          <ClassificationEvaluation v-if="record.classification.automatic" :automatic="record.classification.automatic" compact />
+          <p v-else class="field-hint">暂无自动判定快照。</p>
+        </div>
+      </section>
+
       <div class="detail-grid">
         <section class="panel" aria-labelledby="check-evidence-title">
           <div class="panel-heading">
@@ -309,6 +324,10 @@ onBeforeUnmount(() => active.abort())
                   <p v-if="entry.postgres.selectGrantsOmitted" class="field-hint">另有 {{ entry.postgres.selectGrantsOmitted }} 条授权，可在资产详情查看。</p>
                 </div>
               </details>
+              <details v-if="entry.postgres.classification" class="check-classification-snapshot">
+                <summary class="table-link">查看本条证据的自动判定快照</summary>
+                <ClassificationEvaluation :automatic="entry.postgres.classification" compact />
+              </details>
             </div>
             <div class="evidence-meta">
               <span>观察于 <time :datetime="entry.observedAt">{{ formatDate(entry.observedAt) }}</time></span>
@@ -384,4 +403,8 @@ onBeforeUnmount(() => active.abort())
   border-bottom: 1px solid var(--line);
   background: var(--surface-subtle);
 }
+.current-classification { margin-top: 1rem; }
+.check-classification-body { padding: .8rem 1.1rem; }
+.check-classification-snapshot { margin-block: .65rem; }
+.check-classification-snapshot > summary { min-height: 2.5rem; padding-block: .5rem; cursor: pointer; }
 </style>

@@ -231,9 +231,18 @@ func TestManagedPostgresInspectionEvidence(t *testing.T) {
 			!slices.Equal(evidence.Postgres.AssessmentReasons, reasons) {
 			t.Fatalf("unexpected %s assessment: %+v", code, result)
 		}
+		if code == "G02" {
+			automatic := evidence.Postgres.Classification
+			if automatic == nil || automatic.Comparison != "insufficient" || automatic.Evaluation.AutoApplicable || automatic.Evaluation.Standard.ID == "" || len(automatic.Evaluation.Rules) == 0 || len(automatic.Evaluation.MissingConditions) == 0 || evidence.Postgres.ColumnCount != 1 {
+				t.Fatal("metadata-only classification lost its standard/rule snapshot or unobserved conditions")
+			}
+		}
 	}
-	assertAssessment("G02", "automatic", "review_required", []string{"sensitive_candidate"})
+	assertAssessment("G02", "automatic", "review_required", []string{"classification_insufficient"})
 	assertAssessment("G03", "automatic", "review_required", []string{"public_select"})
+	if evidence := detail(owner.ID, automatic["G02"]).Evidence[0].Postgres; evidence.SensitiveCandidateCount != 1 {
+		t.Fatal("metadata candidate was omitted from the original observation")
+	}
 
 	table.Columns = []collector.PostgreSQLColumn{{Name: "category", Type: "text", Ordinal: 1}}
 	table.Grants = append(table.Grants[:1], collector.PostgreSQLGrant{
@@ -241,8 +250,12 @@ func TestManagedPostgresInspectionEvidence(t *testing.T) {
 	})
 	table.PublicSelect = false
 	run("automatic-change")
-	assertAssessment("G02", "automatic-change", "no_signal", []string{"no_sensitive_candidate"})
+	assertAssessment("G02", "automatic-change", "review_required", []string{"classification_insufficient"})
 	assertAssessment("G03", "automatic-change", "review_required", []string{"named_select"})
+	changed := detail(owner.ID, automatic["G02"])
+	if len(changed.Evidence) != 2 || changed.Evidence[0].Postgres.SensitiveCandidateCount != 0 || changed.Evidence[1].Postgres == nil || changed.Evidence[1].Postgres.SensitiveCandidateCount != 1 || changed.Evidence[1].AutomationRunID != "automatic" {
+		t.Fatal("changed metadata failed to preserve the original candidate evidence")
+	}
 
 	config.Database = "source_one"
 	_, err = repo.UpdateManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID, updated.Managed.Revision, config)

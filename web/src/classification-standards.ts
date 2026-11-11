@@ -1,3 +1,5 @@
+import type { Asset } from './api'
+
 export const standardKindLabels = {
   national: '国家标准',
   industry: '行业标准',
@@ -46,6 +48,74 @@ export interface ClassificationStandardSnapshot {
   ruleTitle?: string
   ruleCriterion?: string
   ruleEvidence?: string
+}
+
+export interface ClassificationFact {
+  kind: string
+  column?: string
+  category?: string
+  source: string
+  count?: number
+  note?: string
+}
+
+export type ClassificationEvaluationStatus = 'detected' | 'review_required' | 'no_signal' | 'insufficient_data'
+
+export interface ClassificationEvaluation {
+  version: string
+  standard: ClassificationStandard
+  status: ClassificationEvaluationStatus
+  autoApplicable: boolean
+  category: string
+  businessLevel: string
+  levelCode?: string
+  statutoryCategory?: string
+  rules: {
+    rule: ClassificationStandard['rules'][number]
+    status: ClassificationEvaluationStatus
+    facts: ClassificationFact[]
+    missingConditions: string[]
+  }[]
+  facts: ClassificationFact[]
+  missingConditions: string[]
+}
+
+export interface AutomaticClassification {
+  jobId: number
+  runId: string
+  observedAt: string
+  classificationRevision: number
+  comparison: 'matched' | 'conflict' | 'unconfirmed' | 'insufficient'
+  comparisonReasons: string[]
+  stale?: boolean
+  evaluation: ClassificationEvaluation
+}
+
+export interface ClassificationRecord {
+  asset: Asset
+  revision: number
+  origin?: 'manual' | 'automatic'
+  standard?: ClassificationStandardSnapshot
+  automatic?: AutomaticClassification
+}
+
+export const classificationEvaluationLabels: Record<ClassificationEvaluationStatus, string> = {
+  detected: '检出数据属性信号',
+  review_required: '需要复核',
+  no_signal: '本次未检出格式信号',
+  insufficient_data: '采集事实不足',
+}
+
+export const classificationComparisonLabels = {
+  matched: '与当前分类相容',
+  conflict: '与当前分类存在差异',
+  unconfirmed: '分类待确认',
+  insufficient: '事实不足以比对',
+}
+
+export const classificationOriginLabels = {
+  manual: '人工确认',
+  automatic: '自动识别',
 }
 
 export function isReferencePublication(standard: ClassificationStandard) {
