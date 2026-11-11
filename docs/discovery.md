@@ -78,3 +78,7 @@ Go测试使用客户环境变量 `SCARLET_MYSQL_TEST_DSN`、`SCARLET_MARIADB_TES
 显式 `-local-docker` 模式仅允许平台 `http://app:8080`、上述三个固定服务及 `sample-db:5432/scarlet_sample` 的PostgreSQL样例；拒绝任意私网、公网地址、其他端口和数据库，不支持OpenMetadata。该模式可用2秒轮询；生产仍要求验证TLS证书和主机名，原回环开发选项不扩展为任意私网明文。侧车设置 `restart: unless-stopped`，不依赖Mac终端会话持续存在。
 
 首页“已配置来源”按配置渠道计数：非撤销自动任务、运行时来源、全部发现任务（包括暂停）及非撤销运营来源。来源最多预览6项，显示最近记录状态；不表示实时连通、成功覆盖或去重物理系统数。
+
+## CI 样例运行器兼容性
+
+原生采集CI使用独立的Ubuntu22.04运行器验证三个真实数据库容器。首轮`ubuntu-latest`运行器中MongoDB8.0因内核兼容检查直接退出，未进入采集测试；依据[MongoDB上游问题](https://jira.mongodb.org/browse/SERVER-121912)和[GitHub运行器清单](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md)，暂用当前6.8内核运行器。此选择仅限该测试任务；上游版本修复与运行器退役前需再次验证迁移。

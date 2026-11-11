@@ -106,7 +106,10 @@ jobs:
 
   native-discovery:
     name: Verify native discovery (MySQL, MariaDB, MongoDB)
-    runs-on: ubuntu-latest
+    # MongoDB 8.0 rejects the current latest/24.04 kernel (SERVER-121912).
+    # 22.04 currently supplies kernel 6.8; upgrade after the upstream fix.
+    # https://jira.mongodb.org/browse/SERVER-121912
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     # These credentials belong only to disposable synthetic CI services.
     services:

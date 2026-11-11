@@ -219,3 +219,5 @@ GitHub Actions 使用临时 PostgreSQL 服务验证迁移和测试。Django 测�
 ## 许可证
 
 项目代码使用 Apache License 2.0，详见 [LICENSE](LICENSE)。界面字体 Grove Sans SC 是思源黑体的重命名子集，按 SIL Open Font License 1.1 分发。 [字体许可证](governance/static/governance/fonts/OFL.txt)
+
+本轮非浏览器能力覆盖的真实Docker场景、回归和兼容范围见[验收记录](docs/acceptance-hongtu-coverage-2026-11-11.md)。
