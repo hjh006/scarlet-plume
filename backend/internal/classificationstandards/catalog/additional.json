@@ -1,0 +1,32 @@
+[
+  {
+    "id": "hyt-0366-2023",
+    "code": "HY/T 0366—2023",
+    "title": "海洋数据分类分级标准",
+    "industry": "海洋",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2023-07-11",
+    "effectiveOn": "2023-09-01",
+    "authority": "自然资源部",
+    "url": "https://hbba.sacinfo.org.cn/snDetail/cdcd86a0978b80e6f39effe8784e58df32527753425b78967f2ff90e6b2aaa84",
+    "scope": "推荐性海洋行业标准。自然资源部2023年第33号公告正式发布，适用于海洋数据的采集、处理、存储、交换和信息系统建设。已核验发布信息，正式公开正文仍待获取，不据标题推断其分级与一般、重要、核心数据的对应关系。",
+    "levels": [],
+    "rules": []
+  },
+  {
+    "id": "ydt-4251-2023",
+    "code": "YD/T 4251—2023",
+    "title": "电信运营商大数据安全管控分类分级技术要求",
+    "industry": "基础电信",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2023-05-22",
+    "effectiveOn": "2023-08-01",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=FE86C10A0D1C3123E05397BE0A0A2FC5",
+    "scope": "推荐性通信行业标准。适用于基础电信企业对系统和平台涉及的用户数据开展分类分级与内外部安全管控。已核验官方目录；官方备案下载件封面为报批稿及占位编号，故暂不据该件编写正式版本规则。",
+    "levels": [],
+    "rules": []
+  }
+]

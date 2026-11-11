@@ -20,6 +20,7 @@ import ApiSecurityView from './ApiSecurityView.vue'
 import ApiRuntimeView from './ApiRuntimeView.vue'
 import AuditView from './AuditView.vue'
 import ClassificationView from './ClassificationView.vue'
+import ClassificationStandardsView from './ClassificationStandardsView.vue'
 
 const pageGroups = [
   { label: '治理', items: [
@@ -250,8 +251,12 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <ApiSecurityView v-else :key="`${workspace.slug}/api-security/${route.recordId}`"
                            :workspace="workspace" :scan-id="route.recordId" @session-expired="sessionExpired" />
         </template>
-        <ClassificationView v-else-if="route.page === 'classification'" :key="`${workspace.slug}/classification/${route.recordId}`"
-                            :workspace="workspace" :asset-id="route.recordId" @session-expired="sessionExpired" />
+        <template v-else-if="route.page === 'classification'">
+          <ClassificationStandardsView v-if="route.recordId === 'standards'" :key="workspace.slug"
+                                       :workspace="workspace" @session-expired="sessionExpired" />
+          <ClassificationView v-else :key="`${workspace.slug}/classification/${route.recordId}`"
+                              :workspace="workspace" :asset-id="route.recordId" @session-expired="sessionExpired" />
+        </template>
         <AuditView v-else-if="route.page === 'audit'" :key="`${workspace.slug}/audit/${route.recordId}`" :workspace="workspace"
                    :tab="route.recordId === 'actions' ? 'actions' : 'runtime'" @session-expired="sessionExpired" />
         <WorkspaceView v-else :key="`${workspace.slug}/${route.page}`" :workspace="workspace" :page="route.page"

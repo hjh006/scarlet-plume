@@ -94,6 +94,8 @@ go run ./cmd/collector -provider postgresql -source CRM -schema public -allow-in
 
 OpenMetadata 连接器通过 `SCARLET_OPENMETADATA_URL` 和 `SCARLET_OPENMETADATA_TOKEN` 接收客户侧配置，执行 `go run ./cmd/collector -provider openmetadata -source Catalog -service crm`。令牌由源系统的最小权限身份提供。清单只包含表名与源端标识。当前导入是增量发现，后续盘点缺项不会删除现有资产。
 
+「分类分级」支持工作区默认标准及资产逐项选标，并保存所用等级、条款和取证要求的版本快照。覆盖范围、官方来源及待补条款见 [分类分级标准库](docs/classification-standards.md)。
+
 ### 处理活动、历史数据与监管检查
 
 对外共享、数据出境和 AI 使用均可从活动详情创建关联检查。证据、整改复测和独立复核沿用同一工作流，JSON 导出包含对应的活动范围。 [场景操作与验收示例](docs/activities.md)

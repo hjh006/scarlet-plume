@@ -1,0 +1,729 @@
+[
+  {
+    "id": "transport-data-security-2026",
+    "code": "交科技规〔2026〕3号",
+    "title": "交通运输数据安全管理办法",
+    "industry": "交通运输",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2026-06-18",
+    "effectiveOn": "2026-07-01",
+    "authority": "交通运输部",
+    "url": "https://xxgk.mot.gov.cn/xzgfxwj/202607/t20260713_4209545.html",
+    "scope": "适用于交通运输数据处理活动及安全管理。涵盖公路、水路（含海事相关系统）、铁路、民航、邮政。交通运输部负责综合交通运输、公路和水路，铁路、民航、邮政按各主管部门职责实施。",
+    "levels": [
+      {"code":"core","label":"核心数据","statutoryCategory":"core"},
+      {"code":"important","label":"重要数据","statutoryCategory":"important"},
+      {"code":"general-3","label":"一般3级数据","statutoryCategory":"general"},
+      {"code":"general-2","label":"一般2级数据","statutoryCategory":"general"},
+      {"code":"general-1","label":"一般1级数据","statutoryCategory":"general"}
+    ],
+    "rules": [
+      {"id":"traffic-catalog","clause":"第六条","title":"核验运输数据目录和主管部门认定","criterion":"维护分类分级保护规程和数据目录，按适用行业目录或主管部门告知核对重要数据识别和申报情况。","evidence":"目录版本、识别结果、申报回执或主管部门认定。","levelCodes":["important"]},
+      {"id":"traffic-impact","clause":"第七条","title":"按运输运行影响分级","criterion":"结合数据对经济社会与运输运行的重要程度，以及数据受损、泄露或滥用后对国家安全、公共利益和合法权益的潜在危害，确定类别和级别。一般数据分三个子级。","evidence":"运输业务及影响对象、数据范围、风险与危害分析、适用主管部门认定或目录。","levelCodes":["core","important","general-3","general-2","general-1"]},
+      {"id":"traffic-grade-change","clause":"第八条","title":"重评运输数据级别","criterion":"数据内容、规模、时效、使用场景或加工方式改变且原级别不再适用时更新级别。重要或核心数据级别变化须重新开展分类分级，相关数据目录信息变更须在30日内报告。","evidence":"触发事件、前后两版目录和审批记录、报送日期或回执。","levelCodes":["core","important"]}
+    ]
+  },
+  {
+    "id": "civil-aviation-mht-3039-2025",
+    "code": "MH/T 3039—2025",
+    "title": "民航领域数据分类分级要求",
+    "industry": "民航",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2025-07-18",
+    "effectiveOn": "2025-08-01",
+    "authority": "中国民用航空局",
+    "url": "https://www.caac.gov.cn/XXGK/XXGK/BZGF/HYBZ/202507/P020250724401412250948.pdf",
+    "scope": "供民航领域数据处理者开展数据分类分级。一般数据的细分可按本标准引用的通用方法开展。",
+    "levels": [
+      {"code":"core","label":"核心数据","statutoryCategory":"core"},
+      {"code":"important","label":"重要数据","statutoryCategory":"important"},
+      {"code":"general","label":"一般数据","statutoryCategory":"general"}
+    ],
+    "rules": [
+      {"id":"aviation-core-impact","clause":"6.3 a)、表2","title":"评估核心数据候选","criterion":"泄露、篡改、损毁或非法使用可直接造成国家安全一般及以上危害，或对经济运行、社会秩序、公共利益造成严重危害时复核核心级。主管部门已有认定时核对范围。","evidence":"业务依赖、风险情境、影响对象与程度评估、主管部门认定依据。","levelCodes":["core"]},
+      {"id":"aviation-important-impact","clause":"6.3 b)、表2","title":"评估重要数据候选","criterion":"上述数据事件可直接造成国家安全轻微危害，或对经济运行、社会秩序、公共利益造成一般危害时复核重要级。主管部门已有认定时核对范围。","evidence":"业务依赖、风险情境、影响对象与程度评估、主管部门认定依据。","levelCodes":["important"]},
+      {"id":"aviation-grading-process","clause":"6.4、附录 C","title":"记录对象和民航分级要素","criterion":"从数据项、数据集或衍生数据界定分级对象，结合群体、区域、规模、精度等要素评估危害。完成核心和重要数据识别后评定一般级。","evidence":"数据项清单、衍生数据血缘、影响分析及目录建议或认定记录。","levelCodes":["core","important","general"]}
+    ]
+  },
+  {
+    "id": "energy-grading-2026",
+    "code": "2026年版",
+    "title": "能源行业数据分类分级指南（2026年版）",
+    "industry": "能源",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2026-06-30",
+    "effectiveOn": "2026-07-01",
+    "authority": "国家能源局",
+    "url": "https://www.nea.gov.cn/20260630/3b456b6f83144abcb989110dcfba4d7d/c.html",
+    "scope": "适用于境内能源行业非密数据，包括煤炭、油气、核能、水能、风能、太阳能、电力等。其他由主管部门评估认定的重要和核心数据按补充规定执行。",
+    "levels": [
+      {"code":"core","label":"核心数据","statutoryCategory":"core"},
+      {"code":"important","label":"重要数据","statutoryCategory":"important"},
+      {"code":"general","label":"一般数据","statutoryCategory":"general"}
+    ],
+    "rules": [
+      {"id":"energy-type-and-activity","clause":"第四条","title":"按能源品种和活动分类","criterion":"先识别能源品种，再按规划、设计、建设、生产、储运、消费、科研等活动细分。","evidence":"设施类型、系统业务边界和数据来源。"},
+      {"id":"energy-facility-coordinates","clause":"第八条","title":"识别重点能源设施精确坐标","criterion":"符合本条规模条件的煤矿、火电站、水电站，核电站以及超过750千伏的变电站、开关站和换流站，其定位精度达到100米或更精确的坐标及所含资料，核对为重要数据。煤矿年产量下限1000万吨，火电单机或单套容量及总装机下限分别为100万和300万千瓦。水电排除抽水蓄能，装机达到120万千瓦或总库容达到10亿立方米。","evidence":"设施类型及本条要求的产量、单机和总容量、库容或电压指标，定位精度、资料范围及来源。","levelCodes":["important"]},
+      {"id":"energy-dispatch-command","clause":"第九条","title":"识别重点能源实时指令","criterion":"核对本条列明的特定水电站、超过750千伏的变电站及换流站和国家管网集团油气调控中心系统的生产运行实时指令。水电站以120万千瓦装机或10亿立方米总库容为下限，排除抽水蓄能。","evidence":"设施资质及规模、系统功能、指令时效性与调度业务证明。","levelCodes":["important"]},
+      {"id":"energy-power-important","clause":"第十条","title":"识别重要电力消费原始数据","criterion":"原始用电消费数据覆盖认定的特级重要用户、国防军事类一二级重要用户或达到1000万个电力用户时，复核重要级。","evidence":"用户级别认定依据或去重统计、数据原始性证明，并按第十一条复核是否达到核心级。","levelCodes":["important"]},
+      {"id":"energy-power-core","clause":"第十一条","title":"识别核心电力消费原始数据","criterion":"原始用电消费数据覆盖特级重要用户连续一年及以上，或覆盖1亿个及以上电力用户时，复核核心级。","evidence":"特级认定与连续时间范围，或用户去重统计及口径，以及原始数据来源。","levelCodes":["core"]},
+      {"id":"energy-derived-and-desensitised","clause":"第六条、第七条","title":"核查衍生或脱敏数据的可还原性","criterion":"衍生数据能还原重要或核心原数据时原则上沿用原级。经过脱敏且无法还原时，依本指南评估可否降级。","evidence":"数据血缘和加工方式、重识别或还原测试、降级评估与审批。","levelCodes":["core","important","general"]}
+    ]
+  },
+  {
+    "id": "education-jyt-0661-2025",
+    "code": "JY/T 0661—2025",
+    "title": "教育数据分类分级指南",
+    "industry": "教育",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2025-12-18",
+    "effectiveOn": "2026-02-18",
+    "authority": "教育部",
+    "url": "https://www.moe.gov.cn/srcsite/A16/s3342/202601/W020260107510856466340.pdf",
+    "scope": "面向教育数据分类分级。分级依据包括覆盖范围、数据规模、描述对象和潜在危害，适用部门数据、学校数据等场景。",
+    "levels": [
+      {"code":"l5","label":"L5 核心数据","statutoryCategory":"core"},
+      {"code":"l4","label":"L4 重要数据","statutoryCategory":"important"},
+      {"code":"l3","label":"L3 一般数据","statutoryCategory":"general"},
+      {"code":"l2","label":"L2 一般数据","statutoryCategory":"general"},
+      {"code":"l1","label":"L1 一般数据","statutoryCategory":"general"}
+    ],
+    "rules": [
+      {"id":"education-impact-matrix","clause":"6.1、表1","title":"按影响对象和程度评定级别","criterion":"针对国家安全、经济运行、社会秩序、公共利益及组织或个人权益，评价泄露、篡改、破坏等场景的危害，按影响矩阵给出级别候选。","evidence":"处理范围、危害情景、影响对象和程度、等级矩阵记录。","levelCodes":["l5","l4","l3","l2","l1"]},
+      {"id":"education-l5-scale","clause":"6.2、表2 L5","title":"复核教育核心数据的规模或覆盖度","criterion":"复核覆盖全国的部门教育基础数据，以及个人信息覆盖1亿人及以上、敏感个人信息覆盖1000万人及以上，或达到1000万条且深度刻画对象并影响国家安全的衍生数据。","evidence":"业务归属和覆盖层级、去重主体计数或衍生数据计数、刻画深度和影响评估。","levelCodes":["l5"]},
+      {"id":"education-l4-scale","clause":"6.2、表2 L4","title":"复核教育重要数据的规模或覆盖度","criterion":"复核全国教育业务管理数据、省级教育基础或业务管理数据，或个人信息为1000万人至不足1亿人、敏感个人信息为100万人至不足1000万人。另核查100万条至不足1000万条、对对象有一定刻画程度并可能影响国家安全的衍生数据。","evidence":"部门和区域覆盖证明、去重计数、加工血缘、刻画及风险评估。","levelCodes":["l4"]},
+      {"id":"education-l3-scale","clause":"6.2、表2 L3","title":"复核教育一般 L3 数据","criterion":"复核个人信息为100万人至不足1000万人，或敏感个人信息为10万人至不足100万人。另核对覆盖地市区县的部门教育基础数据、全校覆盖的高校学生、教职工、教学管理和科研管理数据等情形。","evidence":"数据主体计数和敏感信息确认依据，学校或区域覆盖证明。","levelCodes":["l3"]},
+      {"id":"education-l2-scale","clause":"6.2、表2 L2","title":"复核教育一般 L2 数据","criterion":"复核个人信息为10万人至不足100万人，或敏感个人信息为1万人至不足10万人。结合表2核对省级部门行政管理数据、地市区县业务管理数据和学校相关全校覆盖数据。","evidence":"统计口径、全校覆盖或部门级别证明、相关数据类别记录。","levelCodes":["l2"]},
+      {"id":"education-l1-impact","clause":"6.2、表2 L1","title":"复核教育一般 L1 数据","criterion":"按表2核对10万人以下的个人信息或1万人以下的敏感个人信息，以及地市区县教育行政部门本级行政管理数据和中职、中小学、幼儿园等学校全校覆盖的校务管理数据。","evidence":"覆盖范围及去重计数、风险场景及审批记录。","levelCodes":["l1"]},
+      {"id":"education-catalog-review","clause":"第7章","title":"教育数据目录报批与动态更新","criterion":"按数据集整理数据目录，拟定重要和核心数据目录提交教育部审批，一般数据目录报上一级教育主管部门备案。业务、使用场景或公开范围改变时重新定级并履行相应流程。","evidence":"数据集清单、分类分级目录、备案或报批记录和更新评审。","levelCodes":["l5","l4","l3","l2","l1"]}
+    ]
+  },
+  {
+    "id": "automotive-data-order-7-2021",
+    "code": "第7号令",
+    "title": "汽车数据安全管理若干规定（试行）",
+    "industry": "汽车",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2021-08-16",
+    "effectiveOn": "2021-10-01",
+    "authority": "国家互联网信息办公室、国家发展和改革委员会、工业和信息化部、公安部、交通运输部",
+    "url": "https://www.cac.gov.cn/2021-08/20/c_1631049984897667.htm",
+    "scope": "适用于境内汽车数据处理活动及其监管，涵盖设计、生产、销售、使用、运维等环节。此规定第三条列明汽车行业重要数据的识别情形。",
+    "levels": [
+      {"code":"important","label":"重要数据","statutoryCategory":"important"}
+    ],
+    "rules": [
+      {"id":"automotive-sensitive-regions","clause":"第三条 重要数据第（一）项","title":"识别汽车数据中的敏感区域信息","criterion":"核对军事管理区、国防科工单位、县级以上党政机关等敏感区域的地理信息与人流、车流等数据。","evidence":"经授权的区域范围和数据覆盖证明、空间精度、数据用途和来源。","levelCodes":["important"]},
+      {"id":"automotive-economic-operations","clause":"第三条 重要数据第（二）、（三）项","title":"复核经济运行与充电网数据","criterion":"核对能反映经济运行的车流和物流数据，以及汽车充电网络运行数据。","evidence":"数据覆盖、统计粒度和经济运行相关性或充电网络功能证明。","levelCodes":["important"]},
+      {"id":"automotive-external-media","clause":"第三条 重要数据第（四）项","title":"识别包含人脸或车牌的车外影像","criterion":"核对车外视频和图像是否含可识别的人脸、车牌等信息。","evidence":"采集方向和媒体类型说明、识别规则和结果计数、脱敏或复核记录。","levelCodes":["important"]},
+      {"id":"automotive-person-count","clause":"第三条 重要数据第（五）项","title":"复核汽车个人信息主体数量","criterion":"汽车个人信息涉及超过10万名个人信息主体时，复核重要数据条件。","evidence":"授权统计取得的去重主体数量、统计时间窗口和跨源去重方法。","levelCodes":["important"]},
+      {"id":"automotive-authority-determination","clause":"第三条 重要数据第（六）项","title":"核验汽车行业主管部门认定","criterion":"核对网信及有关主管部门确定的其他汽车重要数据是否涵盖该资产。","evidence":"适用的认定或目录文件、数据资产边界和命中条目。","levelCodes":["important"]}
+    ]
+  },
+  {
+    "id": "health-grading-trial-2023",
+    "code": "2023年试行",
+    "title": "卫生健康行业数据分类分级指南（试行）",
+    "industry": "卫生健康",
+    "kind": "guideline",
+    "status": "published",
+    "authority": "国家卫生健康委员会、国家中医药管理局、国家疾病预防控制局",
+    "url": "https://www.nhc.gov.cn/wjw/tia/202409/ec2aae0087844a5fa61383d434dc0c82.shtml",
+    "scope": "国家卫生健康委公开答复确认2023年6月印发，用于卫生健康行业数据分类分级。依据公开答复收录标准信息。"
+  },
+  {
+    "id": "water-slt-864-2026",
+    "code": "SL/T 864—2026",
+    "title": "水利数据分类分级规则",
+    "industry": "水利",
+    "kind": "industry",
+    "status": "effective",
+    "effectiveOn": "2026-04-04",
+    "authority": "水利部",
+    "url": "https://slt.hunan.gov.cn/slt/xxgk/slxw/slxw_1/202601/t20260119_33897364.html",
+    "scope": "适用于各级水利部门、流域管理机构、直属单位及水利工程单位处理的非涉密数据。依据主管部门发布说明收录标准信息。"
+  },
+  {
+    "id": "geospatial-grading-2025",
+    "code": "2025年指南",
+    "title": "地理信息数据分类分级工作指南（试行）",
+    "industry": "自然资源与地理信息",
+    "kind": "guideline",
+    "status": "published",
+    "authority": "自然资源部",
+    "url": "https://www.gsjn.gov.cn/zfxxgk/zfbmxxgk/zrzyj/fdzdgknr/zrzyxx/chdlxxgl/art/2025/art_98959233d8c94a2ca55d0cc90c6668f0.html",
+    "scope": "用于省级自然资源主管部门指导测绘资质单位开展地理信息数据分类分级，涉及基础地理信息、遥感影像及专题地理信息。依据主管部门发布信息收录。"
+  },
+  {
+    "id": "scientific-gbt-43705-2025",
+    "code": "GB/T 43705—2025",
+    "title": "科学数据安全分类分级指南",
+    "industry": "科学数据",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2025-01-24",
+    "effectiveOn": "2025-01-24",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=80B39CC3A1E12960B2AB7001C2B9437A",
+    "scope": "推荐性国家标准，适用于科学数据安全分类分级。分类须考虑安全主题，分级综合对象、分级要素、影响分析及审核结果。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general2",
+        "label": "一般数据2级",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "general1",
+        "label": "一般数据1级",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "scientific-classification-facets",
+        "clause": "5.1",
+        "title": "确定科学数据分类维度",
+        "criterion": "以安全主题作为必要分类维度，按需要补充科学领域、数据表现形式等维度，形成适用本单位的分类体系。",
+        "evidence": "科学数据来源、研究业务、分类维度与口径、分类目录和适用范围。"
+      },
+      {
+        "id": "scientific-directory-marking",
+        "clause": "5.2",
+        "title": "形成科学数据目录和标识",
+        "criterion": "基于分类框架形成数据目录，按GB/T 43707开展数据标识，完成分类质量评价、审核发布和更新。",
+        "evidence": "分类目录版本、数据标识、质量评价记录、审核发布及变更记录。"
+      },
+      {
+        "id": "scientific-four-levels",
+        "clause": "6.1",
+        "title": "复核科学数据级别与共享条件",
+        "criterion": "科学数据采用核心、重要、一般三类安全级别，一般数据由低至高分为1级和2级，以适应无条件和有条件开放共享的不同安全管理需求。结合具体分级要素与影响分析确定级别。",
+        "evidence": "数据范围、适用行业或主管部门依据、共享条件和授权审批、分级评审记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general2",
+          "general1"
+        ]
+      },
+      {
+        "id": "scientific-grading-workflow",
+        "clause": "6.2（引用6.6）",
+        "title": "按科学数据分级流程评估和审核",
+        "criterion": "界定数据表、文件等对象，按6.3核对学科领域、测量值、群体、区域、精度、规模、价值和时空特性，依6.4、6.5评估影响，按6.6定级后审核发布，定期或变化时重新评审。",
+        "evidence": "对象及字段清单、各分级要素的取值与来源、影响分析、定级与审核记录及更新原因。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general2",
+          "general1"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "natural-resources-security-2024",
+    "code": "自然资发〔2024〕57号",
+    "title": "自然资源领域数据安全管理办法",
+    "industry": "自然资源与地理信息",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2024-03-22",
+    "authority": "自然资源部",
+    "url": "https://app.www.gov.cn/govdata/gov/202403/30/513508/article.html",
+    "scope": "涵盖地理信息、自然资源调查监测、国土空间规划及自然资源管理等业务数据，涉及地质、海洋和林草等领域的具体标准及目录按主管部门规定核对。印发通知要求结合实际贯彻执行。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "natural-resources-catalog",
+        "clause": "第八条",
+        "title": "核对自然资源重要与核心数据目录",
+        "criterion": "按所属领域的分类分级规范定期梳理重要和核心数据，对照适用目录和地方审核要求提交并更新。",
+        "evidence": "适用目录及版本、地理或业务覆盖说明、更新记录和申报材料。",
+        "levelCodes": [
+          "core",
+          "important"
+        ]
+      },
+      {
+        "id": "natural-resources-impact",
+        "clause": "第九条、第十条",
+        "title": "评估自然资源数据影响",
+        "criterion": "以数据业务、精度、规模、风险和可利用性为依据，综合评估影响对象、程度和范围。按第十条核对潜在国家安全与公共利益等影响和主管部门认定。",
+        "evidence": "数据分类、精度、覆盖度和规模证明，业务依赖和影响评估，适用主管部门结论。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "intelligent-ship-gbt-47313-2026",
+    "code": "GB/T 47313—2026",
+    "title": "智能船舶数据分类、分级与标识",
+    "industry": "水运与船舶",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2026-03-31",
+    "effectiveOn": "2026-10-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=0A9BB522D082EC646A28EA1440251AD6",
+    "scope": "推荐性国家标准，规定智能船舶数据的分类、分级与标识要求。采用1至4级技术分级，具体资产的法定数据类别应结合适用依据另行审核。",
+    "levels": [
+      {
+        "code": "level-1",
+        "label": "1级数据"
+      },
+      {
+        "code": "level-2",
+        "label": "2级数据"
+      },
+      {
+        "code": "level-3",
+        "label": "3级数据"
+      },
+      {
+        "code": "level-4",
+        "label": "4级数据"
+      }
+    ],
+    "rules": [
+      {
+        "id": "ship-classification",
+        "clause": "6.2.1–6.2.4",
+        "title": "按船舶数据属性分层分类",
+        "criterion": "先区分船舶基础数据、船舶监控数据和船舶报文数据，再结合来源、业务和类型细分，形成分类清单。",
+        "evidence": "船舶业务和系统范围、采集或报文来源、数据分类清单。"
+      },
+      {
+        "id": "ship-level-1",
+        "clause": "7.3.1 a)",
+        "title": "核对智能船舶1级条件",
+        "criterion": "核对非法使用数据后，对国家安全、社会利益、组织和个人合法权益均无影响的情形。",
+        "evidence": "数据用途、共享范围、影响对象及无影响评估依据。",
+        "levelCodes": [
+          "level-1"
+        ]
+      },
+      {
+        "id": "ship-level-2",
+        "clause": "7.3.1 b)",
+        "title": "核对智能船舶2级条件",
+        "criterion": "非法使用可能对船舶安全、社会利益、组织或个人权益造成轻微或一般影响时，对照本条评定。",
+        "evidence": "事故或滥用场景、影响对象、影响程度与可补救性评估。",
+        "levelCodes": [
+          "level-2"
+        ]
+      },
+      {
+        "id": "ship-level-3",
+        "clause": "7.3.1 c)",
+        "title": "核对智能船舶3级条件",
+        "criterion": "核对国家安全受轻微或一般影响，船舶安全、社会利益或组织权益受重要影响，以及个人权益受严重影响等条件。",
+        "evidence": "船舶业务依赖、影响范围和对象、影响程度判断与评审记录。",
+        "levelCodes": [
+          "level-3"
+        ]
+      },
+      {
+        "id": "ship-level-4",
+        "clause": "7.3.1 d)",
+        "title": "核对智能船舶4级条件",
+        "criterion": "核对国家安全受重要或严重影响，或船舶安全、社会利益、组织权益受严重影响等条件。",
+        "evidence": "业务依赖及危害场景、受影响对象、损失范围与不可逆性评审。",
+        "levelCodes": [
+          "level-4"
+        ]
+      },
+      {
+        "id": "ship-grade-change",
+        "clause": "7.3.2、7.3.3",
+        "title": "复核船舶数据定级与变更",
+        "criterion": "确定初始级别后结合业务、安全措施和影响复核。内容、时效、规模、场景及汇聚处理变化导致原级别不适用时重新定级。",
+        "evidence": "初始与复核结论、安全措施、变化事件、前后两版分级清单。"
+      }
+    ]
+  },
+  {
+    "id": "connected-vehicle-ydt-6617-2025",
+    "code": "YD/T 6617—2025",
+    "title": "车联网平台重要数据识别指南",
+    "industry": "汽车",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2025-12-17",
+    "effectiveOn": "2026-04-01",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=490534C38E2AC1A3E06397BE0A0A0AB9",
+    "scope": "供车联网平台数据处理者开展平台重要数据识别，适用范围排除军事、政务、国家秘密相关处理活动。依据行业标准登记信息收录。"
+  },
+  {
+    "id": "automotive-gbt-44464-2024",
+    "code": "GB/T 44464—2024",
+    "title": "汽车数据通用要求",
+    "industry": "汽车",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2024-08-23",
+    "effectiveOn": "2024-08-23",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=D63AAC0203E9B169F74B10E547A3CBCE",
+    "scope": "推荐性国家标准，规定汽车数据安全管理和保护要求。4.1.4要求建立分类分级制度及资产台账，附录A提供研发设计、生产制造数据的分类分级参考示例。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "auto-grading-register",
+        "clause": "4.1.4、4.1.5",
+        "title": "建立汽车数据分类分级台账",
+        "criterion": "建立分类分级制度并形成资产台账，为收集、存储、使用、加工、传输、提供、公开和删除制定分级保护要求与规程。",
+        "evidence": "数据资产台账、分类分级制度、生命周期保护规程及执行记录。"
+      },
+      {
+        "id": "auto-impact-reference",
+        "clause": "附录A A.3.1、A.3.2、表A.1（资料性）",
+        "title": "参考汽车研发制造数据影响矩阵",
+        "criterion": "参考附录A，对研发设计和生产制造数据分析国家、行业、组织与个人权益影响，再按表A.1及核心数据条件综合评审。",
+        "evidence": "数据所属环节、影响对象和程度、适用行业依据及分级审批。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "auto-volume-combination",
+        "clause": "附录A A.3.3（资料性）",
+        "title": "复核规模与组合变化",
+        "criterion": "核查数据量增长或不同数据组合后，是否扩大影响并需要提高级别。",
+        "evidence": "前后规模口径、组合与加工血缘、影响变化及复核结果。"
+      }
+    ]
+  },
+  {
+    "id": "express-privacy-yzt-0189-2023",
+    "code": "YZ/T 0189—2023",
+    "title": "寄递服务用户个人信息保护要求",
+    "industry": "邮政寄递",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2023-01-04",
+    "effectiveOn": "2023-04-01",
+    "authority": "国家邮政局",
+    "url": "https://gd.spb.gov.cn/gdsyzglj/c106372/c106377/202408/eea8cc4961ff444d86d5497d73b919b0.shtml",
+    "scope": "适用于寄递服务用户个人信息保护。第6.6条引用国家分类分级要求，资产级别使用适用的国家和行业分级依据。",
+    "rules": [
+      {"id":"express-privacy-classification","clause":"5.1–5.3、6.6","title":"识别寄递个人信息并应用分类分级要求","criterion":"结合国内与国际寄递业务确认必要个人信息范围，对照适用的国家数据分类分级要求记录分类结果。","evidence":"收寄、分拣和投递涉及的字段清单、国内外业务场景、分类依据和个人信息最小范围记录。"}
+    ]
+  },
+  {
+    "id": "express-logistics-gbt-42013-2022",
+    "code": "GB/T 42013—2022",
+    "title": "信息安全技术 快递物流服务数据安全要求",
+    "industry": "邮政寄递",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2022-10-14",
+    "effectiveOn": "2023-05-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=CDBCE8F2E4CDE60A86092361A8796178",
+    "scope": "推荐性国家标准，适用于快递物流服务数据保护。要求依据有关规则识别核心、重要、一般数据及一般和敏感个人信息，并实施相应保护。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "express-data-classification",
+        "clause": "5.2",
+        "title": "梳理快递物流用户和业务数据",
+        "criterion": "区分服务中涉及的用户个人与企业通信信息、寄递物品、配送及签收等业务数据，确认处理范围和来源。",
+        "evidence": "业务和字段清单、运单及寄递环节映射、数据来源与分类依据。"
+      },
+      {
+        "id": "express-statutory-grades",
+        "clause": "第6章 c)",
+        "title": "按适用依据识别快递物流数据级别",
+        "criterion": "依据适用的国家和行业要求识别服务中的核心、重要与一般数据，按对应级别制定保护措施。",
+        "evidence": "适用目录或识别规则、资产覆盖范围、影响评审与分级保护清单。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "express-personal-identification",
+        "clause": "第6章 d)",
+        "title": "标识快递物流个人信息类别",
+        "criterion": "识别一般和敏感个人信息，并记录分类标识以支持后续保护与访问管理。",
+        "evidence": "字段识别依据、个人信息类别和人工复核、标识与访问权限记录。"
+      }
+    ]
+  },
+  {
+    "id": "ride-hailing-gbt-42017-2022",
+    "code": "GB/T 42017—2022",
+    "title": "信息安全技术 网络预约汽车服务数据安全要求",
+    "industry": "交通运输",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2022-10-14",
+    "effectiveOn": "2023-05-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=182AA2DDF9F1EB9A69193B9CA528BBC4",
+    "scope": "推荐性国家标准，适用于网络预约汽车服务数据保护。第6章规定分类分级，资料性附录B提供重要数据识别参考及数据分类示例，行业另有目录时核对该目录。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "ride-data-classification",
+        "clause": "5.2、第6章 c)、d)",
+        "title": "梳理网约车数据类别和级别",
+        "criterion": "区分用户、业务及其他数据，识别一般和敏感个人信息，再按适用标准及目录评审核心、重要或一般数据。",
+        "evidence": "乘客和驾驶员字段清单、行程订单与录音录像处理范围、适用依据、识别复核及定级记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "ride-important-reference",
+        "clause": "附录B B.1（资料性）",
+        "title": "参考网约车重要数据识别条件",
+        "criterion": "结合行业目录，参考本条核对敏感区域数据、反映经济运行的交通物流、充电网运行和含人脸车牌的车外影像等情形。",
+        "evidence": "业务及区域覆盖、数据语义与来源、适用目录条目和重要数据复核。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "ride-person-count",
+        "clause": "附录B B.1 e)（资料性）",
+        "title": "复核网约车个人信息主体数量",
+        "criterion": "参考本条，核查涉及的车主、驾驶员、乘客及车外人员是否超过10万名。结合适用行业目录确认重要数据条件。",
+        "evidence": "授权取得的去重统计、主体范围、跨源合并口径和适用目录依据。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "ride-access-by-grade",
+        "clause": "9.1 a)、b)",
+        "title": "核对级别与访问权限关联",
+        "criterion": "按最少够用和职责分离原则，把数据分级关联到查阅、修改、删除等权限和审批，对人脸、轨迹及行程录音录像等较高级别数据严格限制。",
+        "evidence": "分级和访问权限映射、审批及授权记录、访问日志和权限复核。"
+      }
+    ]
+  },
+  {
+    "id": "government-sharing-gbt-39477-2020",
+    "code": "GB/T 39477—2020",
+    "title": "信息安全技术 政务信息共享 数据安全技术要求",
+    "industry": "政务与公共数据",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2020-11-19",
+    "effectiveOn": "2021-06-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=1C7D8CDD4B3EF8CA8C7822D99B76EA4F",
+    "scope": "推荐性国家标准，适用于政务信息共享准备、交换、使用等环节的数据安全保护。按适用的政务信息资源分级分类要求标记数据并管理权限与变更。",
+    "rules": [
+      {
+        "id": "government-classification-marking",
+        "clause": "6.1.2 a)、b)",
+        "title": "形成政务共享数据分级标记",
+        "criterion": "依据适用的政务信息资源规则分类分级并标记，保留标记记录，按级别制定安全策略和保护措施。",
+        "evidence": "适用规则及版本、共享资产清单、等级标记记录和对应保护策略。"
+      },
+      {
+        "id": "government-classification-change",
+        "clause": "6.1.2 c)、d)",
+        "title": "追踪等级变更与共享权限",
+        "criterion": "记录共享数据分类分级的变更并通知使用方，按数据级别明确其使用权限。",
+        "evidence": "变更记录、使用方通知回执、级别与授权映射及审批记录。"
+      },
+      {
+        "id": "government-resource-directory",
+        "clause": "6.1.3 a)",
+        "title": "核对共享资源目录",
+        "criterion": "按数据类别或主题编制目录，明确内容、安全分级和共享方式，审核目录发布并审计共享属性变化与迁移。",
+        "evidence": "资源目录及版本、发布审核记录、共享属性和目录迁移的授权审计。"
+      }
+    ]
+  },
+  {
+    "id": "wuhan-public-data-grading-2025",
+    "code": "武汉市2025年试行",
+    "title": "武汉市公共数据分类分级指南（试行）",
+    "industry": "政务与公共数据",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2025-05-19",
+    "authority": "武汉市数据局",
+    "url": "https://whsj.wuhan.gov.cn/zwgk/zcfg/gfxwj1/202609/t20260909_2845237.shtml",
+    "scope": "武汉市地方指南，供武汉市公共数据处理者开展分类分级和安全保护，优先核对数据所属行业已有的分类分级规范。依据正式印发试行的通知和公开原文采用。",
+    "levels": [
+      {
+        "code": "l6",
+        "label": "L6 核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "l5",
+        "label": "L5 重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "l4",
+        "label": "L4 一般数据4级",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "l3",
+        "label": "L3 一般数据3级",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "l2",
+        "label": "L2 一般数据2级",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "l1",
+        "label": "L1 一般数据1级",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "wuhan-public-impact",
+        "clause": "7.1–7.5、表1",
+        "title": "按武汉市公共数据影响矩阵评定",
+        "criterion": "界定数据项、数据集或衍生数据，分析影响对象和程度，按通用矩阵和综合规则评定，多因素命中按最高适用级别复核。",
+        "evidence": "属地与资产范围、行业规则、影响评估、定级矩阵、数据血缘。",
+        "levelCodes": [
+          "l6",
+          "l5",
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      },
+      {
+        "id": "wuhan-public-sharing-floor",
+        "clause": "7.5 h)–k)",
+        "title": "复核开放属性和个人信息保护的最低级别",
+        "criterion": "已依法公开的数据可评为L1。有条件开放或共享时最低L3，不可开放或共享时最低L4。复核个人信息的具体范围，其中敏感个人信息最低L4。",
+        "evidence": "开放或共享条件和审批依据、合法公开证明、个人信息与敏感个人信息的确认记录。"
+      },
+      {
+        "id": "wuhan-public-data-catalog",
+        "clause": "8.1、8.2、附录D",
+        "title": "核对公共数据目录与动态评审",
+        "criterion": "按行业要求和本指南形成数据分类分级清单。对象、场景或汇聚范围变化导致原级别不适用时重新评审。按附录D核对重要数据识别。",
+        "evidence": "目录版本、业务和加工变更、识别与复核审批记录。"
+      }
+    ]
+  },
+  {
+    "id": "scientific-data-management-2018",
+    "code": "国办发〔2018〕17号",
+    "title": "科学数据管理办法",
+    "industry": "科学数据",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2018-03-17",
+    "authority": "国务院办公厅",
+    "url": "https://www.most.gov.cn/ztzl/zdzx/zcwj/201804/t20180403_5725.html",
+    "scope": "覆盖政府预算资金支持的科学数据活动及符合本办法规定的其他境内科学数据活动。分级分类与开放条件应结合相应国家和行业标准确定。第三十三条规定自印发之日起施行。",
+    "rules": [
+      {
+        "id": "scientific-classification-disclosure",
+        "clause": "第二十条",
+        "title": "记录科学数据分类分级与开放条件",
+        "criterion": "法人单位应开展科学数据分级分类，按适用规定记录保密属性与期限、开放条件、对象及审核程序，并形成开放目录。",
+        "evidence": "科研数据清单、权属及来源、开放范围与审批记录、适用的保密与安全依据。"
+      }
+    ],
+    "effectiveOn": "2018-03-17"
+  }
+]
