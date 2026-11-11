@@ -43,6 +43,8 @@ jobs:
           python manage.py makemigrations --check --dry-run
           python manage.py migrate --noinput
           python manage.py test --noinput
+      - name: Verify source-side Wazuh projection
+        run: python -m unittest discover -s docker/wazuh -p 'test_*.py' -v
 
   next-stack:
     name: Verify Go and Vue (PostgreSQL)

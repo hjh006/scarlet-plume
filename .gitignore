@@ -17,3 +17,4 @@ __pycache__/
 /.scarlet-runtime-tls/
 
 /.scarlet-validation/
+/.scarlet-openmetadata/

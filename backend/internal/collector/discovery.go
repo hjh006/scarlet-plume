@@ -226,7 +226,7 @@ func DiscoverWithConnection(ctx context.Context, c DiscoveryConfig, connection D
 	case "mongodb":
 		return discoverMongo(ctx, c, dsn, insecure, connection.LocalDocker)
 	case "openmetadata":
-		return discoverOpenMetadata(ctx, c, dsn, token, insecure)
+		return discoverOpenMetadata(ctx, c, dsn, token, insecure, connection.LocalDocker)
 	}
 	return DiscoveryResult{}, errors.New("采集提供方无效")
 }

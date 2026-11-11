@@ -1,0 +1,140 @@
+# Real OpenMetadata 2.0.7, independent local project and persistent volumes.
+# Based on the upstream Apache-2.0 release Compose; no Airflow is required for CLI scheduling.
+name: scarlet-openmetadata
+x-om-environment: &om-environment
+  OPENMETADATA_CLUSTER_NAME: scarlet-local
+  OPENMETADATA_HEAP_OPTS: -Xms256m -Xmx768m
+  DB_DRIVER_CLASS: org.postgresql.Driver
+  DB_SCHEME: postgresql
+  DB_PARAMS: sslmode=disable
+  DB_HOST: metadata-db
+  DB_PORT: '5432'
+  DB_USER: openmetadata
+  DB_USER_PASSWORD: ${SCARLET_OM_DB_PASSWORD:?Set a random OpenMetadata database password}
+  OM_DATABASE: openmetadata_db
+  DB_CONNECTION_POOL_INITIAL_SIZE: '2'
+  DB_CONNECTION_POOL_MIN_SIZE: '2'
+  DB_CONNECTION_POOL_MAX_SIZE: '30'
+  ELASTICSEARCH_HOST: metadata-search
+  ELASTICSEARCH_PORT: '9200'
+  ELASTICSEARCH_SCHEME: http
+  SEARCH_TYPE: elasticsearch
+  AUTHENTICATION_PROVIDER: basic
+  AUTHENTICATION_ENABLE_SELF_SIGNUP: 'false'
+  AUTHENTICATION_PUBLIC_KEYS: '[http://openmetadata:8585/api/v1/system/config/jwks]'
+  AUTHORIZER_ADMIN_PRINCIPALS: '[admin]'
+  AUTHORIZER_INGESTION_PRINCIPALS: '[ingestion-bot]'
+  RSA_PUBLIC_KEY_FILE_PATH: /keys/public_key.der
+  RSA_PRIVATE_KEY_FILE_PATH: /keys/private_key.der
+  JWT_ISSUER: scarlet-openmetadata-local
+  JWT_KEY_ID: scarlet-local-v1
+  FERNET_KEY: ${SCARLET_OM_FERNET_KEY:?Set a per-instance Fernet encryption key}
+  PIPELINE_SERVICE_CLIENT_ENABLED: 'false'
+  RDF_ENABLED: 'false'
+  LLM_ENABLED: 'false'
+  MASK_PASSWORDS_API: 'true'
+services:
+  metadata-keys:
+    image: alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+    command: [sh, -ec, 'cp /config/private_key.der /config/public_key.der /keys/; chown -R 1000:1000 /keys; chmod 700 /keys; chmod 600 /keys/*']
+    volumes: ["./.scarlet-openmetadata:/config:ro", "metadata_keys:/keys"]
+    network_mode: none
+    mem_limit: 32m
+  metadata-db:
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    environment:
+      POSTGRES_DB: openmetadata_db
+      POSTGRES_USER: openmetadata
+      POSTGRES_PASSWORD: ${SCARLET_OM_DB_PASSWORD:?Set a random OpenMetadata database password}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    command: [postgres, -c, shared_buffers=64MB, -c, work_mem=4MB, -c, max_connections=60]
+    volumes: ["metadata_db:/var/lib/postgresql/data"]
+    networks: [metadata]
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U openmetadata -d openmetadata_db']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  metadata-search:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.0@sha256:4f6bdcb742e892539c6ac49b0dd3e4e182e90218546e8c6a22db378c344acb60
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes: ["metadata_search:/usr/share/elasticsearch/data"]
+    networks: [metadata]
+    mem_limit: 1100m
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fsS http://localhost:9200/_cluster/health | grep -qE "green|yellow"']
+      interval: 10s
+      timeout: 5s
+      retries: 40
+  metadata-migrate:
+    image: docker.getcollate.io/openmetadata/server:2.0.7@sha256:327cdd85b868f9ce27828e1ce519d4e2ba603345520bd728b754241c9f38374c
+    command: [./bootstrap/openmetadata-ops.sh, migrate]
+    environment: *om-environment
+    volumes: ["metadata_keys:/keys:ro"]
+    networks: [metadata]
+    mem_limit: 1536m
+    depends_on:
+      metadata-db: {condition: service_healthy}
+      metadata-search: {condition: service_healthy}
+      metadata-keys: {condition: service_completed_successfully}
+  openmetadata:
+    image: docker.getcollate.io/openmetadata/server:2.0.7@sha256:327cdd85b868f9ce27828e1ce519d4e2ba603345520bd728b754241c9f38374c
+    environment: *om-environment
+    volumes: ["metadata_keys:/keys:ro"]
+    ports: ["127.0.0.1:8585:8585"]
+    networks: [default, metadata, platform]
+    mem_limit: 1536m
+    restart: unless-stopped
+    depends_on:
+      metadata-migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD-SHELL, 'wget -qO- http://localhost:8586/healthcheck >/dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 40
+  metadata-ingestion:
+    profiles: [collectors]
+    image: docker.getcollate.io/openmetadata/ingestion:2.0.7@sha256:8790cacb13b0f612a07122592ee2b3280e02d0611821ab91fdf72b71fa2ac415
+    entrypoint: [python, /config/ingest.py]
+    command: [--interval, '60']
+    environment:
+      SCARLET_OM_INGESTION_TOKEN: ${SCARLET_OM_INGESTION_TOKEN:-}
+      SCARLET_SAMPLE_READER_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:-}
+    volumes: ["./docker/openmetadata:/config:ro"]
+    networks: [metadata, sample]
+    mem_limit: 1024m
+    restart: unless-stopped
+    depends_on:
+      openmetadata: {condition: service_healthy}
+  metadata-discovery:
+    profiles: [collectors]
+    image: scarlet-plume-local:dev
+    entrypoint: [scarlet-discovery-agent]
+    command: [-local-docker, -poll, 2s]
+    environment:
+      SCARLET_URL: http://app:8080
+      SCARLET_DISCOVERY_TOKEN: ${SCARLET_OM_DISCOVERY_TOKEN:-}
+      SCARLET_OPENMETADATA_URL: http://openmetadata:8585/api
+      SCARLET_OPENMETADATA_TOKEN: ${SCARLET_OPENMETADATA_TOKEN:-}
+    networks: [metadata, platform]
+    mem_limit: 96m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    depends_on:
+      openmetadata: {condition: service_healthy}
+networks:
+  metadata: {internal: true}
+  platform: {external: true, name: scarlet-plume-local_default}
+  sample: {external: true, name: scarlet-plume-local_sample}
+volumes:
+  metadata_keys:
+  metadata_db:
+  metadata_search:

@@ -1,0 +1,29 @@
+<group name="scarlet,configuration_assessment,">
+  <rule id="100500" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="scarlet_check" type="pcre2">^public_export_v1$</field>
+    <field name="scope" type="pcre2">^scarlet-wazuh-export$</field>
+    <description>Scarlet synthetic export source measurement</description>
+  </rule>
+  <rule id="100501" level="10">
+    <if_sid>100500</if_sid>
+    <field name="result" type="pcre2">^observed$</field>
+    <field name="export_status" type="pcre2">^200$</field>
+    <field name="health_status" type="pcre2">^204$</field>
+    <field name="proof" type="pcre2">^confirmed$</field>
+    <description>Synthetic export is accessible anonymously</description>
+  </rule>
+  <rule id="100502" level="3">
+    <if_sid>100500</if_sid>
+    <field name="result" type="pcre2">^cleared$</field>
+    <field name="export_status" type="pcre2">^403$</field>
+    <field name="health_status" type="pcre2">^204$</field>
+    <field name="proof" type="pcre2">^confirmed$</field>
+    <description>Synthetic export recheck confirms anonymous access denied</description>
+  </rule>
+  <rule id="100503" level="5">
+    <if_sid>100500</if_sid>
+    <field name="result" type="pcre2">^unknown$</field>
+    <description>Synthetic export recheck is inconclusive</description>
+  </rule>
+</group>

@@ -9,7 +9,7 @@
 - 风险与运营：契约和运行时策略、经独立审批的受限API主动验证、外部安全事件、代理阻断与PostgreSQL直接SELECT撤销/回滚。
 - 合规闭环：处理活动、PIA/出境/AI/业务变更问卷、采用版本、来源证据、整改复测、独立复核和冻结的HTML/JSON报告。
 
-本轮能力、测试方式及边界见[红途材料独立实现映射](docs/hongtu-capability-mapping.md)。浏览器页面/DOM经营字段打标不在本轮范围；OpenMetadata深度适配和Wazuh桥接已通过协议/投影测试，真实产品部署仍需联调。四类原生数据库与受控PG/代理动作有真实合成样例验证，不能据此宣称所有数据库均有原生驱动、所有权限路径均已控制，或达到其他产品的性能与检测精度。
+本轮能力、测试方式及边界见[红途材料独立实现映射](docs/hongtu-capability-mapping.md)。浏览器页面/DOM经营字段打标不在本轮范围；OpenMetadata2.0.7及Wazuh4.14.10已完成本地真实实例联调，目录元数据、原生规则告警、故障、整改复测及独立复核结果见[真实集成验收](docs/acceptance-live-integrations-2026-11-11.md)。四类原生数据库与受控PG/代理动作有真实合成样例验证，不能据此宣称所有数据库均有原生驱动、所有权限路径均已控制，或达到其他产品的性能与检测精度。
 
 ## 产品目标
 
@@ -67,6 +67,8 @@ scarlet up -d --wait app
 | `compose.discovery-agents.yaml` | 加入根默认网及上述既有外部样例网的三个持续采集侧车 | [持续发现与六个外部配置变量](docs/discovery.md#本地docker持续采集) |
 | `compose.controls.yaml` | 已审批代理/PG处置的可选本地执行配置 | [安全运营与执行边界](docs/security-operations.md) |
 | `compose.validation-sample.yaml` | 固定账号、合成对象与真实PG查询的API主动验证样例 | [批准范围及测试清单](docs/api-validation.md) |
+| `compose.openmetadata.yaml` | 独立OpenMetadata实例、官方PG ingestion及目录采集侧车 | [真实目录部署](docs/openmetadata-live.md) |
+| `compose.wazuh.yaml` | 根项目中的真实Wazuh manager、实际HTTP检查与事件桥接 | [真实事件与复测](docs/wazuh-live.md) |
 
 这些文件不是全部直接合并为一个项目：发现样例库有独立项目和既有网络；其他覆盖文件按相应说明叠加到根项目。先创建被授权的工作区来源、绑定任务及令牌，再把凭据写入被忽略、权限受控的env文件。具体组合命令和本地来源配置以对应模块文档及实际部署配置为准；不要将示例地址或来源标识当作已创建的任务。
 

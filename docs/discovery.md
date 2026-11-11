@@ -19,7 +19,7 @@
 | PostgreSQL 原生 | schema、表、字段、类型、注释、约束、可见ACL、RLS范围 | 现有源内格式聚合；客户侧自定义RE2/词典受限样本 | 现有可见授权，受账号范围限制 | 未采集，unknown | PostgreSQL18、SCRAM只读角色，真实样本验证 |
 | MySQL / MariaDB 原生 | 数据库、表、字段、类型、注释、可空性、约束 | 客户侧关键词/RE2/精确词典，样本不出客户环境 | 当前账号SHOW GRANTS；不等于全体主体有效权限。MariaDB认证条款从授权字符串移除 | 未采集，unknown | MySQL8.4与MariaDB11.8真实Docker验证；使用同一标准驱动与独立样本入口 |
 | MongoDB 原生 | 集合、JSON Schema validator声明字段及说明、受限文档字段路径、类型 | 客户侧受限文档，嵌套对象路径；数组元素不推断 | 未采集源ACL，unknown | 未采集，unknown | MongoDB8.0真实Docker通过；只读角色、嵌套对象和词典命中 |
-| OpenMetadata 深目录 | service/database/schema/table/column、嵌套字段、注释、标签、约束 | 不读取源数据值，标签与元数据规则仅为候选 | 源数据库ACL unknown；OpenMetadata owners不当作源ACL | `/v1/lineage/table/{id}` 一跳边，权限拒绝记unknown | 依据官方Table/Lineage schema与TableResource API实现；HTTP契约测试，不宣称已完成真实OpenMetadata部署联调 |
+| OpenMetadata 深目录 | service/database/schema/table/column、嵌套字段、注释、标签、约束 | 不读取源数据值，标签与元数据规则仅为候选 | 源数据库ACL unknown；OpenMetadata owners不当作源ACL | `/v1/lineage/table/{id}` 一跳边，权限拒绝记unknown | 真实OpenMetadata2.0.7与官方PostgreSQL采集工作流已联调；新增源表/视图自动同步、真实401使旧批次失效、目录证据及报告通过；其他源系统仍须分别验收 |
 
 SQL Server、Oracle、DB2、Hive、ClickHouse、Snowflake、BigQuery、Redshift、Trino、Presto、Spark、Databricks 通过客户已有 OpenMetadata 连接器进入同一深元数据适配链路。平台任务须填写实际系统类型并严格绑定 service/database/schema；返回的serviceType必须与任务声明一致，缺失或矛盾时拒绝该批次。此链路不是这些数据库的原生连接驱动；能见字段取决于客户 OpenMetadata 版本、权限及其实际采集结果。不能从元数据服务所有者推断数据库授权，不能从同名字段推断精确访问关系。
 
@@ -75,7 +75,9 @@ Go测试使用客户环境变量 `SCARLET_MYSQL_TEST_DSN`、`SCARLET_MARIADB_TES
 
 将平台创建的三个任务令牌和客户侧连接字符串写入被忽略、权限受控的env文件，使用以下变量：`SCARLET_DISCOVERY_MYSQL_TOKEN` / `SCARLET_DISCOVERY_MYSQL_DSN`、`SCARLET_DISCOVERY_MARIADB_TOKEN` / `SCARLET_DISCOVERY_MARIADB_DSN`、`SCARLET_DISCOVERY_MONGODB_TOKEN` / `SCARLET_DISCOVERY_MONGODB_DSN`。MySQL/MariaDB的DSN使用 `mysql:3306` / `mariadb:3306` 和 `discovery_sample`；MongoDB使用 `mongodb:27017/discovery_sample`、`authSource=discovery_sample`。凭据不写进Compose文件。
 
-显式 `-local-docker` 模式仅允许平台 `http://app:8080`、上述三个固定服务及 `sample-db:5432/scarlet_sample` 的PostgreSQL样例；拒绝任意私网、公网地址、其他端口和数据库，不支持OpenMetadata。该模式可用2秒轮询；生产仍要求验证TLS证书和主机名，原回环开发选项不扩展为任意私网明文。侧车设置 `restart: unless-stopped`，不依赖Mac终端会话持续存在。
+显式 `-local-docker` 模式仅允许平台 `http://app:8080`、上述三个固定服务及 `sample-db:5432/scarlet_sample` 的PostgreSQL样例；OpenMetadata另仅允许固定 `http://openmetadata:8585[/api]`，绑定PostgreSQL类型、`scarlet_sample`数据库和`inventory`范围。拒绝任意私网、公网地址、其他端口、路径及数据库。该模式可用2秒轮询；生产仍要求验证TLS证书和主机名，原回环开发选项不扩展为任意私网明文。侧车设置 `restart: unless-stopped`，不依赖Mac终端会话持续存在。
+
+真实OpenMetadata服务、官方CLI采集、独立读写账号及复现步骤见[OpenMetadata本地联调](openmetadata-live.md)。该实例目前提供元数据，内容识别和源ACL仍未采集；G02会记录缺口，不能仅凭元数据标签判定内容分类核验通过。真实两源联合验收见[验收记录](acceptance-live-integrations-2026-11-11.md)。
 
 首页“已配置来源”按配置渠道计数：非撤销自动任务、运行时来源、全部发现任务（包括暂停）及非撤销运营来源。来源最多预览6项，显示最近记录状态；不表示实时连通、成功覆盖或去重物理系统数。
 
