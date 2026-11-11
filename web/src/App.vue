@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ApiError, describeError, request, roleLabels, sessionPath, type Session } from './api'
 import Brand from './Brand.vue'
 import Icon from './Icon.vue'
@@ -20,9 +20,22 @@ import ApiSecurityView from './ApiSecurityView.vue'
 import ApiRuntimeView from './ApiRuntimeView.vue'
 import ApiLifecycleView from './ApiLifecycleView.vue'
 import DataFlowsView from './DataFlowsView.vue'
+import RuntimePoliciesView from './RuntimePoliciesView.vue'
+import DiscoveryView from './DiscoveryView.vue'
+import AssetCatalogView from './AssetCatalogView.vue'
+import SecurityOperationsView from './SecurityOperationsView.vue'
+import AssessmentsView from './AssessmentsView.vue'
 import AuditView from './AuditView.vue'
 import ClassificationView from './ClassificationView.vue'
 import ClassificationStandardsView from './ClassificationStandardsView.vue'
+
+const ApiValidationView = defineAsyncComponent({
+  loader: () => import('./ApiValidationView.vue'),
+  delay: 0,
+  timeout: 15000,
+  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入 API 验证页面…'),
+  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, '页面资源未能载入，请刷新页面重试。'),
+})
 
 const pageGroups = [
   { label: '', items: [
@@ -30,18 +43,24 @@ const pageGroups = [
   ] },
   { label: '数据治理', items: [
     { id: 'assets', label: '数据资产' },
+    { id: 'asset-catalog', label: '业务资产目录', icon: 'assets' },
     { id: 'classification', label: '分类分级' },
     { id: 'data-flows', label: '数据流转' },
     { id: 'activities', label: '处理活动' },
   ] },
   { label: '安全运营', items: [
+    { id: 'operations', label: '运营与处置', icon: 'shield' },
     { id: 'api-security', label: 'API 安全' },
+    { id: 'validation', label: 'API 主动验证', icon: 'shield' },
     { id: 'api-lifecycle', label: '接口生命周期' },
+    { id: 'runtime-policies', label: '运行时检测策略', icon: 'templates' },
     { id: 'checks', label: '监管检查' },
+    { id: 'assessments', label: '合规评估', icon: 'checks' },
     { id: 'reports', label: '合规报告' },
     { id: 'audit', label: '审计中心' },
   ] },
   { label: '配置与接入', items: [
+    { id: 'discovery', label: '多源自动发现', icon: 'integrations' },
     { id: 'automation', label: '自动采集' },
     { id: 'templates', label: '检查模板' },
     { id: 'integrations', label: '集成与导入' },
@@ -191,7 +210,7 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
           <a v-for="item in group.items" :key="item.id" :href="`#/${encodeURIComponent(workspace.slug)}/${item.id}`"
              :aria-current="item.id === route.page ? 'page' : undefined"
              @click="item.id === route.page && !route.recordId && closeMenu()">
-            <Icon :name="item.id" /><span>{{ item.label }}</span>
+            <Icon :name="'icon' in item ? item.icon : item.id" /><span>{{ item.label }}</span>
           </a>
         </div>
         <div class="sidebar-footer">
@@ -265,6 +284,18 @@ onUnmounted(() => window.removeEventListener('hashchange', syncRoute))
                           :workspace="workspace" @session-expired="sessionExpired" />
         <DataFlowsView v-else-if="route.page === 'data-flows'" :key="workspace.slug"
                        :workspace="workspace" @session-expired="sessionExpired" />
+        <RuntimePoliciesView v-else-if="route.page === 'runtime-policies'" :key="workspace.slug"
+                             :workspace="workspace" @session-expired="sessionExpired" />
+        <DiscoveryView v-else-if="route.page === 'discovery'" :key="workspace.slug"
+                       :workspace="workspace" @session-expired="sessionExpired" />
+        <AssetCatalogView v-else-if="route.page === 'asset-catalog'" :key="workspace.slug"
+                          :workspace="workspace" @session-expired="sessionExpired" />
+        <SecurityOperationsView v-else-if="route.page === 'operations'" :key="`${workspace.slug}/${route.recordId}`"
+                                :workspace="workspace" :control-id="route.recordId" @session-expired="sessionExpired" />
+        <AssessmentsView v-else-if="route.page === 'assessments'" :key="`${workspace.slug}/${route.recordId}`"
+                         :workspace="workspace" :assessment-id="route.recordId" @session-expired="sessionExpired" />
+        <ApiValidationView v-else-if="route.page === 'validation'" :key="`${workspace.slug}/${route.recordId}`"
+                           :workspace="workspace" :plan-id="route.recordId" @session-expired="sessionExpired" />
         <template v-else-if="route.page === 'classification'">
           <ClassificationStandardsView v-if="route.recordId === 'standards'" :key="workspace.slug"
                                        :workspace="workspace" @session-expired="sessionExpired" />

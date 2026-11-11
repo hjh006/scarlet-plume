@@ -107,7 +107,9 @@ func (s *Store) OverviewCounts(ctx context.Context, workspaceID int64) (Overview
 		       count(*) FILTER (WHERE status = 'needs_work'),
 		       count(*) FILTER (WHERE status = 'verified'),
 		       (SELECT count(*) FROM plume.automation_jobs WHERE workspace_id = $1 AND revoked_at IS NULL)
-		       + (SELECT count(*) FROM plume.runtime_security_sources WHERE workspace_id = $1 AND revoked_at IS NULL),
+		       + (SELECT count(*) FROM plume.runtime_security_sources WHERE workspace_id = $1 AND revoked_at IS NULL)
+ + (SELECT count(*) FROM plume.discovery_sources WHERE workspace_id=$1)
+ + (SELECT count(*) FROM plume.operations_sources WHERE workspace_id=$1 AND revoked_at IS NULL),
 		       (SELECT count(*) FROM plume.runtime_findings f JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
 		        WHERE f.workspace_id = $1 AND c.status <> 'verified'),
 		       (SELECT count(*) FROM plume.assets WHERE workspace_id = $1 AND (classification_revision = 0 OR classification_origin = 'automatic'))

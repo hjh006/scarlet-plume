@@ -6,6 +6,7 @@ export interface DataFlowFilter {
   focus?: string
 }
 export interface DataFlowEvidence {
+  details?: Record<string, unknown>
   kind: string
   source: string
   sourceId?: number
@@ -30,7 +31,7 @@ export interface DataFlowEdge {
   id: string
   from: string
   to: string
-  relation: 'catalog' | 'declared' | 'observed' | 'database_type' | 'database_target' | 'subject_access'
+  relation: 'service_call' | 'catalog' | 'declared' | 'observed' | 'database_type' | 'database_target' | 'subject_access'
   categories: string[]
   evidence: DataFlowEvidence[]
 }
@@ -86,6 +87,8 @@ export interface DataFlowRequest {
   status: number
   traceRef?: string
   spanRef?: string
+  parentSpanRef?: string
+  serviceCalls?: { targetService: string; spanRef: string }[]
   subjectRef?: string
   databaseSystems?: string[]
   databaseTargets?: { system: string; source: string; database: string; schema: string; table: string; operation: string }[]
@@ -102,9 +105,10 @@ export const dataFlowNodeLabels: Record<DataFlowNode['kind'], string> = {
   application: '业务应用', api: '接口', table: '数据库表', database_type: '数据库类型', subject: '脱敏主体',
 }
 export const dataFlowRelationLabels: Record<DataFlowEdge['relation'], string> = {
-  catalog: '目录结构', declared: '契约声明', observed: '运行时观测', database_type: '数据库类型', database_target: '数据库目标定位', subject_access: '脱敏主体访问',
+  service_call: '跨服务父子Span验证', catalog: '目录结构', declared: '契约声明', observed: '运行时观测', database_type: '数据库类型', database_target: '数据库目标定位', subject_access: '脱敏主体访问',
 }
 export const dataFlowEvidenceLabels: Record<string, string> = {
+  catalog_discovery: '多源目录与分类证据',
   postgresql: 'PostgreSQL 元数据', openapi: 'OpenAPI 契约', gateway: '独立 Agent / 网关观测', otlp: '应用探针 · OTLP',
   catalog: '资产目录', declared: '契约声明', observed: '运行时观测', runtime: '运行时观测',
 }
@@ -120,6 +124,9 @@ const dataFlowWarningLabels: Record<string, string> = {
   scope_is_connected_sources: '仅覆盖已接入且可见的来源',
   runtime_window_7_days: '运行时关联只覆盖最近 7 天',
   database_family_is_not_table_lineage: '数据库类型级关联不代表已定位具体表',
+  unmatched_service_call: '部分跨服务调用缺少另一端有效父子Span证据，候选保留在请求调查中',
+  service_links_window_2_minutes: '跨服务关系要求两端授权来源、服务别名及父子Span匹配，观测时间相差不超过2分钟',
+  invalid_service_call: '部分跨服务调用引用未通过校验',
   unmatched_database_target: '部分数据库目标未匹配唯一资产，未生成表级关系',
   json_size_limit: 'JSON 超出采集大小上限',
   json_depth_limit: 'JSON 超出采集深度上限',

@@ -4,8 +4,13 @@ import { activityKindLabels, type Activity, type ActivityPage } from './activity
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import { checkStatusLabels, eventLabels, type Check, type CheckEvent, type Evidence } from './workflow'
 import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPublicSelect, type PostgresEvidence } from './postgresql'
-import type { ReportCounts, ReportDataFlows, ReportIdentification, ReportSource } from './reports'
+import type { ReportCounts, ReportDataFlows, ReportIdentification, ReportSource, ReportCatalogDiscovery, ReportOperations, ReportAssessmentReferences } from './reports'
 import Icon from './Icon.vue'
+import CatalogAssessmentEvidence from './CatalogAssessmentEvidence.vue'
+import { assessmentKinds, assessmentStatuses } from './assessments'
+import RuntimeDetectionFacts from './RuntimeDetectionFacts.vue'
+import { controlKindLabels, controlStatusLabels, controlResultLabel, controlEventLabels, securityEventCategoryLabels, securityEventOutcomeLabels, operationsSeverityLabels } from './security-operations'
+import { runtimeRuleLabels, type RuntimeFinding } from './runtime-findings'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
 import type { ClassificationRecord } from './classification-standards'
 import { dataFlowWarning } from './data-flows'
@@ -16,7 +21,10 @@ interface ComplianceReport {
   counts: ReportCounts
   identification?: ReportIdentification
   dataFlows?: ReportDataFlows
-  checks: { check: Check; evidence: Evidence[]; events: CheckEvent[]; automaticEvaluation?: PostgresEvidence; classification?: ClassificationRecord }[]
+  catalogDiscovery?: ReportCatalogDiscovery
+  operations?: ReportOperations
+  assessmentReferences?: ReportAssessmentReferences
+  checks: { check: Check; evidence: Evidence[]; events: CheckEvent[]; automaticEvaluation?: PostgresEvidence; classification?: ClassificationRecord; runtimeFinding?: RuntimeFinding }[]
 }
 
 const props = defineProps<{ workspace: Workspace; activityContext?: string; archiveId?: string }>()
@@ -36,6 +44,7 @@ const loading = ref(true)
 const errorMessage = ref('')
 const exportError = ref('')
 const exporting = ref<'html' | 'json' | ''>('')
+const catalogLimit=ref(20)
 const active = new AbortController()
 const counts = [
   { key: 'total', label: '检查总数' },
@@ -202,6 +211,28 @@ onBeforeUnmount(() => active.abort())
       <div><dt>PUBLIC SELECT 授权表数</dt><dd>{{ report.identification.publicTableSelect }}</dd></div>
       <div><dt>PUBLIC SELECT 授权字段数</dt><dd>{{ report.identification.publicColumnSelect }}</dd></div>
     </dl>
+  </section>
+
+  <section v-if="report?.assessmentReferences" class="panel report-results" aria-labelledby="report-assessment-refs-title"><div class="panel-heading"><div><h2 id="report-assessment-refs-title">关联活动的专项评估引用</h2><p>{{report.assessmentReferences.basis}}</p></div></div><p v-if="report.assessmentReferences.truncated">最多展示200项引用，请在专项评估中核对完整范围。</p><ul><li v-for="assessment in report.assessmentReferences.items" :key="assessment.id"><a :href="home+'/assessments/'+assessment.id">#{{assessment.id}} · {{assessment.title}}</a> · {{assessmentKinds[assessment.kind]||assessment.kind}} · {{assessmentStatuses[assessment.status]||assessment.status}} · 模板#{{assessment.templateRevisionId}} · 修订v{{assessment.revision}} · {{formatDate(assessment.updatedAt)}}<span v-if="assessment.stale||assessment.reassessmentPending"> · 已标记需要重评</span></li></ul></section>
+
+  <section v-if="report?.operations" class="panel report-results" aria-labelledby="report-operations-title">
+    <div class="panel-heading"><div><h2 id="report-operations-title">关联安全运营与处置回执</h2><p>{{report.operations.scope}}</p></div><span>{{formatDate(report.operations.capturedAt)}}</span></div>
+    <article v-for="action in report.operations.controls" :key="action.id"><h3>处置 #{{action.id}} · {{controlKindLabels[action.kind]}} · {{controlStatusLabels[action.status]||action.status}}</h3><p>检查 #{{action.checkId}} · 修订 v{{action.revision}} · 申请人 {{action.actor}} · 审批人 {{action.approvedBy||'尚未审批'}} · 到期 {{formatDate(action.expiresAt)}}</p><p>{{action.spec.service}} {{action.spec.method}} {{action.spec.route}}<span v-if="action.spec.database">{{action.spec.database}} / {{action.spec.schema}} / {{action.spec.table}} / {{action.spec.role}}</span></p><p>{{action.reason}}</p><p v-if="action.result">执行回执：{{controlResultLabel(action.result.code)}} · {{action.result.success?'来源报告成功':'来源报告失败'}} · {{formatDate(action.result.observedAt)}}</p><ul v-if="action.events?.length"><li v-for="(event,index) in action.events" :key="index">{{controlEventLabels[event.action]||event.action}} · {{event.actor}} · {{formatDate(event.createdAt)}} · {{event.note}}</li></ul></article>
+    <div v-if="report.operations.securityEvents.length" class="table-scroll"><table class="data-table"><thead><tr><th>关联检查 / 来源</th><th>类别 / 规则</th><th>来源结果</th><th>来源窗口统计</th></tr></thead><tbody><tr v-for="event in report.operations.securityEvents" :key="event.id"><td>检查 #{{event.checkId}} · {{event.source}}</td><td>{{securityEventCategoryLabels[event.category]||event.category}} · {{event.rule}} · {{operationsSeverityLabels[event.severity]||event.severity}}</td><td>{{securityEventOutcomeLabels[event.outcome]||event.outcome}} · {{formatDate(event.observedAt)}}</td><td>{{event.count}} 次 / {{event.windowSeconds}} 秒（来源统计口径）</td></tr></tbody></table></div>
+  </section>
+
+  <section v-if="reportChecks.some(entry=>entry.runtimeFinding?.detection)" class="panel report-results" aria-labelledby="report-runtime-facts-title">
+    <div class="panel-heading"><div><h2 id="report-runtime-facts-title">运行时规则与实际观测依据</h2><p>策略版本、来源内统计窗口与可观察分母随本报告冻结；模式命中需结合独立核验。</p></div></div>
+    <template v-for="entry in reportChecks" :key="'runtime-'+entry.check.id"><article v-if="entry.runtimeFinding?.detection"><h3>检查 #{{entry.check.id}} · {{runtimeRuleLabels[entry.runtimeFinding.rule]}}</h3><p>{{entry.runtimeFinding.service}} · {{entry.runtimeFinding.method}} {{entry.runtimeFinding.route}}</p><RuntimeDetectionFacts :detection="entry.runtimeFinding.detection"/></article></template>
+  </section>
+
+  <section v-if="report?.catalogDiscovery" class="panel report-results" aria-labelledby="report-catalog-title">
+    <div class="panel-heading"><div><h2 id="report-catalog-title">多源目录与分类证据</h2><p>{{report.catalogDiscovery.basis}}</p></div></div>
+    <dl class="report-metrics"><div><dt>目录表 / 集合</dt><dd>{{report.catalogDiscovery.tables}}</dd></div><div><dt>字段 / 路径</dt><dd>{{report.catalogDiscovery.fields}}</dd></div><div><dt>最新来源规则证据</dt><dd>{{report.catalogDiscovery.ruleHits}}</dd></div></dl>
+    <p v-if="report.catalogDiscovery.truncated" class="message message-warning">来源或评估达到报告展示上限，需缩小范围核对。</p>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>来源 / 系统</th><th>配置 / 运行</th><th>来源状态</th><th>观察时间</th></tr></thead><tbody><tr v-for="source in report.catalogDiscovery.sources" :key="source.id"><td>{{source.source}} · {{source.system}}<span class="table-secondary">{{source.provider==='openmetadata'?'OpenMetadata 深目录':'原生采集'}}</span></td><td>v{{source.revision}} · {{source.runId?'运行 #'+source.runId:'尚无运行'}}</td><td>{{source.current?'当前有效':source.status==='error'?'最新采集失败':'未观察、暂停或已过期'}}</td><td>{{source.observedAt?formatDate(source.observedAt):'—'}}</td></tr></tbody></table></div>
+    <article v-for="item in report.catalogDiscovery.assessments.slice(0,catalogLimit)" :key="item.evidenceId"><p>检查 #{{item.checkId}} · 证据 #{{item.evidenceId}} · {{item.kind==='retest'?'来源自动复测':'来源观察'}} · {{item.current?'当前事实仍相同':'历史证据，当前事实需重新核对'}}</p><CatalogAssessmentEvidence :assessment="item.assessment"/></article>
+    <button v-if="report.catalogDiscovery.assessments.length>catalogLimit" class="button button-secondary" @click="catalogLimit+=20">再显示20项评估</button>
   </section>
 
   <section v-if="report?.dataFlows" class="panel report-results" aria-labelledby="report-flows-title">

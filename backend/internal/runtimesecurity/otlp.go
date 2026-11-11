@@ -134,18 +134,26 @@ func ParseOTLP(payload []byte) ([]Observation, error) {
 			continue
 		}
 		method := otlpAttribute(attrs, "http.request.method", "http.method").GetStringValue()
+		parentRef := ""
+		if node.parent.span != [8]byte{} && node.parent.span != node.id.span {
+			parentRef = hex.EncodeToString(node.parent.span[:])
+		}
 		observation, err := NormalizeObservation(Observation{
 			Method:     method,
 			Route:      otlpAttribute(attrs, "http.route", "").GetStringValue(),
 			Status:     int(status),
 			ObservedAt: time.Unix(0, int64(end)).UTC(),
-			TraceRef:   hex.EncodeToString(node.id.trace[:]), SpanRef: hex.EncodeToString(node.id.span[:]),
+			TraceRef:   hex.EncodeToString(node.id.trace[:]), SpanRef: hex.EncodeToString(node.id.span[:]), ParentSpanRef: parentRef,
 		})
 		if err != nil || observation.Method != method {
 			continue
 		}
 		if len(observations) == MaxObservations {
 			return nil, ErrOTLPTooLarge
+		}
+		rawParent := node.span.GetParentSpanId()
+		if len(rawParent) > 0 && len(rawParent) != 8 || len(rawParent) == 8 && [8]byte(rawParent) == node.id.span {
+			observation.CaptureWarnings = append(observation.CaptureWarnings, "invalid_trace_context")
 		}
 		if subject := otlpAttribute(attrs, "scarlet.subject.ref", "").GetStringValue(); subject != "" && subjectReference.MatchString(subject) {
 			observation.SubjectRef = subject
@@ -158,6 +166,12 @@ func ParseOTLP(payload []byte) ([]Observation, error) {
 		} else {
 			observation.CaptureWarnings = append(observation.CaptureWarnings, "invalid_data_fields")
 		}
+		security, valid := otlpSecurityProjection(attrs)
+		if valid {
+			observation.AuthState, observation.AuthRequired, observation.SecuritySignals, observation.InspectedLocations = security.AuthState, security.AuthRequired, security.SecuritySignals, security.InspectedLocations
+		} else {
+			observation.CaptureWarnings = append(observation.CaptureWarnings, "invalid_security_context")
+		}
 		servers[node.id] = len(observations)
 		observations = append(observations, observation)
 	}
@@ -167,19 +181,35 @@ func ParseOTLP(payload []byte) ([]Observation, error) {
 		if graph[node.id] != node || node.span.GetKind() != tracepb.Span_SPAN_KIND_CLIENT {
 			continue
 		}
-		system := otlpAttribute(node.span.GetAttributes(), "db.system.name", "db.system").GetStringValue()
-		if system == "" {
-			continue
-		}
 		index, ok := nearestOTLPServer(graph, servers, node.parent)
 		if !ok {
 			continue
 		}
 		observation := &observations[index]
+		attrs := node.span.GetAttributes()
+		if hasOTLPAttribute(attrs, "peer.service") {
+			target := otlpAttribute(attrs, "peer.service", "").GetStringValue()
+			method := otlpAttribute(attrs, "http.request.method", "http.method").GetStringValue()
+			status := otlpAttribute(attrs, "http.response.status_code", "http.status_code").GetIntValue()
+			end, start := node.span.GetEndTimeUnixNano(), node.span.GetStartTimeUnixNano()
+			probe := Observation{Method: method, Route: "/controlled", Status: int(status), ObservedAt: observation.ObservedAt, TraceRef: observation.TraceRef, SpanRef: observation.SpanRef, ServiceCalls: []ServiceCall{{TargetService: target, SpanRef: hex.EncodeToString(node.id.span[:])}}}
+			if normalized, err := NormalizeObservation(probe); err == nil && method == normalized.Method && end > 0 && end <= math.MaxInt64 && end >= start {
+				if len(observation.ServiceCalls) < MaxCaptureItems {
+					observation.ServiceCalls = append(observation.ServiceCalls, probe.ServiceCalls[0])
+				} else {
+					observation.CaptureWarnings = append(observation.CaptureWarnings, "capture_item_limit")
+				}
+			} else {
+				observation.CaptureWarnings = append(observation.CaptureWarnings, "invalid_service_call")
+			}
+		}
+		system := otlpAttribute(attrs, "db.system.name", "db.system").GetStringValue()
+		if system == "" {
+			continue
+		}
 		if !slices.Contains(observation.DatabaseSystems, system) {
 			observation.DatabaseSystems = append(observation.DatabaseSystems, system)
 		}
-		attrs := node.span.GetAttributes()
 		if hasOTLPAttribute(attrs, "scarlet.data.source") {
 			target := DatabaseTarget{System: system, Source: otlpAttribute(attrs, "scarlet.data.source", "").GetStringValue(), Database: otlpAttribute(attrs, "db.namespace", "db.name").GetStringValue(), Schema: otlpAttribute(attrs, "scarlet.db.schema", "").GetStringValue(), Table: otlpAttribute(attrs, "db.collection.name", "").GetStringValue(), Operation: otlpAttribute(attrs, "db.operation.name", "db.operation").GetStringValue()}
 			test := Observation{DatabaseTargets: []DatabaseTarget{target}}
@@ -247,6 +277,46 @@ func ParseOTLP(payload []byte) ([]Observation, error) {
 		observations[i] = normalized
 	}
 	return observations, nil
+}
+
+func otlpSecurityProjection(attrs []*commonpb.KeyValue) (Observation, bool) {
+	var o Observation
+	if hasOTLPAttribute(attrs, "scarlet.auth.state") {
+		value := otlpAttribute(attrs, "scarlet.auth.state", "")
+		if _, ok := value.GetValue().(*commonpb.AnyValue_StringValue); !ok {
+			return o, false
+		}
+		o.AuthState = value.GetStringValue()
+	}
+	if hasOTLPAttribute(attrs, "scarlet.auth.required") {
+		value := otlpAttribute(attrs, "scarlet.auth.required", "")
+		if _, ok := value.GetValue().(*commonpb.AnyValue_BoolValue); !ok {
+			return o, false
+		}
+		v := value.GetBoolValue()
+		o.AuthRequired = &v
+	}
+	for _, item := range []struct {
+		key    string
+		target any
+	}{{"scarlet.security.signals", &o.SecuritySignals}, {"scarlet.inspected.locations", &o.InspectedLocations}} {
+		if !hasOTLPAttribute(attrs, item.key) {
+			continue
+		}
+		value := otlpAttribute(attrs, item.key, "").GetStringValue()
+		if len(value) > 4096 || value == "" {
+			return Observation{}, false
+		}
+		dec := json.NewDecoder(bytes.NewBufferString(value))
+		dec.DisallowUnknownFields()
+		if dec.Decode(item.target) != nil || dec.Decode(new(any)) != io.EOF {
+			return Observation{}, false
+		}
+	}
+	if normalizeSecurity(&o) != nil {
+		return Observation{}, false
+	}
+	return o, true
 }
 
 func hasOTLPAttribute(attrs []*commonpb.KeyValue, key string) bool {

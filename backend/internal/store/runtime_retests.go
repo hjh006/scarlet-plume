@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,17 +18,18 @@ type runtimeCheckFinding struct {
 	workspaceID      int64
 	routeKey         string
 	retestEvidenceID *int64
+	retestPolicyID   *int64
 }
 
 func runtimeFindingForCheck(ctx context.Context, tx pgx.Tx, check Check) (*runtimeCheckFinding, error) {
 	var finding runtimeCheckFinding
 	err := tx.QueryRow(ctx, `
 		SELECT id, workspace_id, service, method, route_key, route, rule, source_id, source, baseline_scan_id,
-		       first_seen, last_positive_at, retest_at, retest_evidence_id
+		       first_seen, last_positive_at, retest_at, retest_evidence_id,NULLIF(detection,'{}'::jsonb),retest_policy_id
 		FROM plume.runtime_findings WHERE check_id = $1
 	`, check.ID).Scan(&finding.ID, &finding.workspaceID, &finding.Service, &finding.Method, &finding.routeKey,
 		&finding.Route, &finding.Rule, &finding.SourceID, &finding.Source, &finding.BaselineScanID,
-		&finding.FirstSeen, &finding.LastSeen, &finding.RetestAt, &finding.retestEvidenceID)
+		&finding.FirstSeen, &finding.LastSeen, &finding.RetestAt, &finding.retestEvidenceID, &finding.Detection, &finding.retestPolicyID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -45,6 +47,10 @@ func lockRuntimeBaselineForCheck(ctx context.Context, tx pgx.Tx, workspaceID, ch
 		SELECT pg_advisory_xact_lock_shared(hashtextextended('plume:api-security:' || service, workspace_id))
 		FROM plume.runtime_findings WHERE workspace_id = $1 AND check_id = $2
 	`, workspaceID, checkID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended('plume:runtime-findings',$1)) WHERE EXISTS(SELECT 1 FROM plume.runtime_findings WHERE workspace_id=$1 AND check_id=$2)`, workspaceID, checkID)
 	return err
 }
 
@@ -55,6 +61,9 @@ func runtimeRetestAllowed(ctx context.Context, tx pgx.Tx, finding *runtimeCheckF
 	remediatedAt, err := runtimeRemediationAt(ctx, tx, finding.CheckID)
 	if err != nil || remediatedAt.IsZero() || !finding.RetestAt.After(remediatedAt) {
 		return false, err
+	}
+	if slices.Contains(runtimeDetectionRules, finding.Rule) {
+		return runtimeDetectionRetestAllowed(ctx, tx, finding, remediatedAt)
 	}
 	scanID, baseline, err := runtimeFindingBaseline(ctx, tx, runtimeFindingBatch{workspaceID: finding.workspaceID, service: finding.Service})
 	if err != nil || !runtimeRetestBaseline(finding.Rule, finding.BaselineScanID, scanID, baseline,
@@ -144,7 +153,7 @@ func persistRuntimeRetests(ctx context.Context, tx pgx.Tx, batch runtimeFindingB
 		JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
 		JOIN unnest($3::text[], $4::text[]) AS target(method, route_key)
 		  ON target.method = f.method AND target.route_key = f.route_key
-		WHERE f.workspace_id = $1 AND f.service = $2 AND c.status <> 'verified'
+		WHERE f.workspace_id = $1 AND f.service = $2 AND c.status <> 'verified' AND f.rule IN ('unregistered_success','deprecated_success')
 		ORDER BY c.id FOR NO KEY UPDATE OF c
 	`, batch.workspaceID, batch.service, methods, routes)
 	if err != nil {

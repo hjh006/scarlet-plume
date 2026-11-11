@@ -116,6 +116,24 @@ button, a.button { transition: background-color 160ms, border-color 160ms, color
 .app-shell .message-warning { border-color: #f0dfbd; }
 .app-shell .empty-state { padding: 1.6rem 1.1rem; color: var(--secondary); }
 
+.app-shell :is(.discovery-page, .catalog-page) { min-width: 0; }
+.app-shell :is(.discovery-page, .catalog-page) .button { border-color: var(--line); color: var(--ink); background: var(--surface); }
+.app-shell :is(.discovery-page, .catalog-page) .button.primary { border-color: var(--accent); color: var(--primary-ink); background: var(--accent); }
+.app-shell :is(.discovery-page, .catalog-page) .button.primary:hover { background: var(--accent-hover); }
+.app-shell :is(.discovery-card, .catalog-card, .catalog-stats > span) { border-color: var(--line); border-radius: var(--radius); }
+.app-shell :is(.discovery-form, .metadata-form, .catalog-filters) label { min-width: 0; max-width: 100%; }
+.app-shell :is(.discovery-page, .catalog-page) :is(input:not([type="checkbox"]), select, textarea) { min-width: 0; min-height: 2.75rem; border-color: var(--input-line); color: var(--ink); background: var(--surface); }
+.app-shell :is(.discovery-page, .catalog-page) > .table-scroll { min-width: 0; max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.app-shell :is(.discovery-page, .catalog-page) table { min-width: 48rem; font-size: .83rem; }
+.app-shell :is(.discovery-page, .catalog-page) th { color: #3e4e69; background: #edf3fb; font-size: .78rem; }
+.app-shell :is(.discovery-page, .catalog-page) :is(th, td) { border-color: var(--line); }
+.app-shell :is(.discovery-page, .catalog-page) :is(.error-message, .message-error) { color: var(--danger); }
+.app-shell .assessments-page { min-width: 0; }
+.app-shell .assessments-page .button.primary { color: var(--primary-ink); background: var(--accent); }
+.app-shell .assessments-page .button.primary:hover { background: var(--accent-hover); }
+.app-shell .assessments-page .button.secondary { border-color: #c7d6e8; color: var(--ink); background: var(--surface); }
+.app-shell .assessments-page .error-message { color: var(--danger); }
+
 .public-header { min-height: 4.1rem; }
 .login-intro { position: relative; isolation: isolate; overflow: hidden; background: var(--masthead); }
 .login-intro::before { position: absolute; z-index: -1; inset: 0; content: ""; background: url("./plume-signal.webp") 65% center / cover no-repeat; opacity: .08; }

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/hjh006/scarlet-plume/backend/internal/runtimesecurity"
 )
 
 const telemetryPath = "/api/v1/runtime/gateway"
@@ -26,6 +28,7 @@ func main() {
 	platformOrigin := flag.String("url", "", "Scarlet Plume origin, defaults to SCARLET_RUNTIME_URL")
 	local := flag.Bool("local", false, "allow plaintext telemetry to the local Docker app or loopback")
 	inspectJSON := flag.Bool("inspect-json", false, "inspect bounded authorized JSON bodies at the proxy; emit field statistics only")
+	controlsEnabled := flag.Bool("controls", false, "apply explicitly approved, time-limited runtime controls from the platform")
 	certPath := flag.String("tls-cert", "", "PEM certificate chain for the HTTPS listener")
 	keyPath := flag.String("tls-key", "", "PEM private key for the HTTPS listener")
 	clientCA := flag.String("tls-client-ca", "", "require a client certificate signed by this PEM CA")
@@ -68,9 +71,18 @@ func main() {
 	if err := configureUpstreamTLS(upstreamTransport, upstream, *upstreamCA); err != nil {
 		exit(err)
 	}
+	handler := proxyHandlerWithInspection(upstream, upstreamTransport, templates, telemetry, *inspectJSON)
+	var controls *runtimeControls
+	if *controlsEnabled {
+		controls, err = newRuntimeControls(platform, token, *local, templates, telemetry)
+		if err != nil {
+			exit(err)
+		}
+		handler = controls.wrap(handler)
+	}
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           proxyHandlerWithInspection(upstream, upstreamTransport, templates, telemetry, *inspectJSON),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
@@ -80,6 +92,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if controls != nil {
+		go controls.run(ctx)
+	}
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -145,13 +160,16 @@ func directTransport() *http.Transport {
 type observationKey struct{}
 
 type requestObservation struct {
-	method          string
-	route           string
-	status          int
-	sent            bool
-	requestCapture  *bodyCapture
-	responseCapture *bodyCapture
-	warnings        []string
+	method             string
+	route              string
+	status             int
+	sent               bool
+	requestCapture     *bodyCapture
+	responseCapture    *bodyCapture
+	warnings           []string
+	securitySignals    []runtimesecurity.SecuritySignal
+	inspectedLocations []string
+	queryInspected     bool
 }
 
 func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []routeTemplate, telemetry *observer) http.Handler {
@@ -198,6 +216,13 @@ func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, 
 			if route := matchRoute(routes, r.URL.EscapedPath()); route != "" {
 				metadata := &requestObservation{method: r.Method, route: route}
 				if inspectJSON {
+					if len(r.URL.RawQuery) <= runtimesecurity.MaxJSONCaptureBytes {
+						metadata.queryInspected = true
+						metadata.securitySignals = runtimesecurity.InspectSecurity([]byte(r.URL.RawQuery))
+						if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+							metadata.inspectedLocations = append(metadata.inspectedLocations, "request")
+						}
+					}
 					r.Body, metadata.requestCapture = wrapCaptureBody(r.Body, r.Header, r.ContentLength, &metadata.warnings)
 				}
 				r = r.WithContext(context.WithValue(r.Context(), observationKey{}, metadata))
@@ -206,7 +231,7 @@ func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, 
 						return
 					}
 					fields, warnings := captureBodyStatistics(metadata)
-					telemetry.enqueue(observationEvent{Method: metadata.method, Route: metadata.route, Status: metadata.status, ObservedAt: time.Now().UTC(), DataFields: fields, CaptureWarnings: warnings})
+					telemetry.enqueue(observationEvent{Method: metadata.method, Route: metadata.route, Status: metadata.status, ObservedAt: time.Now().UTC(), DataFields: fields, CaptureWarnings: warnings, SecuritySignals: metadata.securitySignals, InspectedLocations: metadata.inspectedLocations})
 				}()
 			}
 		}

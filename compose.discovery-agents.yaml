@@ -1,0 +1,55 @@
+# Optional persistent agents for docker/compose.discovery-sample.yaml.
+# Compose together with compose.local.yaml; start the separate sample project first.
+services:
+  discovery-mysql-agent:
+    image: scarlet-plume-local:dev
+    entrypoint: ["scarlet-discovery-agent"]
+    command: ["-local-docker", "-poll", "2s"]
+    environment:
+      SCARLET_URL: http://app:8080
+      SCARLET_DISCOVERY_TOKEN: ${SCARLET_DISCOVERY_MYSQL_TOKEN:?Set the MySQL discovery task token}
+      SCARLET_DISCOVERY_DSN: ${SCARLET_DISCOVERY_MYSQL_DSN:?Set the mysql:3306/discovery_sample DSN}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [default, discovery-samples]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  discovery-mariadb-agent:
+    image: scarlet-plume-local:dev
+    entrypoint: ["scarlet-discovery-agent"]
+    command: ["-local-docker", "-poll", "2s"]
+    environment:
+      SCARLET_URL: http://app:8080
+      SCARLET_DISCOVERY_TOKEN: ${SCARLET_DISCOVERY_MARIADB_TOKEN:?Set the MariaDB discovery task token}
+      SCARLET_DISCOVERY_DSN: ${SCARLET_DISCOVERY_MARIADB_DSN:?Set the mariadb:3306/discovery_sample DSN}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [default, discovery-samples]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  discovery-mongodb-agent:
+    image: scarlet-plume-local:dev
+    entrypoint: ["scarlet-discovery-agent"]
+    command: ["-local-docker", "-poll", "2s"]
+    environment:
+      SCARLET_URL: http://app:8080
+      SCARLET_DISCOVERY_TOKEN: ${SCARLET_DISCOVERY_MONGODB_TOKEN:?Set the MongoDB discovery task token}
+      SCARLET_DISCOVERY_DSN: ${SCARLET_DISCOVERY_MONGODB_DSN:?Set the mongodb:27017/discovery_sample DSN}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [default, discovery-samples]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+networks:
+  discovery-samples:
+    external: true
+    name: scarlet-discovery-sample_default

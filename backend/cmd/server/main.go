@@ -196,6 +196,7 @@ func serve(st *store.Store, addr, web, origin string, secure bool, manager *mana
 	if manager != nil {
 		go manager.Run(shutdown)
 	}
+	go runAssessmentWorker(shutdown, st)
 	go func() {
 		<-shutdown.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)

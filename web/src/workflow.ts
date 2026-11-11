@@ -55,6 +55,7 @@ export interface CheckPage {
 }
 
 export interface Evidence {
+  catalog?: import('./discovery').CatalogClassificationAssessment
   id: number
   kind: keyof typeof evidenceKindLabels
   sourceSystem: string

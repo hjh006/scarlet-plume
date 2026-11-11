@@ -84,7 +84,11 @@ func InspectJSON(raw []byte, location string) ([]DataField, []string) {
 			}
 			observed[path]++
 			if category := collector.MetadataSensitivity(name, ""); category != "" {
-				counts[key{path, category, "metadata"}]++
+				if category != "credential" {
+					counts[key{path, category, "metadata"}]++
+				} else if text, ok := v.(string); ok && strings.TrimSpace(text) != "" {
+					counts[key{path, category, "metadata"}]++
+				}
 			}
 			text, ok := v.(string)
 			if number, isNumber := v.(json.Number); isNumber {

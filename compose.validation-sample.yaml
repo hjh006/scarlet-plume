@@ -1,0 +1,53 @@
+# Explicitly approved synthetic API validation; no scanning or credential guessing.
+services:
+  api-validation-sample:
+    build:
+      context: ./backend
+      dockerfile: ../docker/api-validation/Dockerfile
+    image: scarlet-plume-api-validation:local
+    entrypoint: ["scarlet-api-validation-sample"]
+    environment:
+      SCARLET_SAMPLE_READER_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:?Use the existing local sample reader password}
+      SCARLET_VALIDATION_A_USER: ${SCARLET_VALIDATION_A_USER:?Set the first synthetic test username}
+      SCARLET_VALIDATION_A_PASSWORD: ${SCARLET_VALIDATION_A_PASSWORD:?Set the explicit first test password}
+      SCARLET_VALIDATION_B_USER: ${SCARLET_VALIDATION_B_USER:?Set the second synthetic test username}
+      SCARLET_VALIDATION_B_PASSWORD: ${SCARLET_VALIDATION_B_PASSWORD:?Set the explicit second test password}
+      SCARLET_VALIDATION_MODE_FILE: /config/mode
+    volumes:
+      - ${SCARLET_VALIDATION_CONFIG_DIR:-./.scarlet-validation}:/config:ro
+    ports: ["127.0.0.1:${SCARLET_VALIDATION_PORT:-8896}:8080"]
+    networks: [default, sample, private]
+    depends_on:
+      sample-db: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+  api-validator:
+    build:
+      context: ./backend
+      dockerfile: ../docker/api-validation/Dockerfile
+    image: scarlet-plume-api-validation:local
+    command: ["-url", "http://app:8080", "-local", "-manifest", "/config/manifest.json", "-state", "/state/pending.json"]
+    environment:
+      SCARLET_VALIDATION_SOURCE_TOKEN: ${SCARLET_VALIDATION_SOURCE_TOKEN:?Create a security_events source for this runner}
+      SCARLET_VALIDATION_A_USER: ${SCARLET_VALIDATION_A_USER:?Set the first synthetic test username}
+      SCARLET_VALIDATION_A_PASSWORD: ${SCARLET_VALIDATION_A_PASSWORD:?Set the explicit first test password}
+      SCARLET_VALIDATION_B_USER: ${SCARLET_VALIDATION_B_USER:?Set the second synthetic test username}
+      SCARLET_VALIDATION_B_PASSWORD: ${SCARLET_VALIDATION_B_PASSWORD:?Set the explicit second test password}
+    volumes:
+      - ${SCARLET_VALIDATION_CONFIG_DIR:-./.scarlet-validation}:/config:ro
+      - api-validation-state:/state
+    networks: [default, private]
+    depends_on:
+      app: {condition: service_healthy}
+      api-validation-sample: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  api-validation-state:

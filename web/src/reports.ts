@@ -53,3 +53,17 @@ export const archiveFailureLabels: Record<string, string> = {
   scope_too_large: '本次采集范围超出报告归档上限。',
   generation_failed: '本次报告生成失败。',
 }
+
+export interface ReportCatalogDiscovery {
+  sources: {id:number;source:string;provider:string;system:string;revision:number;runId?:number;status:string;observedAt?:string;current:boolean}[]
+  assessments: {checkId:number;evidenceId:number;kind:string;current:boolean;assessment:import('./discovery').CatalogClassificationAssessment}[]
+  tables:number;fields:number;ruleHits:number;truncated:boolean;basis:string;warnings:string[]
+}
+
+export interface ReportOperations {
+  capturedAt: string; scope: string
+  controls: import('./security-operations').ControlAction[]
+  securityEvents: import('./security-operations').OperationsSecurityEvent[]
+}
+
+export interface ReportAssessmentReferences {items:{id:number;kind:string;title:string;status:string;activityId:number;templateRevisionId:number;revision:number;updatedAt:string;stale:boolean;reassessmentPending:boolean}[];truncated:boolean;basis:string}

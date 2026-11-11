@@ -19,28 +19,29 @@ const (
 )
 
 type RuntimeFinding struct {
-	ID              int64        `json:"id"`
-	Service         string       `json:"service"`
-	Method          string       `json:"method"`
-	Route           string       `json:"route"`
-	Rule            string       `json:"rule"`
-	SourceID        int64        `json:"sourceId"`
-	Source          string       `json:"source"`
-	BaselineScanID  int64        `json:"baselineScanId"`
-	CheckID         int64        `json:"checkId"`
-	CheckStatus     string       `json:"checkStatus"`
-	FirstSeen       time.Time    `json:"firstSeen"`
-	LastSeen        time.Time    `json:"lastSeen"`
-	PreviousCheckID *int64       `json:"previousCheckId,omitempty"`
-	RetestAt        *time.Time   `json:"retestAt,omitempty"`
-	Risk            *RuntimeRisk `json:"risk,omitempty"`
+	ID              int64             `json:"id"`
+	Service         string            `json:"service"`
+	Method          string            `json:"method"`
+	Route           string            `json:"route"`
+	Rule            string            `json:"rule"`
+	SourceID        int64             `json:"sourceId"`
+	Source          string            `json:"source"`
+	BaselineScanID  int64             `json:"baselineScanId"`
+	CheckID         int64             `json:"checkId"`
+	CheckStatus     string            `json:"checkStatus"`
+	FirstSeen       time.Time         `json:"firstSeen"`
+	LastSeen        time.Time         `json:"lastSeen"`
+	PreviousCheckID *int64            `json:"previousCheckId,omitempty"`
+	RetestAt        *time.Time        `json:"retestAt,omitempty"`
+	Risk            *RuntimeRisk      `json:"risk,omitempty"`
+	Detection       *RuntimeDetection `json:"detection,omitempty"`
 }
 
 func (s *Store) ListRuntimeFindings(ctx context.Context, workspaceID int64) ([]RuntimeFinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT f.id, f.service, f.method, f.route, f.rule, f.source_id, f.source, f.baseline_scan_id,
 		       f.check_id, c.status, f.first_seen, f.last_positive_at, f.previous_check_id, f.retest_at,
-		       risk.metadata
+		       risk.metadata, NULLIF(f.detection,'{}'::jsonb)
 		FROM plume.runtime_findings f
 		JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
 		LEFT JOIN LATERAL (
@@ -59,7 +60,7 @@ func (s *Store) ListRuntimeFindings(ctx context.Context, workspaceID int64) ([]R
 		var finding RuntimeFinding
 		err := row.Scan(&finding.ID, &finding.Service, &finding.Method, &finding.Route, &finding.Rule,
 			&finding.SourceID, &finding.Source, &finding.BaselineScanID, &finding.CheckID, &finding.CheckStatus,
-			&finding.FirstSeen, &finding.LastSeen, &finding.PreviousCheckID, &finding.RetestAt, &finding.Risk)
+			&finding.FirstSeen, &finding.LastSeen, &finding.PreviousCheckID, &finding.RetestAt, &finding.Risk, &finding.Detection)
 		return finding, err
 	})
 }
@@ -81,6 +82,7 @@ type runtimeFindingCandidate struct {
 	status     int
 	firstSeen  time.Time
 	observedAt time.Time
+	detection  *RuntimeDetection
 }
 
 func recordRuntimeFindings(ctx context.Context, tx pgx.Tx, batch runtimeFindingBatch, observations []runtimesecurity.Observation) string {
@@ -102,10 +104,6 @@ func recordRuntimeFindings(ctx context.Context, tx pgx.Tx, batch runtimeFindingB
 		if err != nil {
 			return err
 		}
-		if scanID == 0 {
-			_, err = savepoint.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)", previousTimeout)
-			return err
-		}
 		// Different telemetry sources can describe the same route. Serialize
 		// the workspace quota and its route identities across both kinds.
 		if _, err := savepoint.Exec(ctx, `
@@ -113,13 +111,20 @@ func recordRuntimeFindings(ctx context.Context, tx pgx.Tx, batch runtimeFindingB
 		`, batch.workspaceID); err != nil {
 			return err
 		}
-		limited, err = evaluateRuntimeFindings(ctx, savepoint, batch, scanID, baseline, observations)
+		if scanID > 0 {
+			limited, err = evaluateRuntimeFindings(ctx, savepoint, batch, scanID, baseline, observations)
+			if err != nil {
+				return err
+			}
+			if err := persistRuntimeRetests(ctx, savepoint, batch, scanID, baseline, observations); err != nil {
+				return err
+			}
+		}
+		detectionLimited, err := persistRuntimeDetection(ctx, savepoint, batch, scanID, observations)
 		if err != nil {
 			return err
 		}
-		if err := persistRuntimeRetests(ctx, savepoint, batch, scanID, baseline, observations); err != nil {
-			return err
-		}
+		limited = limited || detectionLimited
 		_, err = savepoint.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)", previousTimeout)
 		return err
 	})
@@ -256,8 +261,8 @@ func updateRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 		verified, err := latestCheckEvent(ctx, tx, checkID, "verified")
 		return err == nil && verified.ID > 0 && candidate.observedAt.After(verified.CreatedAt), &checkID, err
 	}
-	_, err = tx.Exec(ctx, "UPDATE plume.runtime_findings SET last_positive_at = $2 WHERE id = $1",
-		findingID, candidate.observedAt)
+	_, err = tx.Exec(ctx, "UPDATE plume.runtime_findings SET last_positive_at = $2, detection=COALESCE($3::jsonb,detection) WHERE id = $1",
+		findingID, candidate.observedAt, candidate.detection)
 	return false, nil, err
 }
 
@@ -275,6 +280,10 @@ func createRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 	if candidate.rule == "deprecated_success" {
 		title, note = "已弃用接口仍在提供服务", "核对下线计划和实际访问范围，完成下线或复核保留依据。"
 	}
+	if candidate.detection != nil {
+		title = runtimeDetectionTitle(candidate.rule)
+		note = "仅为受控观测及策略命中，请核对影响与授权；整改后须同来源新鲜观测复测及独立复核。"
+	}
 	var check Check
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO plume.checks (workspace_id, asset_id, requirement_code, owner_team, note, created_by)
@@ -289,16 +298,20 @@ func createRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO plume.runtime_findings
-		    (workspace_id, check_id, previous_check_id, source_id, source, baseline_scan_id, service, method, route_key, route, rule, first_seen, last_positive_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		    (workspace_id, check_id, previous_check_id, source_id, source, baseline_scan_id, service, method, route_key, route, rule, first_seen, last_positive_at,detection)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,COALESCE($14::jsonb,'{}'::jsonb))
 	`, batch.workspaceID, check.ID, previousCheckID, batch.sourceID, batch.sourceName, scanID, batch.service, candidate.key.method,
-		candidate.key.route, candidate.route, candidate.rule, candidate.firstSeen, candidate.observedAt); err != nil {
+		candidate.key.route, candidate.route, candidate.rule, candidate.firstSeen, candidate.observedAt, candidate.detection); err != nil {
 		return err
+	}
+	summary := fmt.Sprintf("%s。%s 返回 HTTP %d，来源类型 %s。按当前契约范围核对访问策略。", title, assetName, candidate.status, batch.kind)
+	if candidate.detection != nil {
+		summary = detectionEvidenceSummary(*candidate.detection)
 	}
 	_, err := addEvidenceTx(ctx, tx, check, batch.actorID, EvidenceInput{
 		Kind: "observation", SourceSystem: "API 运行时自动观测",
 		SourceRecord: fmt.Sprintf("来源 #%d · OpenAPI 扫描 #%d · 批次 %s", batch.sourceID, scanID, batch.batchID),
-		Summary:      fmt.Sprintf("%s。%s 返回 HTTP %d，来源类型 %s。按当前契约范围核对访问策略。", title, assetName, candidate.status, batch.kind),
+		Summary:      summary,
 		ObservedAt:   candidate.observedAt,
 	}, true)
 	return err

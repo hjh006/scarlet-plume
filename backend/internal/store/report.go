@@ -16,13 +16,16 @@ const (
 var ErrReportScopeTooLarge = errors.New("report scope is too large")
 
 type ComplianceReport struct {
-	Workspace      ReportWorkspace       `json:"workspace"`
-	GeneratedAt    time.Time             `json:"generatedAt"`
-	Scope          ReportScope           `json:"scope"`
-	Counts         ReportCounts          `json:"counts"`
-	Checks         []ReportCheck         `json:"checks"`
-	Identification *ReportIdentification `json:"identification,omitempty"`
-	DataFlows      *ReportDataFlows      `json:"dataFlows,omitempty"`
+	AssessmentReferences *ReportAssessmentReferences `json:"assessmentReferences,omitempty"`
+	Operations           *ReportOperations           `json:"operations,omitempty"`
+	Workspace            ReportWorkspace             `json:"workspace"`
+	GeneratedAt          time.Time                   `json:"generatedAt"`
+	Scope                ReportScope                 `json:"scope"`
+	Counts               ReportCounts                `json:"counts"`
+	Checks               []ReportCheck               `json:"checks"`
+	Identification       *ReportIdentification       `json:"identification,omitempty"`
+	DataFlows            *ReportDataFlows            `json:"dataFlows,omitempty"`
+	CatalogDiscovery     *ReportCatalogDiscovery     `json:"catalogDiscovery,omitempty"`
 }
 
 // The embedded summary is frozen with the report. It remains available even
@@ -62,6 +65,7 @@ type ReportCounts struct {
 }
 
 type ReportCheck struct {
+	RuntimeFinding      *RuntimeFinding          `json:"runtimeFinding,omitempty"`
 	Check               Check                    `json:"check"`
 	Evidence            []Evidence               `json:"evidence"`
 	Events              []CheckEvent             `json:"events"`
@@ -104,7 +108,16 @@ func (s *Store) ComplianceReport(ctx context.Context, workspaceID, actorID, acti
 		if err := readReportHistory(ctx, tx, workspaceID, &report); err != nil {
 			return err
 		}
-		return readReportDataFlows(ctx, tx, workspaceID, &report)
+		if err := readReportDataFlows(ctx, tx, workspaceID, &report); err != nil {
+			return err
+		}
+		if err := readReportCatalogDiscovery(ctx, tx, workspaceID, &report); err != nil {
+			return err
+		}
+		if err := readReportOperations(ctx, tx, workspaceID, &report); err != nil {
+			return err
+		}
+		return readReportAssessmentReferences(ctx, tx, workspaceID, &report)
 	})
 	if err != nil {
 		return ComplianceReport{}, err
@@ -180,6 +193,9 @@ func readReportCheckRows(rows pgx.Rows, report *ComplianceReport) error {
 func readReportHistory(ctx context.Context, tx pgx.Tx, workspaceID int64, report *ComplianceReport) error {
 	if len(report.Checks) == 0 {
 		return nil
+	}
+	if err := readReportRuntimeFindings(ctx, tx, report); err != nil {
+		return err
 	}
 	if err := readReportClassifications(ctx, tx, workspaceID, report); err != nil {
 		return err

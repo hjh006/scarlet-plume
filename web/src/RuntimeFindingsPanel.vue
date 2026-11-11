@@ -5,6 +5,7 @@ import { runtimeRuleLabels, runtimeRiskSeverityLabels, type RuntimeFinding, type
 import { checkStatusLabels } from './workflow'
 import Icon from './Icon.vue'
 import RuntimeRiskEditor from './RuntimeRiskEditor.vue'
+import RuntimeDetectionFacts from './RuntimeDetectionFacts.vue'
 
 const props = defineProps<{ findings: RuntimeFinding[]; home: string; loading: boolean; error: string; workspace: Workspace }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -36,7 +37,7 @@ const filtered = computed(() => props.findings.filter(finding =>
     <div class="api-panel-heading">
       <div>
         <h2 id="runtime-findings-title">运行时发现与风险管理</h2>
-        <p>自动记录成功响应与契约的差异，并登记证据到 G03 监管检查。</p>
+        <p>根据契约差异、明确的源端信号和配置阈值登记 G03 检查，保留自动证据和独立复核。</p>
       </div>
       <span v-if="findings.length" class="api-secondary">已登记 {{ findings.length }} 项</span>
     </div>
@@ -63,6 +64,7 @@ const filtered = computed(() => props.findings.filter(finding =>
     <details class="runtime-findings-help">
       <summary>触发规则与取证范围</summary>
       <p>平台先按服务别名匹配最新 OpenAPI 契约。契约缺少对应接口，或接口已标记弃用时，实际观测到 HTTP 2xx 才触发发现。自动证据记录路由模板、状态码、来源和契约扫描编号，用于核对发布范围与访问控制。</p>
+      <p>敏感响应、凭据字段、明确匿名成功和疑似攻击模式按授权来源的脱敏投影检查；主体频次、错误比例和非工作时段按工作区策略窗口计算。字段提示、未知认证状态和没有流量不会被当作已证明泄露、匿名访问或复测通过。</p>
       <p>同一服务、方法、路由和规则的重复触发并入当前检查。独立复核通过后再出现新的触发记录时，平台新建检查并保留上轮链接。</p>
     </details>
     <p v-if="error" class="message message-error" role="alert">{{ error }}</p>
@@ -87,7 +89,9 @@ const filtered = computed(() => props.findings.filter(finding =>
               <span class="api-cell-label" aria-hidden="true">触发与依据</span>
               <strong>{{ runtimeRuleLabels[finding.rule] }}</strong>
               <span class="api-secondary">首次观测来源 {{ finding.source }} · #{{ finding.sourceId }}</span>
-              <a class="table-link runtime-findings-link" :href="home + '/api-security/' + finding.baselineScanId">契约扫描 #{{ finding.baselineScanId }}</a>
+              <a v-if="finding.baselineScanId" class="table-link runtime-findings-link" :href="home + '/api-security/' + finding.baselineScanId">契约扫描 #{{ finding.baselineScanId }}</a>
+              <span v-else class="api-secondary">依据来源观测及策略，不依赖契约</span>
+              <RuntimeDetectionFacts v-if="finding.detection" :detection="finding.detection" />
             </td>
             <td role="cell">
               <span class="api-cell-label" aria-hidden="true">触发时间</span>
@@ -119,7 +123,7 @@ const filtered = computed(() => props.findings.filter(finding =>
       </table>
     </div>
     <p v-else-if="!error && !loading" class="empty-state">
-      {{ findings.length ? '暂无符合筛选条件的发现。' : '尚未登记运行时发现。匹配到契约并观测到满足规则的 HTTP 2xx 后，结果会在此显示。' }}
+      {{ findings.length ? '暂无符合筛选条件的发现。' : '尚未登记运行时发现。接入授权来源并观测到满足已启用规则的信号后，结果会在此显示。' }}
     </p>
     <button v-if="filtered.length > limit" type="button" class="button button-secondary runtime-findings-more" @click="limit += 25">显示更多发现</button>
   </section>

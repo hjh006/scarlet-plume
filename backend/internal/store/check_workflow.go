@@ -156,6 +156,14 @@ func checkRemediationAt(ctx context.Context, tx pgx.Tx, checkID int64, change Ch
 }
 
 func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error) {
+	if handled, allowed, err := catalogClassificationCheckAllowed(ctx, tx, check, check.Status != "draft"); handled || err != nil {
+		return allowed, err
+	}
+	if check.Status != "draft" {
+		if allowed, err := controlVerificationAllowed(ctx, tx, check); err != nil || !allowed {
+			return false, err
+		}
+	}
 	if check.FeishuTargetDigest != "" {
 		evidence, present, err := latestFeishuEvidence(ctx, tx, check.ID)
 		if err != nil || evidence.ID == 0 {
@@ -181,6 +189,9 @@ func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error
 	if check.Status == "draft" {
 		err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM plume.check_evidence WHERE check_id = $1)", check.ID).Scan(&exists)
 		return exists, err
+	}
+	if allowed, err := operationsVerificationAllowed(ctx, tx, check); err != nil || !allowed {
+		return false, err
 	}
 	if handled, allowed, err := automaticClassificationCheckAllowed(ctx, tx, check, true); handled || err != nil {
 		return allowed, err
@@ -238,6 +249,15 @@ func independentReviewer(ctx context.Context, tx pgx.Tx, check Check, role strin
 }
 
 func verificationAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error) {
+	if handled, allowed, err := catalogClassificationCheckAllowed(ctx, tx, check, false); handled || err != nil {
+		return allowed, err
+	}
+	if allowed, err := controlVerificationAllowed(ctx, tx, check); err != nil || !allowed {
+		return false, err
+	}
+	if allowed, err := operationsVerificationAllowed(ctx, tx, check); err != nil || !allowed {
+		return false, err
+	}
 	if check.FeishuTargetDigest == "" {
 		finding, err := runtimeFindingForCheck(ctx, tx, check)
 		if err != nil {

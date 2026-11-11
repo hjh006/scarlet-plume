@@ -11,6 +11,12 @@
 !backend/cmd/runtime-agent/**
 !backend/cmd/gateway-log/
 !backend/cmd/gateway-log/**
+!backend/cmd/discovery-agent/
+!backend/cmd/discovery-agent/**
+!backend/cmd/control-agent/
+!backend/cmd/control-agent/**
+!backend/cmd/event-bridge/
+!backend/cmd/event-bridge/**
 !backend/internal/
 !backend/internal/**
 !web/

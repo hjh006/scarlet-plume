@@ -82,18 +82,19 @@ type EvidenceInput struct {
 }
 
 type Evidence struct {
-	ID              int64                `json:"id"`
-	Kind            string               `json:"kind"`
-	SourceSystem    string               `json:"sourceSystem"`
-	SourceRecord    string               `json:"sourceRecord"`
-	Summary         string               `json:"summary"`
-	ObservedAt      time.Time            `json:"observedAt"`
-	CreatedAt       time.Time            `json:"createdAt"`
-	RecordedBy      string               `json:"recordedBy"`
-	AutomationJobID *int64               `json:"automationJobId,omitempty"`
-	AutomationRunID string               `json:"automationRunId,omitempty"`
-	Feishu          *FeishuObservation   `json:"feishu,omitempty"`
-	Postgres        *PostgresObservation `json:"postgres,omitempty"`
+	Catalog         *CatalogClassificationAssessment `json:"catalog,omitempty"`
+	ID              int64                            `json:"id"`
+	Kind            string                           `json:"kind"`
+	SourceSystem    string                           `json:"sourceSystem"`
+	SourceRecord    string                           `json:"sourceRecord"`
+	Summary         string                           `json:"summary"`
+	ObservedAt      time.Time                        `json:"observedAt"`
+	CreatedAt       time.Time                        `json:"createdAt"`
+	RecordedBy      string                           `json:"recordedBy"`
+	AutomationJobID *int64                           `json:"automationJobId,omitempty"`
+	AutomationRunID string                           `json:"automationRunId,omitempty"`
+	Feishu          *FeishuObservation               `json:"feishu,omitempty"`
+	Postgres        *PostgresObservation             `json:"postgres,omitempty"`
 }
 
 type FeishuObservation struct {

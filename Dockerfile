@@ -16,7 +16,10 @@ COPY backend/ ./
 RUN go build -trimpath -o /out/scarlet-server ./cmd/server \
     && go build -trimpath -o /out/scarlet-agent ./cmd/agent \
     && go build -trimpath -o /out/scarlet-runtime-agent ./cmd/runtime-agent \
-    && go build -trimpath -o /out/scarlet-gateway-log ./cmd/gateway-log
+    && go build -trimpath -o /out/scarlet-gateway-log ./cmd/gateway-log \
+    && go build -trimpath -o /out/scarlet-discovery-agent ./cmd/discovery-agent \
+    && go build -trimpath -o /out/scarlet-control-agent ./cmd/control-agent \
+    && go build -trimpath -o /out/scarlet-event-bridge ./cmd/event-bridge
 
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 WORKDIR /app
