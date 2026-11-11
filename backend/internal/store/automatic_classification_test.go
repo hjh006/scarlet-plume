@@ -113,7 +113,7 @@ func TestAutomaticClassificationSourcePersistence(t *testing.T) {
 		want(pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now), nil)
 		return now
 	}
-	collect := func(name string, scanned []collector.PostgreSQLTable) store.AutomationRun {
+	collectAt := func(name string, scanned []collector.PostgreSQLTable, observedAt time.Time) store.AutomationRun {
 		t.Helper()
 		want(repo.QueueManagedPostgresJob(ctx, workspace.ID, owner.ID, job.ID), nil)
 		claim, err := repo.ClaimManagedPostgresJob(ctx, slug+"-"+name, time.Minute)
@@ -125,12 +125,19 @@ func TestAutomaticClassificationSourcePersistence(t *testing.T) {
 		for _, table := range scanned {
 			assets = append(assets, store.CollectedAsset{SourceRef: table.SourceRef, Name: table.Name})
 		}
-		run, err := repo.FinishManagedPostgresJob(ctx, *claim, store.AutomationDelivery{Digest: digest(name), ObservedAt: clock(), Assets: assets, PostgresTables: scanned})
+		if observedAt.IsZero() {
+			observedAt = clock()
+		}
+		run, err := repo.FinishManagedPostgresJob(ctx, *claim, store.AutomationDelivery{Digest: digest(name), ObservedAt: observedAt, Assets: assets, PostgresTables: scanned})
 		want(err, nil)
 		if run.Status != "success" {
 			t.Fatalf("collection did not succeed: %+v", run)
 		}
 		return run
+	}
+	collect := func(name string, scanned []collector.PostgreSQLTable) store.AutomationRun {
+		t.Helper()
+		return collectAt(name, scanned, time.Time{})
 	}
 	initial := collect("initial", tables)
 	assets, err := repo.ListAssets(ctx, workspace.ID, 0, 100)
@@ -287,6 +294,7 @@ func TestAutomaticClassificationSourcePersistence(t *testing.T) {
 	fixedInput.Revision = afterHuman.Revision
 	fixedInput.Category, fixedInput.BusinessLevel = "sensitive_personal", "confidential"
 	fixedInput.Basis = "Reviewed observed sensitive formats and adopted confidential handling"
+	beforeCorrection := clock()
 	fixed, err := repo.UpdateAssetClassification(ctx, workspace.ID, owner.ID, first.Asset.ID, fixedInput)
 	want(err, nil)
 	if fixed.Automatic == nil || !fixed.Automatic.Stale {
@@ -347,7 +355,66 @@ func TestAutomaticClassificationSourcePersistence(t *testing.T) {
 		t.Fatal("replacement fixture unexpectedly collected a source snapshot")
 	}
 
-	collect("source-retest", tables)
+	// A source read can begin before confirmation and finish after it. Matching
+	// the new revision's attributes must not turn that older observation fresh.
+	newOverlapCheck := func(note string) int64 {
+		t.Helper()
+		check, err := repo.CreateCheck(ctx, workspace.ID, owner.ID, store.CheckInput{AssetID: first.Asset.ID, RequirementCode: "G02", OwnerTeam: "Data", Note: note})
+		want(err, nil)
+		want(repo.BindCheckPostgres(ctx, workspace.ID, owner.ID, check.ID, job.ID), nil)
+		return check.ID
+	}
+	overlapDraft := newOverlapCheck("Observe stale-to-fresh evidence deduplication")
+	overlapReview := newOverlapCheck("Independently review a long-running source observation")
+	late := collectAt("began-before-confirmation", tables, beforeCorrection)
+	if late.ObservedAt.After(fixed.History[0].CreatedAt) || !late.CreatedAt.After(fixed.History[0].CreatedAt) {
+		t.Fatal("fixture did not reproduce a source read spanning manual confirmation")
+	}
+	lateClass := detail("customers")
+	if lateClass.Automatic == nil || !lateClass.Automatic.Stale || lateClass.Automatic.Comparison != "matched" || lateClass.Automatic.ClassificationRevision != fixed.Revision || lateClass.Revision != fixed.Revision || lateClass.Automatic.RunID != late.RunID {
+		t.Fatal("a late-finishing read predating manual confirmation became current despite matching attributes")
+	}
+	lateRetest, err := repo.CheckDetail(ctx, workspace.ID, owner.ID, g02)
+	want(err, nil)
+	if lateRetest.CanSubmit {
+		t.Fatal("a source read predating remediation enabled resubmission")
+	}
+	want(repo.SubmitCheck(ctx, workspace.ID, owner.ID, g02), store.ErrEvidenceRequired)
+	staleDraft, err := repo.CheckDetail(ctx, workspace.ID, owner.ID, overlapDraft)
+	want(err, nil)
+	if len(staleDraft.Evidence) != 1 || staleDraft.Evidence[0].Postgres == nil || staleDraft.Evidence[0].Postgres.Classification == nil || !staleDraft.Evidence[0].Postgres.Classification.Stale {
+		t.Fatal("typed evidence failed to preserve the stale source observation")
+	}
+	want(repo.SubmitCheck(ctx, workspace.ID, owner.ID, overlapReview), nil)
+	lateReview, err := repo.CheckDetail(ctx, workspace.ID, reviewer.ID, overlapReview)
+	want(err, nil)
+	if lateReview.CanVerify {
+		t.Fatal("matching but stale source evidence enabled independent verification")
+	}
+	want(repo.ReviewCheck(ctx, workspace.ID, reviewer.ID, overlapReview, lateReview.ReviewRevision, "verified", "The read began before confirmation"), store.ErrEvidenceRequired)
+	want(repo.ReviewCheck(ctx, workspace.ID, reviewer.ID, overlapReview, lateReview.ReviewRevision, "changes", "Collect after confirmation and remediation"), nil)
+	want(repo.AddEvidence(ctx, workspace.ID, owner.ID, overlapReview, store.EvidenceInput{Kind: "remediation", SourceSystem: "Classification review", SourceRecord: "timing-remediation", Summary: "Require a new source read after confirmation", ObservedAt: clock()}), nil)
+
+	freshRun := collect("source-retest", tables)
+	if !freshRun.ObservedAt.After(late.CreatedAt) {
+		t.Fatal("replacement source observation did not genuinely begin after the previous completion")
+	}
+	freshClass := detail("customers")
+	if freshClass.Automatic == nil || freshClass.Automatic.Stale || freshClass.Automatic.Comparison != "matched" || freshClass.Revision != fixed.Revision || !reflect.DeepEqual(freshClass.Automatic.Evaluation, lateClass.Automatic.Evaluation) {
+		t.Fatal("a genuinely later read could not restore freshness with unchanged source facts")
+	}
+	freshDraft, err := repo.CheckDetail(ctx, workspace.ID, owner.ID, overlapDraft)
+	want(err, nil)
+	if len(freshDraft.Evidence) != 2 || freshDraft.Evidence[0].Postgres == nil || freshDraft.Evidence[0].Postgres.Classification == nil || freshDraft.Evidence[0].Postgres.Classification.Stale || freshDraft.Evidence[0].AutomationRunID != freshRun.RunID || !freshDraft.Evidence[1].Postgres.Classification.Stale {
+		t.Fatal("same-fact stale-to-fresh transition was deduplicated or rewrote its original evidence")
+	}
+	want(repo.SubmitCheck(ctx, workspace.ID, owner.ID, overlapReview), nil)
+	freshReview, err := repo.CheckDetail(ctx, workspace.ID, reviewer.ID, overlapReview)
+	want(err, nil)
+	if !freshReview.CanVerify {
+		t.Fatal("new source retest after confirmation could not be independently reviewed")
+	}
+	want(repo.ReviewCheck(ctx, workspace.ID, reviewer.ID, overlapReview, freshReview.ReviewRevision, "verified", "Reviewed the genuinely new source observation"), nil)
 	retested, err := repo.CheckDetail(ctx, workspace.ID, owner.ID, g02)
 	want(err, nil)
 	if retested.Status != "needs_work" || !retested.CanSubmit || len(retested.Evidence) == 0 || retested.Evidence[0].Kind != "retest" || retested.Evidence[0].Postgres == nil || retested.Evidence[0].Postgres.Classification == nil || retested.Evidence[0].Postgres.Classification.Comparison != "matched" {

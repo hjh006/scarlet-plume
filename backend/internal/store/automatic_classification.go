@@ -97,6 +97,12 @@ func persistAutomaticClassifications(ctx context.Context, tx pgx.Tx, job Automat
 			Evaluation: evaluation,
 		}
 		automatic.Comparison, automatic.ComparisonReasons = compareAutomaticClassification(item, evaluation)
+		if item.Origin == "manual" && item.Revision > 0 {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM plume.asset_classification_history
+				WHERE asset_id = $1 AND revision = $2 AND created_at >= $3)`, item.Asset.ID, item.Revision, run.ObservedAt).Scan(&automatic.Stale); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx, "UPDATE plume.postgres_asset_inspections SET classification = $2 WHERE asset_id = $1 AND automation_run_id = $3",
 			item.Asset.ID, automatic, run.ID); err != nil {
 			return err
@@ -211,9 +217,13 @@ func loadAutomaticClassifications(ctx context.Context, tx pgx.Tx, workspaceID in
 	rows, err := tx.Query(ctx, `SELECT i.asset_id, i.classification,
 		j.revoked_at IS NULL AND (i.source_host, i.source_port, i.source_database) = (p.host, p.port, p.database_name)
 		AND i.automation_run_id = (SELECT latest.id FROM plume.automation_runs latest WHERE latest.job_id = j.id ORDER BY latest.id DESC LIMIT 1)
+		AND (a.classification_origin = 'automatic' OR h.id IS NULL OR r.observed_at > h.created_at)
 		FROM plume.postgres_asset_inspections i
 		JOIN plume.automation_jobs j ON j.id = i.job_id
 		JOIN plume.managed_postgres_jobs p ON p.job_id = i.job_id
+		JOIN plume.assets a ON a.id = i.asset_id AND a.workspace_id = j.workspace_id
+		JOIN plume.automation_runs r ON r.id = i.automation_run_id
+		LEFT JOIN plume.asset_classification_history h ON h.asset_id = a.id AND h.revision = a.classification_revision
 		WHERE j.workspace_id = $1 AND i.asset_id = ANY($2) AND i.classification IS NOT NULL`, workspaceID, ids)
 	if err != nil {
 		return err
@@ -241,7 +251,7 @@ func automaticClassificationFacts(automatic *AutomaticClassification) json.RawMe
 		return nil
 	}
 	facts := *automatic
-	facts.JobID, facts.RunID, facts.ObservedAt, facts.Stale = 0, "", time.Time{}, false
+	facts.JobID, facts.RunID, facts.ObservedAt = 0, "", time.Time{}
 	encoded, _ := json.Marshal(facts)
 	return encoded
 }
