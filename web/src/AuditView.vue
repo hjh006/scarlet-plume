@@ -45,9 +45,10 @@ const actionLabels: Record<string, string> = {
   'api.scanned': '扫描 API 契约',
   'runtime.source_created': '创建观测来源',
   'runtime.source_revoked': '撤销观测来源',
+  'runtime.policy_updated': '保存运行时检测策略版本',
 }
 const targetLabels: Record<string, string> = {
-  check: '检查', asset: '资产', runtime_finding: '运行时发现', api_scan: '契约扫描', runtime_source: '观测来源',
+  check: '检查', asset: '资产', runtime_finding: '运行时发现', api_scan: '契约扫描', runtime_source: '观测来源', runtime_policy: '检测策略版本',
 }
 const targetPaths: Record<string, string> = { check: '/checks/', asset: '/classification/', api_scan: '/api-security/' }
 const kindLabels = { gateway: '独立采集 Agent / 网关日志', otlp: '应用探针（OTLP）' }

@@ -16,7 +16,7 @@ CREATE SCHEMA IF NOT EXISTS inventory;
 CREATE TABLE IF NOT EXISTS inventory.customers (id bigint PRIMARY KEY, segment text NOT NULL);
 CREATE TABLE IF NOT EXISTS inventory.orders (id bigint PRIMARY KEY, customer_id bigint NOT NULL REFERENCES inventory.customers(id));
 CREATE TABLE IF NOT EXISTS inventory.shipments (id bigint PRIMARY KEY, order_id bigint NOT NULL REFERENCES inventory.orders(id));
-INSERT INTO inventory.customers VALUES (1, 'synthetic') ON CONFLICT DO NOTHING;
+INSERT INTO inventory.customers (id, segment) VALUES (1, 'synthetic'), (2, 'synthetic-validation') ON CONFLICT DO NOTHING;
 INSERT INTO inventory.orders VALUES (1, 1) ON CONFLICT DO NOTHING;
 INSERT INTO inventory.shipments VALUES (1, 1) ON CONFLICT DO NOTHING;
 

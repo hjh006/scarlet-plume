@@ -41,6 +41,22 @@ func (s *Store) OverviewSources(ctx context.Context, workspaceID int64) ([]Overv
 			       CASE WHEN last_seen IS NULL THEN 'never_run' ELSE 'observing' END,
 			       last_seen, NULL::timestamptz, COALESCE(last_seen, created_at)
 			FROM plume.runtime_security_sources WHERE workspace_id = $1 AND revoked_at IS NULL
+   UNION ALL
+   SELECT ds.id,ds.source,ds.provider,'discovery',
+          CASE WHEN NOT ds.enabled THEN 'paused'
+               WHEN ds.lease_until>statement_timestamp() THEN 'collecting'
+               WHEN ds.requested_mode IS NOT NULL THEN 'queued'
+               WHEN latest.status='error' THEN 'failed'
+               WHEN latest.id IS NULL THEN 'never_run' ELSE 'enabled' END,
+          latest.observed_at,latest.created_at,COALESCE(latest.created_at,ds.created_at)
+   FROM plume.discovery_sources ds LEFT JOIN plume.discovery_runs latest ON latest.id=ds.latest_run_id
+   WHERE ds.workspace_id=$1
+   UNION ALL
+   SELECT id,name,CASE WHEN kind='security_events' THEN 'security-events' ELSE kind END,'operations',
+          CASE WHEN last_seen IS NULL THEN 'never_run' ELSE 'observing' END,
+          last_seen,NULL::timestamptz,COALESCE(last_seen,created_at)
+   FROM plume.operations_sources WHERE workspace_id=$1 AND revoked_at IS NULL
+
 		)
 		SELECT id, name, provider, kind, state, last_observed_at, last_run_at
 		FROM sources ORDER BY updated_at DESC, kind, id DESC LIMIT 6

@@ -103,3 +103,81 @@ jobs:
         run: |
           npm ci
           npm run build
+
+  native-discovery:
+    name: Verify native discovery (MySQL, MariaDB, MongoDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # These credentials belong only to disposable synthetic CI services.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: scarlet-native-ci-fixture
+          MYSQL_DATABASE: discovery_sample
+          MYSQL_USER: discovery_reader
+          MYSQL_PASSWORD: scarlet-native-ci-fixture
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd "mysqladmin ping --host=127.0.0.1 --silent"
+          --health-interval 5s --health-timeout 5s --health-retries 24
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: scarlet-native-ci-fixture
+          MARIADB_DATABASE: discovery_sample
+          MARIADB_USER: discovery_reader
+          MARIADB_PASSWORD: scarlet-native-ci-fixture
+        ports:
+          - 13307:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 24
+      mongodb:
+        image: mongo:8.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: discovery_admin
+          MONGO_INITDB_ROOT_PASSWORD: scarlet-native-ci-fixture
+        ports:
+          - 12717:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'"
+          --health-interval 5s --health-timeout 5s --health-retries 24
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Initialize synthetic fixtures and read-only accounts
+        shell: bash
+        run: |
+          ci_password='scarlet-native-ci-fixture'
+          echo "::add-mask::$ci_password"
+          export MYSQL_PWD="$ci_password"
+          docker exec -i -e MYSQL_PWD '${{ job.services.mysql.id }}' \
+            mysql --user=root --default-character-set=utf8mb4 \
+            < docker/discovery-sample/mysql.sql > /dev/null
+          docker exec -i -e MYSQL_PWD '${{ job.services.mariadb.id }}' \
+            mariadb --user=root --default-character-set=utf8mb4 \
+            < docker/discovery-sample/mysql.sql > /dev/null
+          docker cp docker/discovery-sample/mongo.js \
+            '${{ job.services.mongodb.id }}:/tmp/discovery-sample.js'
+          docker exec '${{ job.services.mongodb.id }}' mongosh --quiet --nodb --eval \
+            'db = new Mongo("mongodb://127.0.0.1:27017").getDB("admin"); db.auth("discovery_admin", process.env.MONGO_INITDB_ROOT_PASSWORD); load("/tmp/discovery-sample.js");' \
+            > /dev/null
+          mysql_dsn="discovery_reader:$ci_password@tcp(127.0.0.1:13306)/discovery_sample"
+          mariadb_dsn="discovery_reader:$ci_password@tcp(127.0.0.1:13307)/discovery_sample"
+          mongo_dsn="mongodb://discovery_reader:$ci_password@127.0.0.1:12717/discovery_sample?authSource=discovery_sample"
+          echo "::add-mask::$mysql_dsn"
+          echo "::add-mask::$mariadb_dsn"
+          echo "::add-mask::$mongo_dsn"
+          printf 'SCARLET_MYSQL_TEST_DSN=%s\n' "$mysql_dsn" >> "$GITHUB_ENV"
+          printf 'SCARLET_MARIADB_TEST_DSN=%s\n' "$mariadb_dsn" >> "$GITHUB_ENV"
+          printf 'SCARLET_MONGO_TEST_DSN=%s\n' "$mongo_dsn" >> "$GITHUB_ENV"
+      - name: Verify real native collector samples
+        working-directory: backend
+        run: go test -race -p 1 ./internal/collector -run '^TestDiscovery(MySQL|MariaDB|Mongo)Live$' -count=1 -timeout=90s -v

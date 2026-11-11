@@ -86,6 +86,11 @@ func writeReportExport(w http.ResponseWriter, report store.ComplianceReport, for
 }
 
 var reportLabels = map[string]string{
+	"block_api": "临时阻断API", "revoke_select": "撤销表级SELECT", "proposed": "待独立审批", "approved": "已审批，待来源执行", "applied": "来源回执执行成功", "failed": "来源回执执行失败", "rollback_requested": "已请求回滚，待来源回执", "rolled_back": "来源回执已回滚", "cleared": "来源报告消除", "observed": "来源报告发现",
+	"sensitive_response": "敏感数据响应", "credential_response": "疑似凭据响应", "missing_auth": "需认证接口匿名成功", "subject_bulk_access": "主体访问频次超阈值", "error_spike": "接口错误比例超阈值", "off_hours": "非工作时段访问", "sql_injection_signal": "疑似SQL注入模式", "xss_signal": "疑似XSS模式", "path_traversal_signal": "疑似路径穿越模式",
+	"fresh_source_after_manual_confirmation_required": "人工确认后需重新领取任务采集正向来源事实",
+	"manual_classification_confirmation_required":     "需要人工确认后新的正向来源统计", "current_positive_content_scope_required": "当前正向内容统计范围尚未满足", "adopted_standard_unavailable": "所选标准自动规则不可用", "customer_collector_aggregate": "客户侧有界统计",
+	"connected_source_scope_only": "仅覆盖已接入来源", "pattern_or_policy_signal_not_proven_vulnerability": "策略或模式命中不等于已证明漏洞", "recipient_authorization_not_verified": "接收者授权未核实", "external_destination_not_observed": "未观察外部目的地", "format_not_real_identity": "格式不等于真实身份", "requests_not_rows_or_people": "请求数不是数据行数或人数", "subject_scoped_to_source": "主体仅在同来源内比较", "absolute_window_threshold_not_historical_baseline": "绝对窗口阈值，不是历史基线", "fixed_offset_not_business_calendar": "固定时区，不含业务日历", "source_sample_limit_20000": "已达到来源样本上限", "auth_state_unknown": "部分认证状态未知", "source_declared_auth_state": "认证状态由授权来源声明", "credential_field_name_signal_requires_validation": "凭据字段名信号仍需核验",
 	"scope_is_connected_sources":           "仅覆盖已接入且可见的来源",
 	"runtime_window_7_days":                "运行时关联只覆盖最近7天",
 	"database_family_is_not_table_lineage": "数据库类型关联不代表已定位具体库表",
@@ -137,6 +142,12 @@ var complianceHTML = template.Must(template.New("compliance").Funcs(template.Fun
 			return label
 		}
 		return value
+	},
+	"optionalDate": func(t *time.Time) string {
+		if t == nil {
+			return "—"
+		}
+		return t.In(reportClock).Format("2006-01-02 15:04:05")
 	},
 	"date": func(t time.Time) string { return t.In(reportClock).Format("2006-01-02 15:04:05") },
 }).Parse(`<!doctype html>
@@ -198,6 +209,13 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 </dl>
 <p class="muted">采集范围包括字段、约束、直接授权及可读取范围内的有界格式统计。各项证据列明实际观察范围和仍需补充的条件。</p>
 </section>
+{{end}}
+{{with .AssessmentReferences}}<section class="panel"><h2>关联活动的专项评估引用</h2><p class="muted wrap">{{.Basis}}</p>{{if .Truncated}}<p>最多列200项引用，请查专项评估完整范围。</p>{{end}}<ul>{{range .Items}}<li class="wrap">评估#{{.ID}} · {{.Title}} · {{.Kind}} · 状态{{.Status}} · 活动#{{.ActivityID}} · 模板#{{.TemplateRevisionID}} · 修订v{{.Revision}} · {{date .UpdatedAt}}{{if or .Stale .ReassessmentPending}} · 已标记需要重评{{end}}</li>{{end}}</ul></section>{{end}}
+{{with .Operations}}<section class="panel"><h2>关联安全运营与处置回执</h2><p class="muted wrap">{{.Scope}}</p><p>归档时点 {{date .CapturedAt}}</p>{{range .Controls}}<article><h3>处置#{{.ID}} · {{label .Kind}} · {{label .Status}}</h3><p>检查{{with .CheckID}}#{{.}}{{end}} · 修订v{{.Revision}} · 申请 {{.Actor}} · 审批 {{.ApprovedBy}} · 到期 {{date .ExpiresAt}}</p><p class="wrap">{{.Spec.Service}} {{.Spec.Method}} {{.Spec.Route}} {{.Spec.Database}} / {{.Spec.Schema}} / {{.Spec.Table}} / {{.Spec.Role}}</p><p class="wrap">{{.Reason}}</p>{{with .Result}}<p>执行回执 {{.Phase}} · {{if .Success}}来源报告成功{{else}}来源报告失败{{end}} · {{label .Code}} · {{date .ObservedAt}}</p>{{end}}{{if .Events}}<ul>{{range .Events}}<li class="wrap">{{label .Action}} · {{.Actor}} · {{date .CreatedAt}} · {{.Note}}</li>{{end}}</ul>{{end}}</article>{{end}}{{if .SecurityEvents}}<h3>每项检查的最新来源安全信号</h3><ul>{{range .SecurityEvents}}<li class="wrap">检查#{{.CheckID}} · 来源 {{.Source}} #{{.SourceID}} · {{.Category}} / {{.Rule}} · {{.Severity}} · {{label .Outcome}} · 计数{{.Count}} / {{.WindowSeconds}}秒 · {{date .ObservedAt}}</li>{{end}}</ul>{{end}}</section>{{end}}
+{{with .CatalogDiscovery}}
+<section class="panel"><h2>多源目录与分类证据</h2><p class="muted wrap">{{.Basis}}</p><p>目录表/集合 {{.Tables}} · 字段/路径 {{.Fields}} · 最新规则证据 {{.RuleHits}}{{if .Truncated}} · 达到报告范围上限{{end}}</p>
+<ul>{{range .Sources}}<li>{{.Source}} · {{.Provider}} / {{.System}} · 配置v{{.Revision}}{{with .RunID}} · 运行#{{.}}{{end}} · {{if .Current}}当前有效{{else}}当前未观察、失败、暂停或过期{{end}} · {{optionalDate .ObservedAt}}</li>{{end}}</ul>
+{{range .Assessments}}<div class="panel"><p>检查#{{.CheckID}} · 证据#{{.EvidenceID}} · {{label .Kind}} · {{if .Current}}当前来源事实仍相同{{else}}历史证据，当前事实需重新核对{{end}}</p>{{template "catalog-assessment" .Assessment}}</div>{{end}}</section>
 {{end}}
 {{with .DataFlows}}
 <section class="panel">
@@ -263,6 +281,7 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <p><strong>{{label .Assessment}}</strong>{{range .AssessmentReasons}} · {{label .}}{{end}}</p>
 <p class="wrap muted">{{.Scope}}</p>
 {{end}}
+{{with .RuntimeFinding}}<h3>运行时发现 · {{label .Rule}}</h3><p>{{.Service}} · {{.Method}} {{.Route}} · 来源 {{.Source}} #{{.SourceID}}</p>{{with .Detection}}{{template "runtime-detection" .}}{{end}}{{end}}
 <h3>证据记录</h3>
 {{if .Evidence}}<ul class="records">{{range .Evidence}}
 <li><strong>{{label .Kind}} · {{.SourceSystem}}</strong><br>
@@ -270,6 +289,7 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <div class="wrap">{{.Summary}}</div>
 {{if .AutomationJobID}}<div class="wrap">自动采集 · 任务 #{{.AutomationJobID}} · 运行 {{.AutomationRunID}}</div>{{end}}
 {{with .Feishu}}<div class="wrap">飞书目标摘要 {{.TargetDigest}} · 快照摘要 {{.SnapshotDigest}} · {{if .MemberPresent}}存在直接授权 {{.Permission}}{{else}}未观察到指定直接授权{{end}}</div>{{end}}
+{{with .Catalog}}{{template "catalog-assessment" .}}{{end}}
 {{with .Postgres}}
 <div class="wrap">PostgreSQL 目录观测 · {{.Database}} · {{.SourceRef}}</div>
 {{if .Assessment}}<div>自动判定 {{label .Assessment}}{{range .AssessmentReasons}} · {{label .}}{{end}}</div>{{end}}
@@ -292,6 +312,14 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 </main>
 </body>
 </html>
+{{define "catalog-assessment"}}
+<h4>不可变目录评估 #{{.ID}}</h4><p class="wrap">{{.System}} / {{.Database}} / {{.Schema}} / {{.Table}} · 来源 {{.Source}} #{{.SourceID}} 配置v{{.SourceRevision}} · 运行#{{.RunID}} · 分类v{{.ClassificationRevision}} · {{date .ObservedAt}}</p><p>{{label .Comparison}}。当前复核还需满足来源、规则、人工分类版本及整改周期的时效条件。</p>
+{{with .Evaluation}}<p>{{.Standard.Code}} · {{.Standard.Title}} · {{.Standard.URL}}</p><ul>{{range .Rules}}<li class="wrap">{{.Rule.ID}} · {{.Rule.Clause}} · {{.Rule.Title}} · {{label .Status}}<div>{{.Rule.Criterion}}</div><div>取证 {{.Rule.Evidence}}</div>{{range .MissingConditions}}<div>待采证 {{.}}</div>{{end}}</li>{{end}}</ul>{{end}}
+<ul>{{range .MissingConditions}}<li class="wrap">{{label .}}</li>{{end}}</ul><p>采用的客户及内置识别规则：</p><ul>{{range .AppliedRules}}<li>{{.Key}} v{{.Version}} · {{.Name}} · {{.Target}}</li>{{end}}</ul><ul>{{range .Fields}}{{$field:=.Name}}{{range .Hits}}<li class="wrap">{{$field}} · {{.RuleKey}} v{{.RuleVersion}} · {{label .Category}} · {{.Method}} · 命中{{.MatchCount}} / 观察{{.ScannedCount}}</li>{{end}}{{end}}</ul><p class="wrap">元数据 {{.Coverage.Metadata}} · 内容 {{.Coverage.Content}} · 权限 {{.Coverage.Permissions}} · 血缘 {{.Coverage.Lineage}}</p><ul>{{range .Coverage.Warnings}}<li class="wrap">{{label .}}</li>{{end}}</ul>
+{{end}}
+{{define "runtime-detection"}}
+<h4>策略与观测依据</h4><dl class="facts"><dt>来源</dt><dd>{{.Source}} #{{.SourceID}}</dd><dt>命中时策略</dt><dd>{{label .Policy.Rule}} · {{if .Policy.Revision}}v{{.Policy.Revision}} #{{.Policy.ID}}{{else}}系统默认{{end}} · 窗口{{.Policy.WindowMinutes}}分钟 · 命中阈值{{.Policy.Threshold}} · 最少请求{{.Policy.MinRequests}}</dd><dt>实际窗口</dt><dd>{{date .WindowStart}} 至 {{date .WindowEnd}}</dd><dt>实际统计分母</dt><dd>请求{{.Requests}} · 信号命中{{.Matched}} / 可观察分母{{.Observed}}；字段计数可能包含同响应多个字段，不是唯一数据行数或人数。</dd>{{if .SubjectRef}}<dt>去标识主体</dt><dd class="wrap">{{.SubjectRef}}（仅同来源内比较）</dd>{{end}}{{if eq .Policy.Rule "error_spike"}}<dt>错误比例阈值</dt><dd>{{.Policy.ErrorPercent}}%</dd>{{end}}{{if eq .Policy.Rule "off_hours"}}<dt>时段</dt><dd>{{.Policy.StartHour}}时至{{.Policy.EndHour}}时 · UTC偏移{{.Policy.TimezoneOffsetMinutes}}分钟</dd>{{end}}</dl><p>模式和策略信号不能独立证明漏洞、泄露或越权。</p><ul>{{range .Warnings}}<li class="wrap">{{label .}}</li>{{end}}</ul>
+{{end}}
 {{define "automatic-classification"}}
 <h4>自动分类与采证快照</h4>
 <dl class="facts">

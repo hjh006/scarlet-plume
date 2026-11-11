@@ -1,0 +1,52 @@
+# Two explicitly instrumented synthetic applications; combine with local+sample.
+services:
+  service-sample-a:
+    build:
+      context: ./backend
+      dockerfile: ../docker/service-sample/Dockerfile
+    image: scarlet-plume-service-sample:local
+    environment:
+      SCARLET_SERVICE_ROLE: a
+      SCARLET_SERVICE_PASSWORD: ${SCARLET_SERVICE_PASSWORD:?Set a random synthetic service password}
+      SCARLET_SERVICE_OTLP_TOKEN: ${SCARLET_SERVICE_A_OTLP_TOKEN:?Create the first registered OTLP source}
+      SCARLET_SERVICE_PEER: ${SCARLET_SERVICE_B_ALIAS:?Use the exact registered downstream service alias}
+      SCARLET_SERVICE_DATA_SOURCE: ${SCARLET_FLOW_DATA_SOURCE:?Use the exact PostgreSQL collection source alias}
+      SCARLET_SAMPLE_READER_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:?Use the existing sample reader password}
+    ports: ["127.0.0.1:${SCARLET_SERVICE_A_PORT:-8894}:8080"]
+    networks: [default, sample, private]
+    depends_on:
+      app: {condition: service_healthy}
+      sample-db: {condition: service_healthy}
+      service-sample-b: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+  service-sample-b:
+    build:
+      context: ./backend
+      dockerfile: ../docker/service-sample/Dockerfile
+    image: scarlet-plume-service-sample:local
+    environment:
+      SCARLET_SERVICE_ROLE: b
+      SCARLET_SERVICE_PASSWORD: ${SCARLET_SERVICE_PASSWORD:?Set a random synthetic service password}
+      SCARLET_SERVICE_OTLP_TOKEN: ${SCARLET_SERVICE_B_OTLP_TOKEN:?Create the second registered OTLP source}
+      SCARLET_SERVICE_DATA_SOURCE: ${SCARLET_FLOW_DATA_SOURCE:?Use the exact PostgreSQL collection source alias}
+      SCARLET_SAMPLE_READER_PASSWORD: ${SCARLET_SAMPLE_READER_PASSWORD:?Use the existing sample reader password}
+    ports: ["127.0.0.1:${SCARLET_SERVICE_B_PORT:-8895}:8080"]
+    networks: [default, sample, private]
+    depends_on:
+      app: {condition: service_healthy}
+      sample-db: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 12

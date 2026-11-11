@@ -34,27 +34,36 @@ type PostgresSelectGrant struct {
 	Public      bool   `json:"public"`
 	Column      string `json:"column,omitempty"`
 	SchemaUsage bool   `json:"schemaUsage"`
+	Grantable   bool   `json:"grantable,omitempty"`
+}
+
+// The complete ACL projection is immutable with its evidence. The UI's short
+// SelectGrants list remains bounded separately and cannot prove absence when omitted.
+type PostgresPermissionBaseline struct {
+	SelectGrants        []PostgresSelectGrant `json:"selectGrants"`
+	PublicSelectColumns []string              `json:"publicSelectColumns"`
 }
 
 type PostgresObservation struct {
-	SourceRef               string                   `json:"sourceRef"`
-	Schema                  string                   `json:"schema"`
-	Table                   string                   `json:"table"`
-	Database                string                   `json:"database"`
-	Scope                   string                   `json:"scope"`
-	Assessment              string                   `json:"assessment,omitempty"`
-	AssessmentReasons       []string                 `json:"assessmentReasons,omitempty"`
-	ColumnCount             int                      `json:"columnCount"`
-	SensitiveCandidateCount int                      `json:"sensitiveCandidateCount"`
-	GrantCount              int                      `json:"grantCount"`
-	PublicSchemaUsage       bool                     `json:"publicSchemaUsage"`
-	PublicSelect            bool                     `json:"publicSelect"`
-	PublicSelectColumnCount int                      `json:"publicSelectColumnCount"`
-	SensitiveFields         []PostgresSensitiveField `json:"sensitiveFields,omitempty"`
-	SelectGrants            []PostgresSelectGrant    `json:"selectGrants,omitempty"`
-	SensitiveFieldsOmitted  int                      `json:"sensitiveFieldsOmitted,omitempty"`
-	SelectGrantsOmitted     int                      `json:"selectGrantsOmitted,omitempty"`
-	Classification          *AutomaticClassification `json:"classification,omitempty"`
+	SourceRef               string                      `json:"sourceRef"`
+	Schema                  string                      `json:"schema"`
+	Table                   string                      `json:"table"`
+	Database                string                      `json:"database"`
+	Scope                   string                      `json:"scope"`
+	Assessment              string                      `json:"assessment,omitempty"`
+	AssessmentReasons       []string                    `json:"assessmentReasons,omitempty"`
+	ColumnCount             int                         `json:"columnCount"`
+	SensitiveCandidateCount int                         `json:"sensitiveCandidateCount"`
+	GrantCount              int                         `json:"grantCount"`
+	PublicSchemaUsage       bool                        `json:"publicSchemaUsage"`
+	PublicSelect            bool                        `json:"publicSelect"`
+	PublicSelectColumnCount int                         `json:"publicSelectColumnCount"`
+	SensitiveFields         []PostgresSensitiveField    `json:"sensitiveFields,omitempty"`
+	SelectGrants            []PostgresSelectGrant       `json:"selectGrants,omitempty"`
+	SensitiveFieldsOmitted  int                         `json:"sensitiveFieldsOmitted,omitempty"`
+	SelectGrantsOmitted     int                         `json:"selectGrantsOmitted,omitempty"`
+	Classification          *AutomaticClassification    `json:"classification,omitempty"`
+	PermissionBaseline      *PostgresPermissionBaseline `json:"permissionBaseline,omitempty"`
 }
 
 func (s *Store) GetAssetPostgresInspection(ctx context.Context, workspaceID, actorID, assetID int64) (PostgresInspection, error) {
@@ -308,11 +317,16 @@ func addPostgresCheckEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob,
 }
 
 func ensurePostgresChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg ManagedPostgresConfig, assetIDs []int64) error {
+	recurrences, err := postgresPermissionRecurrences(ctx, tx, job, cfg, assetIDs)
+	if err != nil {
+		return err
+	}
 	// The managed job lock also serializes manual bindings for this source.
-	_, err := tx.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		WITH new_checks AS (
 			INSERT INTO plume.checks (workspace_id, asset_id, requirement_code, owner_team, note, created_by)
-			SELECT a.workspace_id, a.id, rule.code, COALESCE(NULLIF(left(a.owner_team, 80), ''), '自动采集'), rule.note, $7
+			SELECT a.workspace_id, a.id, rule.code, COALESCE(NULLIF(left(a.owner_team, 80), ''), '自动采集'),
+			       rule.note||CASE WHEN rule.code='G03' AND a.id=ANY($8::bigint[]) THEN ' 本轮对照同源最近已复核的不可变授权快照，观测到新的正向 SELECT 授权变化。' ELSE '' END, $7
 			FROM plume.assets a
 			CROSS JOIN (VALUES
 				('G02', '由 PostgreSQL 采集生成。依据采用的标准核对源内统计、自动分类及尚待采证的定级条件。'),
@@ -328,6 +342,7 @@ func ensurePostgresChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg
 				  AND (c.status <> 'verified' OR rule.code <> 'G02' OR COALESCE((
 				      SELECT i.classification->>'comparison' FROM plume.postgres_asset_inspections i WHERE i.asset_id = a.id
 				  ), '') <> 'conflict')
+				  AND NOT(rule.code='G03' AND c.status='verified' AND a.id=ANY($8::bigint[]))
 			  )
 			ORDER BY a.id, rule.code
 			RETURNING id
@@ -344,8 +359,103 @@ func ensurePostgresChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg
 			(2, 'postgres_binding', '自动关联 PostgreSQL 采集任务')
 		) AS event(position, action, note)
 		ORDER BY b.check_id, event.position
-	`, job.workspaceID, assetIDs, job.ID, cfg.Host, cfg.Port, cfg.Database, job.actorID)
+	`, job.workspaceID, assetIDs, job.ID, cfg.Host, cfg.Port, cfg.Database, job.actorID, recurrences)
 	return err
+}
+
+func postgresPermissionRecurrences(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg ManagedPostgresConfig, assetIDs []int64) ([]int64, error) {
+	rows, err := tx.Query(ctx, `WITH adopted AS(
+ SELECT DISTINCT ON(c.asset_id) c.id,c.asset_id FROM plume.checks c
+ JOIN plume.postgres_check_bindings b ON b.check_id=c.id
+ WHERE c.workspace_id=$1 AND c.asset_id=ANY($2) AND c.requirement_code='G03' AND c.status='verified'
+ AND c.feishu_target_digest IS NULL AND b.job_id=$3
+ AND (b.source_host,b.source_port,b.source_database)=($4,$5,$6)
+ ORDER BY c.asset_id,c.id DESC)
+ SELECT adopted.asset_id,i.inspection,old.observation,r.observed_at,reviewed.created_at
+ FROM adopted JOIN plume.postgres_asset_inspections i ON i.asset_id=adopted.asset_id AND i.job_id=$3
+ JOIN plume.automation_runs r ON r.id=i.automation_run_id AND r.status='success'
+ JOIN LATERAL(SELECT created_at FROM plume.check_events WHERE check_id=adopted.id AND action='verified' ORDER BY id DESC LIMIT 1) reviewed ON true
+ JOIN LATERAL(SELECT created_at FROM plume.check_events WHERE check_id=adopted.id AND action='submitted' ORDER BY id DESC LIMIT 1) submitted ON true
+ JOIN LATERAL(SELECT p.observation FROM plume.check_evidence e JOIN plume.postgres_check_evidence p ON p.evidence_id=e.id
+ JOIN plume.automation_runs er ON er.id=p.automation_run_id AND er.job_id=$3
+ WHERE e.check_id=adopted.id AND e.created_at<=submitted.created_at ORDER BY e.id DESC LIMIT 1) old ON true
+ WHERE (i.source_host,i.source_port,i.source_database)=($4,$5,$6)
+ AND r.id=(SELECT id FROM plume.automation_runs WHERE job_id=$3 ORDER BY id DESC LIMIT 1)
+ ORDER BY adopted.asset_id`, job.workspaceID, assetIDs, job.ID, cfg.Host, cfg.Port, cfg.Database)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []int64{}
+	for rows.Next() {
+		var assetID int64
+		var table collector.PostgreSQLTable
+		var previous PostgresObservation
+		var observed, verified time.Time
+		if err := rows.Scan(&assetID, &table, &previous, &observed, &verified); err != nil {
+			return nil, err
+		}
+		if observed.After(verified) && previous.Database == cfg.Database && previous.SourceRef == table.SourceRef && previous.Schema == table.Schema && previous.Table == table.Name && postgresPermissionIncreased(previous, table) {
+			result = append(result, assetID)
+		}
+	}
+	return result, rows.Err()
+}
+
+func postgresPermissionIncreased(previous PostgresObservation, current collector.PostgreSQLTable) bool {
+	if current.PublicSelect && !previous.PublicSelect || len(current.PublicSelectColumns) > 0 && previous.PublicSelectColumnCount == 0 {
+		return true
+	}
+	if current.PublicSchemaUsage && !previous.PublicSchemaUsage && (current.PublicSelect || len(current.PublicSelectColumns) > 0) {
+		return true
+	}
+	old := previous.SelectGrants
+	if previous.PermissionBaseline != nil {
+		old = previous.PermissionBaseline.SelectGrants
+	} else if previous.SelectGrantsOmitted > 0 {
+		return false
+	}
+	type identity struct {
+		grantee, column string
+		public          bool
+	}
+	key := func(grantee, column string, public bool) identity {
+		if public {
+			grantee = ""
+		}
+		return identity{grantee, column, public}
+	}
+	known := map[identity]PostgresSelectGrant{}
+	for _, grant := range old {
+		k := key(grant.Grantee, grant.Column, grant.Public)
+		prior := known[k]
+		grant.Grantable = grant.Grantable || prior.Grantable
+		grant.SchemaUsage = grant.SchemaUsage || prior.SchemaUsage
+		known[k] = grant
+	}
+	for _, grant := range current.Grants {
+		if grant.Privilege != "SELECT" || !grant.Public && grant.Grantee == current.Owner {
+			continue
+		}
+		prior, exists := known[key(grant.Grantee, grant.Column, grant.Public)]
+		if !exists && grant.Public && previous.PublicSelect {
+			continue
+		}
+		if !exists {
+			return true
+		}
+		if grant.SchemaUsage && !prior.SchemaUsage || previous.PermissionBaseline != nil && grant.Grantable && !prior.Grantable {
+			return true
+		}
+	}
+	if previous.PermissionBaseline != nil {
+		for _, column := range current.PublicSelectColumns {
+			if !slices.Contains(previous.PermissionBaseline.PublicSelectColumns, column) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func appendPostgresEvidence(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg ManagedPostgresConfig, run AutomationRun,
@@ -438,6 +548,12 @@ func evaluatePostgresInspection(table collector.PostgreSQLTable, database, requi
 		}
 		facts = table.Columns
 	} else {
+		observation.PermissionBaseline = &PostgresPermissionBaseline{SelectGrants: []PostgresSelectGrant{}, PublicSelectColumns: slices.Clone(table.PublicSelectColumns)}
+		for _, grant := range table.Grants {
+			if grant.Privilege == "SELECT" && (grant.Public || grant.Grantee != table.Owner) {
+				observation.PermissionBaseline.SelectGrants = append(observation.PermissionBaseline.SelectGrants, PostgresSelectGrant{Grantee: grant.Grantee, Public: grant.Public, Column: grant.Column, SchemaUsage: grant.SchemaUsage, Grantable: grant.Grantable})
+			}
+		}
 		scope = "仅观测表和字段的直接授权及 schema USAGE。实际访问受角色继承和行级策略等影响。加密及备份需另行验证。"
 		summary = fmt.Sprintf("已观测 %d 条表或字段 ACL。PUBLIC 的 schema USAGE %s，表级 SELECT %s，字段级 SELECT 涉及 %d 个字段。",
 			len(table.Grants), observedFlag(table.PublicSchemaUsage), observedFlag(table.PublicSelect), len(table.PublicSelectColumns))

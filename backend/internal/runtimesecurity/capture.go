@@ -21,9 +21,26 @@ var (
 func normalizeCapture(o *Observation) error {
 	if o.TraceRef != "" && (!traceReference.MatchString(o.TraceRef) || o.TraceRef == strings.Repeat("0", 32)) ||
 		o.SpanRef != "" && (!spanReference.MatchString(o.SpanRef) || o.SpanRef == strings.Repeat("0", 16) || o.TraceRef == "") ||
+		o.ParentSpanRef != "" && (!spanReference.MatchString(o.ParentSpanRef) || o.ParentSpanRef == strings.Repeat("0", 16) || o.TraceRef == "" || o.SpanRef == "" || o.ParentSpanRef == o.SpanRef) ||
+		len(o.ServiceCalls) > MaxCaptureItems || len(o.ServiceCalls) > 0 && (o.TraceRef == "" || o.SpanRef == "") ||
 		o.SubjectRef != "" && !subjectReference.MatchString(o.SubjectRef) || len(o.DataFields) > MaxCaptureItems || len(o.DatabaseTargets) > MaxCaptureItems || len(o.CaptureWarnings) > MaxCaptureItems {
 		return ErrInvalidObservation
 	}
+	calls := slices.Clone(o.ServiceCalls)
+	spans := map[string]string{}
+	for _, call := range calls {
+		if !collector.ValidSource(call.TargetService) || !spanReference.MatchString(call.SpanRef) || call.SpanRef == strings.Repeat("0", 16) || call.SpanRef == o.SpanRef {
+			return ErrInvalidObservation
+		}
+		if target, exists := spans[call.SpanRef]; exists && target != call.TargetService {
+			return ErrInvalidObservation
+		}
+		spans[call.SpanRef] = call.TargetService
+	}
+	slices.SortFunc(calls, func(a, b ServiceCall) int {
+		return strings.Compare(a.TargetService+"\x00"+a.SpanRef, b.TargetService+"\x00"+b.SpanRef)
+	})
+	o.ServiceCalls = slices.Compact(calls)
 	fields := slices.Clone(o.DataFields)
 	for _, field := range fields {
 		if !fieldPath.MatchString(field.Name) || len(field.Name) > 240 || field.Count < 0 || field.Observed < 1 || field.Observed > 1000000 || field.Count > field.Observed {
@@ -78,7 +95,7 @@ func normalizeCapture(o *Observation) error {
 	o.DatabaseTargets = slices.Compact(targets)
 	warnings := slices.Clone(o.CaptureWarnings)
 	for _, warning := range warnings {
-		if !slices.Contains([]string{"json_size_limit", "json_depth_limit", "json_field_limit", "json_dynamic_keys", "json_invalid", "json_read_error", "json_encoding_unsupported", "invalid_trace_context", "invalid_data_fields", "invalid_database_target", "capture_item_limit"}, warning) {
+		if !slices.Contains([]string{"json_size_limit", "json_depth_limit", "json_field_limit", "json_dynamic_keys", "json_invalid", "json_read_error", "json_encoding_unsupported", "invalid_trace_context", "invalid_data_fields", "invalid_database_target", "invalid_security_context", "invalid_service_call", "capture_item_limit"}, warning) {
 			return ErrInvalidObservation
 		}
 	}

@@ -84,6 +84,12 @@ func captureBodyStatistics(observation *requestObservation) ([]runtimesecurity.D
 			warnings = append(warnings, "json_read_error")
 		default:
 			found, gaps := runtimesecurity.InspectJSON(buffer, body.location)
+			if len(gaps) == 0 && (body.location != "request" || observation.queryInspected) {
+				observation.inspectedLocations = append(observation.inspectedLocations, body.location)
+			}
+			if body.location == "request" {
+				observation.securitySignals = mergeSecuritySignals(observation.securitySignals, runtimesecurity.InspectSecurity(buffer))
+			}
 			fields = append(fields, found...)
 			warnings = append(warnings, gaps...)
 		}
@@ -94,8 +100,22 @@ func captureBodyStatistics(observation *requestObservation) ([]runtimesecurity.D
 	if len(fields) > runtimesecurity.MaxCaptureItems {
 		fields = fields[:runtimesecurity.MaxCaptureItems]
 		warnings = append(warnings, "json_field_limit")
+		observation.inspectedLocations = nil
 	}
 	slices.Sort(warnings)
 	warnings = slices.Compact(warnings)
 	return fields, warnings
+}
+
+func mergeSecuritySignals(a, b []runtimesecurity.SecuritySignal) []runtimesecurity.SecuritySignal {
+	for _, signal := range b {
+		index := slices.IndexFunc(a, func(x runtimesecurity.SecuritySignal) bool { return x.Kind == signal.Kind })
+		if index < 0 {
+			a = append(a, signal)
+		} else {
+			a[index].Count += signal.Count
+			a[index].Observed += signal.Observed
+		}
+	}
+	return a
 }

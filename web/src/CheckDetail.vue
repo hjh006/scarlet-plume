@@ -6,9 +6,11 @@ import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPermission
 import { runtimeRuleLabels } from './runtime-findings'
 import { checkStatusLabels, evidenceKindLabels, eventLabels, type CheckDetail } from './workflow'
 import CheckEvidenceForm from './CheckEvidenceForm.vue'
+import CatalogAssessmentEvidence from './CatalogAssessmentEvidence.vue'
 import Icon from './Icon.vue'
 import TemplateCriteria from './TemplateCriteria.vue'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
+import RuntimeDetectionFacts from './RuntimeDetectionFacts.vue'
 
 const props = defineProps<{ workspace: Workspace; checkId: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -218,12 +220,13 @@ onBeforeUnmount(() => active.abort())
             <p class="field-hint">{{ record.runtimeFinding.service }} · 原观测来源 {{ record.runtimeFinding.source }} · #{{ record.runtimeFinding.sourceId }}</p>
             <p class="field-hint">
               最近触发 <time :datetime="record.runtimeFinding.lastSeen">{{ formatDate(record.runtimeFinding.lastSeen) }}</time>
-              · <a class="table-link" :href="home + '/api-security/' + record.runtimeFinding.baselineScanId">触发时的契约扫描</a>
+              <template v-if="record.runtimeFinding.baselineScanId"> · <a class="table-link" :href="home + '/api-security/' + record.runtimeFinding.baselineScanId">触发时的契约扫描</a></template>
             </p>
             <p v-if="record.runtimeFinding.retestAt" class="field-hint">
               最近自动复测 <time :datetime="record.runtimeFinding.retestAt">{{ formatDate(record.runtimeFinding.retestAt) }}</time>
             </p>
-            <p class="field-hint">证据用于核对实际响应、发布范围和访问策略。复测由原观测来源自动登记。</p>
+            <RuntimeDetectionFacts v-if="record.runtimeFinding.detection" :detection="record.runtimeFinding.detection" />
+            <p class="field-hint">证据用于核对实际响应、发布范围和访问策略。复测须来自正信号绑定的同一来源，新规则还须符合当前已启用策略及明确可观察范围。</p>
           </div>
           <div v-if="record.postgresJobId || record.availablePostgresJobId" class="postgres-binding">
             <strong>PostgreSQL 自动取证</strong>
@@ -251,7 +254,8 @@ onBeforeUnmount(() => active.abort())
               <li v-if="record.runtimeFinding.rule === 'unregistered_success'">
                 导入同一服务的新 OpenAPI 契约，登记该接口并将 <code>deprecated</code> 设为 <code>false</code>。再通过原观测来源发起获授权的复测请求，取得新的 HTTP 2xx。
               </li>
-              <li v-else>在最新契约中保留该接口的弃用标记或移除该接口。通过原观测来源复测，同一批次需观测到该接口的 HTTP 410，且无 HTTP 2xx。</li>
+              <li v-else-if="record.runtimeFinding.rule === 'deprecated_success'">在最新契约中保留该接口的弃用标记或移除该接口。通过原观测来源复测，同一批次需观测到该接口的 HTTP 410，且无 HTTP 2xx。</li>
+              <li v-else>通过最近正信号的同一来源取得整改后的新鲜观测。敏感响应需明确完成响应检查；认证、请求模式需有明确结果；频次、错误和时段规则需经过完整窗口且有足够请求。缺失或未知数据不能替代复测，修改策略后需按新版本重新采证。</li>
               <li>刷新证据，核对系统登记的复测后提交独立复核。</li>
             </ol>
             <ol v-else-if="record.feishuTargetDigest" class="remediation-steps">
@@ -284,6 +288,7 @@ onBeforeUnmount(() => active.abort())
             </p>
             <p v-if="entry.feishu" class="field-hint">{{ entry.feishu.memberPresent ? '检出目标协作者的直接授权' : '未检出目标协作者的直接授权' }}</p>
             <p class="text-block">{{ entry.summary }}</p>
+            <CatalogAssessmentEvidence v-if="entry.catalog" :assessment="entry.catalog"/>
             <div v-if="entry.postgres" class="postgres-evidence-meta">
               <div v-if="entry.postgres.assessment" class="postgres-assessment">
                 <span class="badge" :class="entry.postgres.assessment === 'review_required' ? 'status-needs_work' : 'status-draft'">

@@ -56,6 +56,11 @@ func NewWithManaged(st *store.Store, origin string, secure bool, manager *manage
 	s.apiSecurityRoutes(mux)
 	s.runtimeSecurityRoutes(mux)
 	s.runtimeRiskRoutes(mux)
+	s.runtimeDetectionRoutes(mux)
+	s.catalogDiscoveryRoutes(mux)
+	s.securityOperationsRoutes(mux)
+	s.assessmentRoutes(mux)
+	s.apiValidationRoutes(mux)
 	s.actionAuditRoutes(mux)
 	s.classificationRoutes(mux)
 	s.dataFlowRoutes(mux)
@@ -67,7 +72,7 @@ func NewWithManaged(st *store.Store, origin string, secure bool, manager *manage
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("Origin") != s.origin && !(r.Method == http.MethodPost && (r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath)) {
+			r.Header.Get("Origin") != s.origin && !(r.Method == http.MethodPost && (r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath)) {
 			fail(w, http.StatusForbidden, "请求来源不受信任。")
 			return
 		}

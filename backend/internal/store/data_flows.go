@@ -40,27 +40,36 @@ type DataFlowSummary struct {
 	TracedDatabaseTargets int `json:"tracedDatabaseTargets"`
 }
 type DataFlowEvidence struct {
-	Kind       string    `json:"kind"`
-	Source     string    `json:"source"`
-	SourceID   int64     `json:"sourceId,omitempty"`
-	Record     string    `json:"record"`
-	ObservedAt time.Time `json:"observedAt,omitempty"`
-	Requests   int64     `json:"requests,omitempty"`
-	TraceRef   string    `json:"traceRef,omitempty"`
-	SpanRef    string    `json:"spanRef,omitempty"`
-	Warnings   []string  `json:"warnings,omitempty"`
+	Details    map[string]any `json:"details,omitempty"`
+	Kind       string         `json:"kind"`
+	Source     string         `json:"source"`
+	SourceID   int64          `json:"sourceId,omitempty"`
+	Record     string         `json:"record"`
+	ObservedAt time.Time      `json:"observedAt,omitempty"`
+	Requests   int64          `json:"requests,omitempty"`
+	TraceRef   string         `json:"traceRef,omitempty"`
+	SpanRef    string         `json:"spanRef,omitempty"`
+	Warnings   []string       `json:"warnings,omitempty"`
+}
+type DataFlowTableTarget struct {
+	System   string `json:"system"`
+	Source   string `json:"source"`
+	Database string `json:"database"`
+	Schema   string `json:"schema"`
+	Table    string `json:"table"`
 }
 type DataFlowNode struct {
-	ID                string             `json:"id"`
-	Kind              string             `json:"kind"`
-	Label             string             `json:"label"`
-	Service           string             `json:"service,omitempty"`
-	AssetID           int64              `json:"assetId,omitempty"`
-	Category          string             `json:"category,omitempty"`
-	BusinessLevel     string             `json:"businessLevel,omitempty"`
-	StatutoryCategory string             `json:"statutoryCategory,omitempty"`
-	Categories        []string           `json:"categories"`
-	Evidence          []DataFlowEvidence `json:"evidence"`
+	Target            *DataFlowTableTarget `json:"target,omitempty"`
+	ID                string               `json:"id"`
+	Kind              string               `json:"kind"`
+	Label             string               `json:"label"`
+	Service           string               `json:"service,omitempty"`
+	AssetID           int64                `json:"assetId,omitempty"`
+	Category          string               `json:"category,omitempty"`
+	BusinessLevel     string               `json:"businessLevel,omitempty"`
+	StatutoryCategory string               `json:"statutoryCategory,omitempty"`
+	Categories        []string             `json:"categories"`
+	Evidence          []DataFlowEvidence   `json:"evidence"`
 }
 type DataFlowEdge struct {
 	ID         string             `json:"id"`
@@ -257,8 +266,8 @@ func readDataFlowGraph(ctx context.Context, tx pgx.Tx, workspaceID int64, filter
 		if revision == 0 {
 			statutory = ""
 		}
-		b.node(DataFlowNode{ID: id, Kind: "table", Label: database + "." + table.Schema + "." + table.Name, AssetID: assetID, StatutoryCategory: statutory, Category: category, BusinessLevel: businessLevel, Categories: categories, Evidence: []DataFlowEvidence{evidence}})
-		key := flowID(source, database, table.Schema, table.Name)
+		b.node(DataFlowNode{ID: id, Kind: "table", Label: database + "." + table.Schema + "." + table.Name, AssetID: assetID, StatutoryCategory: statutory, Category: category, BusinessLevel: businessLevel, Categories: categories, Evidence: []DataFlowEvidence{evidence}, Target: &DataFlowTableTarget{System: "postgresql", Source: source, Database: database, Schema: table.Schema, Table: table.Name}})
+		key := catalogFlowTargetKey("postgresql", source, database, table.Schema, table.Name)
 		if previous := b.targets[key]; previous != "" && previous != id {
 			b.targets[key] = "ambiguous"
 		} else if previous == "" {
@@ -268,6 +277,9 @@ func readDataFlowGraph(ctx context.Context, tx pgx.Tx, workspaceID int64, filter
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
+		return b.graph, err
+	}
+	if err = addCatalogFlowNodes(ctx, tx, workspaceID, &b); err != nil {
 		return b.graph, err
 	}
 	rows, err = tx.Query(ctx, `SELECT DISTINCT ON(source) id,source,created_at,operations FROM plume.api_security_scans WHERE workspace_id=$1 ORDER BY source,id DESC`, workspaceID)
@@ -354,16 +366,16 @@ func readDataFlowGraph(ctx context.Context, tx pgx.Tx, workspaceID int64, filter
 			b.edge(subject, api, "subject_access", cats, e)
 		}
 		for _, target := range event.DatabaseTargets {
-			if target.System != "postgresql" {
-				continue
-			}
-			id := b.targets[flowID(target.Source, target.Database, target.Schema, target.Table)]
+			id := b.targets[catalogFlowTargetKey(target.System, target.Source, target.Database, target.Schema, target.Table)]
 			if id == "" || id == "ambiguous" {
 				b.graph.Warnings = flowCategories(b.graph.Warnings, []string{"unmatched_database_target"})
 				continue
 			}
 			b.edge(api, id, "database_target", cats, e)
 		}
+	}
+	if err = addServiceFlowLinks(ctx, tx, workspaceID, filter, &b); err != nil {
+		return b.graph, err
 	}
 	if filter.SubjectRef != "" || filter.TraceRef != "" {
 		used := map[string]bool{}
@@ -417,6 +429,20 @@ func filterDataFlowGraph(graph DataFlowGraph, f DataFlowFilter) DataFlowGraph {
 			if e.From == f.Focus || e.To == f.Focus {
 				selected[e.From] = true
 				selected[e.To] = true
+			}
+		}
+	}
+	// A verified inter-service relation can add its actual peer and that peer's
+	// database context. Application membership must never pull in unrelated APIs.
+	for changed := true; changed; {
+		changed = false
+		for _, edge := range graph.Edges {
+			if edge.Relation == "service_call" && (selected[edge.From] || selected[edge.To]) {
+				if !selected[edge.From] || !selected[edge.To] {
+					changed = true
+				}
+				selected[edge.From] = true
+				selected[edge.To] = true
 			}
 		}
 	}
@@ -727,8 +753,17 @@ func dataFlowEventMatchesFocus(event DataFlowInvestigationEntry, focus DataFlowN
 			}
 		}
 	case "table":
+		if focus.Target != nil {
+			for _, target := range event.DatabaseTargets {
+				if catalogFlowTargetKey(target.System, target.Source, target.Database, target.Schema, target.Table) == catalogFlowTargetKey(focus.Target.System, focus.Target.Source, focus.Target.Database, focus.Target.Schema, focus.Target.Table) {
+					return true
+				}
+			}
+			return false
+		}
+		// Historical PG snapshots predate structured targets.
 		for _, target := range event.DatabaseTargets {
-			if target.System != "postgresql" || target.Database+"."+target.Schema+"."+target.Table != focus.Label {
+			if canonicalCatalogSystem(target.System) != "postgresql" || target.Database+"."+target.Schema+"."+target.Table != focus.Label {
 				continue
 			}
 			for _, evidence := range focus.Evidence {
@@ -737,6 +772,7 @@ func dataFlowEventMatchesFocus(event DataFlowInvestigationEntry, focus DataFlowN
 				}
 			}
 		}
+
 	}
 	return false
 }
@@ -768,6 +804,19 @@ func (s *Store) InvestigateDataFlows(ctx context.Context, workspaceID, actorID i
 			return err
 		}
 		for _, event := range entries {
+			if graph.Nodes[index].Kind == "table" {
+				matched := false
+				api := "api:" + flowID(event.Service, event.Method, runtimesecurity.RouteKey(event.Route))
+				for _, edge := range graph.Edges {
+					if edge.From == api && edge.To == f.Focus && edge.Relation == "database_target" {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
 			if dataFlowEventMatchesFocus(event, graph.Nodes[index]) {
 				result.Items = append(result.Items, event)
 				if len(result.Items) == 501 {

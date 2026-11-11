@@ -1,0 +1,21 @@
+services:
+  postgres-control-agent:
+    build:
+      context: ./backend
+      dockerfile: ../docker/control-agent/Dockerfile
+    image: scarlet-plume-control-agent:local
+    command: ["-url", "http://app:8080", "-local", "-journal", "/data/control-journal.json"]
+    environment:
+      SCARLET_OPERATIONS_TOKEN: ${SCARLET_POSTGRES_CONTROL_TOKEN:?Create a PostgreSQL control source}
+      SCARLET_CONTROL_PG_DSN: postgresql://sample_admin:${SCARLET_SAMPLE_DB_PASSWORD:?Use the local sample administrator password}@sample-db:5432/scarlet_sample?sslmode=disable
+    volumes: ["control_journal:/data"]
+    networks: [default, sample]
+    depends_on:
+      app: {condition: service_healthy}
+      sample-db: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+volumes:
+  control_journal:

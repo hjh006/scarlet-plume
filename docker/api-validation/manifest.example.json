@@ -1,0 +1,25 @@
+{
+  "sourceId": 1,
+  "bindings": [{
+    "ref": "synthetic-objects-v1",
+    "targetOrigin": "http://api-validation-sample:8080",
+    "route": "/api/vulnerable/objects/{id}",
+    "rules": ["bola", "weak_credential"],
+    "objectField": "objectId",
+    "ownerField": "owner",
+    "accountA": {
+      "usernameEnv": "SCARLET_VALIDATION_A_USER",
+      "passwordEnv": "SCARLET_VALIDATION_A_PASSWORD",
+      "objectPath": "/api/vulnerable/objects/fixture-a",
+      "expectedObject": "fixture-a",
+      "expectedOwner": "validation-a"
+    },
+    "accountB": {
+      "usernameEnv": "SCARLET_VALIDATION_B_USER",
+      "passwordEnv": "SCARLET_VALIDATION_B_PASSWORD",
+      "objectPath": "/api/vulnerable/objects/fixture-b",
+      "expectedObject": "fixture-b",
+      "expectedOwner": "validation-b"
+    }
+  }]
+}

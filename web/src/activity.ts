@@ -24,6 +24,35 @@ export interface Activity extends ActivityLink {
   transferPath: string
   safeguards: string
   createdAt: string
+  revision: number
+  updatedAt: string
+}
+
+export interface ActivityInput {
+  assetId: number
+  name: string
+  kind: ActivityKind
+  purpose: string
+  recipient: string
+  region: string
+  retentionPolicy: string
+  transferPath: string
+  safeguards: string
+}
+
+export interface ActivityHistory {
+  id: number
+  activityId: number
+  revision: number
+  actor: string
+  createdAt: string
+  before: Activity | null
+  after: Activity
+}
+
+export interface ActivityHistoryPage {
+  items: ActivityHistory[]
+  nextCursor?: number | null
 }
 
 export interface ActivityPage {

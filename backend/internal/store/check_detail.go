@@ -42,6 +42,9 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 		if err != nil {
 			return err
 		}
+		if err := loadCatalogCheckDetail(ctx, tx, &detail); err != nil {
+			return err
+		}
 		detail.Events, err = listCheckEvents(ctx, tx, check.ID)
 		if err != nil {
 			return err

@@ -47,6 +47,9 @@ func (s *Store) ActionAudit(ctx context.Context, workspaceID int64, hours int) (
 			SELECT created_at, actor_id, 'risk.triaged', 'runtime_finding', finding_id, id, false
 			FROM plume.runtime_risk_triage WHERE workspace_id = $1 AND created_at >= $2
 			UNION ALL
+			SELECT created_at, actor_id, 'runtime.policy_updated', 'runtime_policy', id, id, false
+			FROM plume.runtime_detection_policies WHERE workspace_id = $1 AND created_at >= $2
+			UNION ALL
 			SELECT created_at, actor_id, 'api.scanned', 'api_scan', id, id, false
 			FROM plume.api_security_scans WHERE workspace_id = $1 AND created_at >= $2
 			UNION ALL

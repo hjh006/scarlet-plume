@@ -4,9 +4,12 @@
 
 社区版以 Apache 2.0 开放自部署。仓库当前提供开发预览。
 
-- 数据资产可分别记录业务敏感级、个人信息类别和法定重要／核心数据属性。
-- 处理活动覆盖内部处理、对外共享或委托、数据出境及 AI 使用。AI 活动可登记模型服务、处理地域、留存和训练条款。
-- 检查单记录证据来源和脱敏摘要，支持提交、复核、整改复测和导出 JSON。检查创建人、提交人和证据作者需要回避复核。
+- 多源发现与分类：原生PostgreSQL、MySQL、MariaDB、MongoDB采集，分类标准、客户关键词/RE2/词典规则、受限内容统计、业务目录和CMDB导入。
+- 流转与调查：应用/API/真实库表图、历史结构差异、去标识主体调查及双端Span核验的跨服务关系；原值和完整SQL留在客户侧。
+- 风险与运营：契约和运行时策略、经独立审批的受限API主动验证、外部安全事件、代理阻断与PostgreSQL直接SELECT撤销/回滚。
+- 合规闭环：处理活动、PIA/出境/AI/业务变更问卷、采用版本、来源证据、整改复测、独立复核和冻结的HTML/JSON报告。
+
+本轮能力、测试方式及边界见[红途材料独立实现映射](docs/hongtu-capability-mapping.md)。浏览器页面/DOM经营字段打标不在本轮范围；OpenMetadata深度适配和Wazuh桥接已通过协议/投影测试，真实产品部署仍需联调。四类原生数据库与受控PG/代理动作有真实合成样例验证，不能据此宣称所有数据库均有原生驱动、所有权限路径均已控制，或达到其他产品的性能与检测精度。
 
 ## 产品目标
 
@@ -16,7 +19,7 @@
 
 ## Go 与 Vue 开发预览
 
-新栈采用 Go 1.27、Vue 3 / TypeScript、Node.js 26 LTS 和 PostgreSQL 18。已提供工作区、资产清单、处理活动、监管检查、证据登记、整改复测、独立复核和 JSON 导出。检查沿用 Django 基线的 14 条规则。 [架构与迁移顺序](docs/architecture.md)
+新栈采用 Go 1.27.3、Vue 3 / TypeScript、Node.js 26 LTS 和 PostgreSQL 18。工作区、资产、处理活动及检查沿用同一身份和证据链，监管检查保留Django基线的14条规则，并接入本轮发现、风险、运营及专项评估模块。 [架构与迁移顺序](docs/architecture.md)
 
 ### 本机 Docker
 
@@ -50,6 +53,24 @@ scarlet up -d --wait app
 打开 [本机赤翎控制台](http://127.0.0.1:8890)，用初始化的账号登录。控制台端口绑定本机回环地址，数据库通过 Compose 私有网络连接。运行 `scarlet stop` 可暂停，`scarlet up -d --wait` 可恢复。升级时重新构建镜像并运行迁移，再启动新版容器。
 
 需要在本机体验 PostgreSQL 自动采集时，可叠加 `compose.sample.yaml` 启动独立样例库，再在工作台创建采集任务。使用样例的部署应在升级时继续加载两份 Compose 文件。 [样例库与托管采集步骤](docs/automation.md#在工作台管理-postgresql-采集)
+
+### 可选的本地能力覆盖文件
+
+基础控制台仍为[本机入口](http://127.0.0.1:8890)。新增模块先执行当前镜像的`-mode migrate`，再启动或更新服务与侧车；升级时保留正在使用的覆盖文件和现有数据卷，不通过清空数据库完成迁移。
+
+| 文件 | 本地用途 | 配置说明 |
+| --- | --- | --- |
+| `compose.sample.yaml` | 独立PostgreSQL样例及托管采集 | [自动采集](docs/automation.md#在工作台管理-postgresql-采集) |
+| `compose.runtime.yaml` | Java/Python HTTP及HTTPS观测样例 | [运行时接入](docs/runtime-security.md) |
+| `compose.flow-sample.yaml`、`compose.service-sample.yaml` | 真实SQL查询与双服务父子链样例 | [数据流与调查](docs/data-flows.md) |
+| `docker/compose.discovery-sample.yaml` | 独立Compose项目中的MySQL/MariaDB/MongoDB样例 | [原生发现样例](docs/discovery.md#本地合成样本) |
+| `compose.discovery-agents.yaml` | 加入根默认网及上述既有外部样例网的三个持续采集侧车 | [持续发现与六个外部配置变量](docs/discovery.md#本地docker持续采集) |
+| `compose.controls.yaml` | 已审批代理/PG处置的可选本地执行配置 | [安全运营与执行边界](docs/security-operations.md) |
+| `compose.validation-sample.yaml` | 固定账号、合成对象与真实PG查询的API主动验证样例 | [批准范围及测试清单](docs/api-validation.md) |
+
+这些文件不是全部直接合并为一个项目：发现样例库有独立项目和既有网络；其他覆盖文件按相应说明叠加到根项目。先创建被授权的工作区来源、绑定任务及令牌，再把凭据写入被忽略、权限受控的env文件。具体组合命令和本地来源配置以对应模块文档及实际部署配置为准；不要将示例地址或来源标识当作已创建的任务。
+
+登录后可从侧栏进入“多源自动发现”“业务资产目录”“数据流转”“运营与处置”“API主动验证”和“合规评估”。数据流和风险统计标明来源窗口；首页来源数包含暂停的发现配置及未撤销集成，不等同实时在线率。
 
 ### 在宿主机启动 Go 与 Vue
 
@@ -85,7 +106,11 @@ go run ./cmd/server -web ../web/dist -allow-insecure-loopback
 
 「API 安全」可扫描 OpenAPI 3.0 或 3.1 JSON，自动登记接口资产，将鉴权与疑似敏感字段等契约风险接入检查和取证流程，并导出扫描结果。 [API 安全与能力对照](docs/api-security.md)、[API 运行时观测与 HTTPS 接入](docs/runtime-security.md)
 
-“API生命周期”对照契约版本和运行时观测；“数据流转”汇总已接入来源的应用、接口和真实库表关系，支持结构快照、差异及去标识溯源。可选源端JSON识别只上报类型统计。详见 [数据流与本地真实查询样例](docs/data-flows.md)、[红途材料能力映射与实施边界](docs/hongtu-capability-mapping.md)。
+“多源自动发现”支持客户侧计划、连接测试、立即采集与令牌轮换；“业务资产目录”保留自动来源、人工确认、CMDB冲突和修订历史。分类采用标准与识别规则版本，人工确认后须取得新的相容正向来源事实才能用于G02复核。[发现、规则与目录](docs/discovery.md)
+
+“API生命周期”对照契约版本与运行时观测；“数据流转”汇总应用、接口、去标识主体和当前真实库表，支持结构快照、差异及来源核验的跨服务Span关系。客户侧JSON识别只上报类型统计。[数据流与本地真实查询样例](docs/data-flows.md)
+
+“运营与处置”接收过滤后的安全事件，跟踪风险、独立审批、实际执行及回滚回执。PG权限动作仅处理已确认的直接表级SELECT，不覆盖所有者、继承或列级等其他路径。“API主动验证”使用客户侧批准清单，对固定GET目标执行双账号对象授权和显式弱测试凭据验证，结果进入原生G03整改复核链；无任意公网扫描、字典或爆破。[安全运营](docs/security-operations.md)、[API主动验证](docs/api-validation.md)
 
 离线清单导入仍可使用。采集器从客户环境读取源连接配置。在 `backend/` 下运行下面的本地示例，盘点指定 schema 后生成 JSON，使用授权工作区的「集成与导入」上传。生产源使用专用元数据账号，并移除回环明文选项。
 
@@ -94,7 +119,7 @@ export SCARLET_PG_DSN='postgresql://metadata_user@127.0.0.1:5432/inventory?sslmo
 go run ./cmd/collector -provider postgresql -source CRM -schema public -allow-insecure-loopback > inventory.json
 ```
 
-OpenMetadata 连接器通过 `SCARLET_OPENMETADATA_URL` 和 `SCARLET_OPENMETADATA_TOKEN` 接收客户侧配置，执行 `go run ./cmd/collector -provider openmetadata -source Catalog -service crm`。令牌由源系统的最小权限身份提供。清单只包含表名与源端标识。当前导入是增量发现，后续盘点缺项不会删除现有资产。
+OpenMetadata 连接器通过 `SCARLET_OPENMETADATA_URL` 和 `SCARLET_OPENMETADATA_TOKEN` 接收客户侧配置，执行 `go run ./cmd/collector -provider openmetadata -source Catalog -service crm`。令牌由源系统的最小权限身份提供。这条旧离线命令的清单仅包含表名与源端标识；新“多源自动发现”任务使用深目录适配，另读schema、字段、注释、标签、约束与可得血缘。两种入口的覆盖不同，源权限缺项保留unknown。当前导入是增量发现，盘点缺项不会直接删除资产，但当前目录/证据有效性会按对应采集规则失效。
 
 「分类分级」支持工作区默认标准及资产逐项选标，并保存所用等级、条款和取证要求的版本快照。覆盖范围、官方来源及待补条款见 [分类分级标准库](docs/classification-standards.md)。
 
@@ -103,6 +128,10 @@ OpenMetadata 连接器通过 `SCARLET_OPENMETADATA_URL` 和 `SCARLET_OPENMETADAT
 对外共享、数据出境和 AI 使用均可从活动详情创建关联检查。证据、整改复测和独立复核沿用同一工作流，JSON 导出包含对应的活动范围。 [场景操作与验收示例](docs/activities.md)
 
 「检查模板」内置对外共享、数据出境和 AI 使用三套模板，共 11 项。工作区负责人可配置适用条件、取证要求、验收标准并发布新版本。已有检查保留原版本。「合规报告」可按工作区或活动导出 HTML 和 JSON。 [检查模板与报告说明](docs/templates-reports.md)
+
+“合规评估”提供PIA、出境、AI使用、业务变更四类版本化问卷，保留采用条款、活动和机器事实、答复、证据引用、缺口与独立复核；活动或来源变化触发待重评。专项报告独立导出，合规报告仅冻结相关活动的评估引用和状态，不把问卷完整性校验等同实质法律结论。[专项评估说明](docs/assessments.md)
+
+报告还冻结目录不可变评估、运行时命中时策略与实际窗口/分母、关联处置与来源回执、整改及独立复核。`applied`为执行来源回执，不自动认定检查“已验证”；客户样本和原始日志不进入这些报告。
 
 原 Django 用户可使用一次性命令将工作区、资产分级、处理活动、检查、证据及审计事件导入同一 PostgreSQL 数据库的 `plume` schema。命令默认只预检，正式导入使用 `-apply`，迁入账号默认停用并按需设置新密码。 [Django 迁移手册](docs/django-migration.md)
 
@@ -118,7 +147,7 @@ unset SCARLET_REVIEWER_PASSWORD
 
 经办人可以在「监管检查」关联资产与规则、登记脱敏证据并提交。创建人、当前提交人和证据登记人都需要回避复核。飞书 G03 检查可绑定指定的直接协作者，要求整改后登记整改记录、重新采集同一目标，再由独立复核人核对。采集器通过模拟飞书接口测试，Go、PostgreSQL 与 Vue 通过合成清单跑通完整流程，真实飞书租户联调待进行。 [联调步骤与验收口径](docs/feishu.md)
 
-运行 `go test -race -p 1 ./...` 时，可为 `PLUME_STORE_TEST_DSN` 配置专用的测试 PostgreSQL 数据库以执行持久化和授权集成测试。各包共享测试库中的全局采集队列，因此按包串行执行；包内竞态检测仍启用。GitHub Actions 在 PostgreSQL 18 验证两个开发栈，并使用由 Django 演示命令生成的独立数据库测试历史导入。
+运行 `go test -race -p 1 ./...` 时，为 `PLUME_STORE_TEST_DSN` 配置可丢弃的独立PostgreSQL18/SCRAM测试库，以执行持久化和授权集成测试。各包共享全局采集队列，因此按包串行，仍启用竞态检测。原生数据库、PG权限执行、HTTP/HTTPS代理、跨服务链路、主动验证、问卷与报告的真实/协议测试边界分别见模块文档；没有对应环境变量的集成测试会跳过，不能把跳过计为已验收。GitHub Actions验证两个开发栈，并使用独立样例测试Django历史导入。
 
 ## Django 基线本地运行
 

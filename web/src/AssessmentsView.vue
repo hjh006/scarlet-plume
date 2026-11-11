@@ -1,0 +1,225 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
+import { checkStatusLabels } from './workflow'
+import { assessmentFactLabels, assessmentKinds, assessmentOptions, assessmentStatuses, type Assessment, type AssessmentAnswer, type AssessmentDetail, type AssessmentQuestion, type AssessmentTemplate } from './assessments'
+
+const props = defineProps<{ workspace: Workspace; assessmentId?: string }>()
+const emit = defineEmits<{ sessionExpired: [] }>()
+const home = `#/${encodeURIComponent(props.workspace.slug)}`
+const base = workspacePath(props.workspace.slug) + '/assessments'
+const active = new AbortController()
+const items = ref<Assessment[]>([])
+const templates = ref<AssessmentTemplate[]>([])
+const activities = ref<{ id: number; name: string; kind: string }[]>([])
+const detail = ref<AssessmentDetail>()
+const answers = reactive<Record<string, AssessmentAnswer>>({})
+const error = ref('')
+const notice = ref('')
+const busy = ref(false)
+const loading = ref(false)
+const showCreate = ref(false)
+const showTemplates = ref(false)
+const kindFilter = ref('')
+const statusFilter = ref('')
+const reviewNote = ref('')
+const checkIds = ref('')
+const canCreate = computed(() => ['owner', 'operator'].includes(props.workspace.role))
+const published = computed(() => templates.value.filter(t => t.state === 'published' && t.revisionId))
+const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+const create = reactive({ title: '', activityId: '', templateRevisionId: '', dueAt: due, refreshMinutes: 1440 })
+const templateDraft = ref<AssessmentTemplate>()
+const templateForm = reactive({ key: '', title: '', kind: 'pia', baseRevisionId: undefined as number | undefined, questions: [] as AssessmentQuestion[] })
+const editingTemplate = ref(false)
+const factChoices = Object.entries(assessmentFactLabels)
+
+function showError(value: unknown) {
+  if (active.signal.aborted) return
+  if (value instanceof ApiError && value.status === 401) emit('sessionExpired')
+  else error.value = describeError(value)
+}
+function applyDetail(value: AssessmentDetail) {
+  detail.value = value
+  for (const key of Object.keys(answers)) delete answers[key]
+  for (const question of value.template.questions) {
+    answers[question.key] = structuredClone(value.answers.find(a => a.key === question.key) ?? { key: question.key, values: [], evidenceIds: [] })
+  }
+  checkIds.value = value.checks.map(c => c.id).join(', ')
+  reviewNote.value = ''
+}
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    if (props.assessmentId) applyDetail(await request<AssessmentDetail>(base + '/' + encodeURIComponent(props.assessmentId), { signal: active.signal }))
+    else {
+      const query = new URLSearchParams({ kind: kindFilter.value, status: statusFilter.value })
+      items.value = (await request<{ items: Assessment[] }>(base + '?' + query, { signal: active.signal })).items
+      templates.value = (await request<{ items: AssessmentTemplate[] }>(base + '/templates', { signal: active.signal })).items
+      activities.value = (await request<{ items: { id: number; name: string; kind: string }[] }>(workspacePath(props.workspace.slug) + '/activities', { signal: active.signal })).items
+    }
+  } catch (e) { showError(e) } finally { loading.value = false }
+}
+async function perform(action: () => Promise<void>) {
+  if (busy.value) return
+  busy.value = true; error.value = ''; notice.value = ''
+  try { await action() } catch (e) { showError(e) } finally { busy.value = false }
+}
+async function createAssessment() {
+  await perform(async () => {
+    const value = await request<AssessmentDetail>(base, { method: 'POST', body: JSON.stringify({ ...create, activityId: Number(create.activityId), templateRevisionId: Number(create.templateRevisionId), dueAt: new Date(create.dueAt + 'T23:59:00').toISOString() }) })
+    window.location.hash = `${home}/assessments/${value.id}`
+  })
+}
+function answerInput() {
+  const ids = checkIds.value.split(/[，,\s]+/).filter(Boolean)
+  if (ids.some(id => !/^\d+$/.test(id) || Number(id) < 1)) throw new Error('请填写有效的整改检查编号，以逗号分隔。')
+  return { revision: detail.value!.revision, answers: Object.values(answers), checkIds: ids.map(Number) }
+}
+async function saveAnswers() {
+  if (!detail.value) return
+  await perform(async () => {
+    applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/answers', { method: 'PUT', body: JSON.stringify(answerInput()) }))
+    notice.value = '答复已保存。'
+  })
+}
+async function review(action: string) {
+  if (!detail.value) return
+  await perform(async () => {
+    const note = reviewNote.value
+    if (action === 'submit') applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/answers', { method: 'PUT', body: JSON.stringify(answerInput()) }))
+    applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/review', { method: 'POST', body: JSON.stringify({ revision: detail.value!.revision, action, note }) }))
+  })
+}
+async function refreshFacts() {
+  if (!detail.value) return
+  await perform(async () => {
+    applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/refresh', { method: 'POST', body: '{}' }))
+    notice.value = '已刷新并采用当前事实。活动范围变化时，旧答复已清除。'
+  })
+}
+function setNumber(key: string, event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  answers[key]!.number = value === '' ? undefined : Number(value)
+}
+function optionLabel(value: string) { return assessmentOptions[value] ?? value }
+function factFor(question: AssessmentQuestion) { return detail.value?.facts.find(f => f.key === question.factKey) }
+function editTemplate(value?: AssessmentTemplate, newVersion = false) {
+  templateDraft.value = value?.state === 'draft' ? value : undefined
+  Object.assign(templateForm, { key: value && (value.state === 'draft' || newVersion) ? value.key : '', title: value ? value.title + (value.state === 'draft' || newVersion ? '' : '副本') : '', kind: value?.kind ?? 'pia', baseRevisionId: value?.revisionId, questions: value ? structuredClone(value.questions) : [] })
+  editingTemplate.value = true
+}
+function addQuestion() {
+  templateForm.questions.push({ key: 'question_' + (templateForm.questions.length + 1), title: '', kind: 'text', basis: '', basisUrl: '', applicability: '', evidence: '', acceptance: '', requirementCode: 'P04', obligation: 'conditional_law', required: true })
+}
+async function saveTemplate() {
+  await perform(async () => {
+    const suffix = templateDraft.value ? '/' + templateDraft.value.id + '/draft' : ''
+    const value = await request<AssessmentTemplate>(base + '/templates' + suffix, { method: templateDraft.value ? 'PUT' : 'POST', body: JSON.stringify({ ...templateForm, revision: templateDraft.value?.revision ?? 0 }) })
+    templateDraft.value = value
+    notice.value = '草稿已保存，发布后可创建评估。'
+    await load()
+  })
+}
+async function publishTemplate(value: AssessmentTemplate) {
+  await perform(async () => { await request(base + '/templates/' + value.id + '/publish', { method: 'POST', body: JSON.stringify({ revision: value.revision }) }); editingTemplate.value = false; await load() })
+}
+async function disableTemplate(value: AssessmentTemplate) {
+  await perform(async () => { await request(base + '/templates/' + value.revisionId + '/disable', { method: 'POST', body: '{}' }); await load() })
+}
+onMounted(load)
+onBeforeUnmount(() => active.abort())
+</script>
+
+<template>
+  <div class="assessments-page">
+    <header class="page-header">
+      <div><a v-if="assessmentId" :href="home + '/assessments'">返回专项评估</a><h1>{{ detail?.title ?? '专项评估' }}</h1><p>围绕实际处理活动核验条件、留存依据并完成独立复核。</p></div>
+      <div class="actions">
+        <button type="button" class="button secondary" :disabled="loading || busy" @click="load">刷新</button>
+        <template v-if="!assessmentId"><button type="button" class="button secondary" @click="showTemplates = !showTemplates">{{ showTemplates ? '评估记录' : '模板管理' }}</button><button v-if="canCreate" type="button" class="button primary" @click="showCreate = !showCreate">新建评估</button></template>
+        <template v-if="detail"><a class="button secondary" :href="base + '/' + detail.id + '/export?format=json'">导出 JSON</a><a class="button secondary" :href="base + '/' + detail.id + '/export?format=html'">导出报告</a></template>
+      </div>
+    </header>
+    <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+    <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+    <p v-if="loading" role="status">正在读取评估与采用的来源事实…</p>
+
+    <section v-if="!assessmentId && showCreate && canCreate" class="panel">
+      <h2>创建专项评估</h2>
+      <form class="assessment-form" @submit.prevent="createAssessment">
+        <label class="field">评估名称<input v-model="create.title" required maxlength="100"></label>
+        <label class="field">处理活动<select v-model="create.activityId" required><option value="">选择已登记活动</option><option v-for="a in activities" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <label class="field">已发布模板<select v-model="create.templateRevisionId" required><option value="">选择模板版本</option><option v-for="t in published" :key="t.revisionId" :value="String(t.revisionId)">{{ assessmentKinds[t.kind] }} · {{ t.title }} · v{{ t.revision }}</option></select></label>
+        <label class="field">评估期限<input v-model="create.dueAt" type="date" required></label>
+        <label class="field">机器事实刷新间隔（分钟）<input v-model.number="create.refreshMinutes" type="number" min="5" max="43200" required></label>
+        <button class="button primary" :disabled="busy || !activities.length || !published.length">创建并采集事实</button>
+      </form>
+      <p v-if="!activities.length">请先在<a :href="home + '/activities'">处理活动</a>登记评估范围。</p>
+    </section>
+
+    <template v-if="!assessmentId && !showTemplates">
+      <form class="filter-bar" @submit.prevent="load"><label class="field">评估类型<select v-model="kindFilter"><option value="">全部类型</option><option v-for="(label, key) in assessmentKinds" :key="key" :value="key">{{ label }}</option></select></label><label class="field">状态<select v-model="statusFilter"><option value="">全部状态</option><option v-for="(label, key) in assessmentStatuses" :key="key" :value="key">{{ label }}</option></select></label><button class="button secondary" :disabled="loading">查询</button></form>
+      <section class="panel"><h2>评估记录</h2><p v-if="!loading && !items.length">当前范围内尚无评估。</p><div v-else class="table-scroll"><table class="data-table"><thead><tr><th>评估</th><th>类型</th><th>当前状态</th><th>期限</th><th>更新时间</th></tr></thead><tbody><tr v-for="item in items" :key="item.id"><td><a :href="home + '/assessments/' + item.id">{{ item.title }}</a></td><td>{{ assessmentKinds[item.kind] }}</td><td>{{ assessmentStatuses[item.status] }}<span v-if="item.stale" class="badge">待重新评估</span></td><td>{{ formatDate(item.dueAt) }}</td><td>{{ formatDate(item.updatedAt) }}</td></tr></tbody></table></div><p class="muted">展示最近100条评估，业务条件缺失会保留为待核验。</p></section>
+    </template>
+
+    <section v-if="!assessmentId && showTemplates" class="panel">
+      <div class="panel-heading"><h2>版本化评估模板</h2><button v-if="workspace.role === 'owner'" class="button secondary" @click="editTemplate()">创建模板草稿</button></div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>模板</th><th>类型与版本</th><th>状态</th><th>题目</th><th>操作</th></tr></thead><tbody><tr v-for="t in templates" :key="t.state + ':' + t.id"><td>{{ t.title }}<small>{{ t.key }}</small></td><td>{{ assessmentKinds[t.kind] }} · v{{ t.revision }}</td><td>{{ { draft: '草稿', published: '已发布', disabled: '已停用' }[t.state] ?? t.state }}</td><td>{{ t.questions.length }}</td><td class="actions"><template v-if="workspace.role === 'owner'"><button class="button secondary" @click="editTemplate(t)">{{ t.state === 'draft' ? '编辑' : '复制为草稿' }}</button><button v-if="t.state !== 'draft' && !t.builtIn" class="button secondary" @click="editTemplate(t, true)">创建新版本</button><button v-if="t.state === 'draft'" class="button secondary" :disabled="busy" @click="publishTemplate(t)">发布</button><button v-else-if="t.state === 'published' && !t.builtIn" class="button secondary" :disabled="busy" @click="disableTemplate(t)">停用</button></template></td></tr></tbody></table></div>
+      <form v-if="editingTemplate" class="assessment-template-editor" @submit.prevent="saveTemplate">
+        <h3>模板草稿</h3><div class="assessment-form"><label class="field">模板标识<input v-model="templateForm.key" required pattern="[a-z0-9][a-z0-9_-]{0,59}" :disabled="!!templateDraft"></label><label class="field">名称<input v-model="templateForm.title" required maxlength="100"></label><label class="field">评估类型<select v-model="templateForm.kind" :disabled="!!templateDraft"><option v-for="(label, key) in assessmentKinds" :key="key" :value="key">{{ label }}</option></select></label></div>
+        <fieldset v-for="(q, index) in templateForm.questions" :key="index" class="assessment-question"><legend>{{ q.title || '新题目' }}</legend><div class="assessment-form"><label class="field">题目标识<input v-model="q.key" required pattern="[a-z0-9][a-z0-9_-]{0,59}"></label><label class="field">题目<input v-model="q.title" required maxlength="100"></label><label class="field">题型<select v-model="q.kind"><option value="single">单选</option><option value="multi">多选</option><option value="text">文本</option><option value="number">数字</option><option value="evidence">证据引用</option></select></label><label class="field">依据性质<select v-model="q.obligation"><option value="conditional_law">依条件适用的法定义务</option><option value="recommended">组织治理建议</option></select></label><label class="field">关联监管要求<input v-model="q.requirementCode" required maxlength="12"></label><label class="field">自动事实来源<select v-model="q.factKey"><option value="">由评估人核实</option><option v-for="[key, label] in factChoices" :key="key" :value="key">{{ label }}</option></select></label></div><label v-if="q.kind === 'single' || q.kind === 'multi'" class="field">选项（每行一个）<textarea :value="q.options?.join('\n')" required @input="q.options = ($event.target as HTMLTextAreaElement).value.split('\n').map(v => v.trim()).filter(Boolean)"></textarea></label><label class="field">法规或治理依据<input v-model="q.basis" required maxlength="400"></label><label class="field">官方依据链接<input v-model="q.basisUrl" type="url" required></label><label class="field">适用条件<textarea v-model="q.applicability" required maxlength="1000"></textarea></label><label class="field">取证要求<textarea v-model="q.evidence" required maxlength="1000"></textarea></label><label class="field">验收标准<textarea v-model="q.acceptance" required maxlength="1000"></textarea></label><label><input v-model="q.required" type="checkbox">独立通过前须完成</label><button class="button secondary" type="button" @click="templateForm.questions.splice(index, 1)">移除此题</button></fieldset>
+        <div class="actions"><button type="button" class="button secondary" :disabled="templateForm.questions.length >= 25" @click="addQuestion">添加题目</button><button class="button primary" :disabled="busy || !templateForm.questions.length">保存草稿</button><button type="button" class="button secondary" @click="editingTemplate = false">收起</button></div>
+      </form>
+    </section>
+
+    <template v-if="detail">
+      <section class="panel assessment-summary"><div><span class="badge">{{ assessmentKinds[detail.kind] }}</span> <span class="badge">{{ assessmentStatuses[detail.status] }}</span><p>{{ detail.activity.name }} · {{ detail.template.title }} v{{ detail.template.revision }}</p><p>创建人 {{ detail.creator }}<span v-if="detail.reviewer"> · 复核人 {{ detail.reviewer }}</span></p></div><div><p>评估期限 {{ formatDate(detail.dueAt) }}</p><p>事实刷新 {{ formatDate(detail.factsRefreshedAt) }}</p><p>每 {{ detail.refreshMinutes }} 分钟核对机器事实</p></div></section>
+      <p v-if="detail.stale" class="error-message" role="status">活动或来源事实已变化。{{ detail.canEdit ? '请刷新并核对当前范围，业务范围变化后需要重新答题。' : '当前采用快照已过期，请建立新评估并补齐取证。' }}</p>
+      <section class="panel"><div class="panel-heading"><h2>来源事实</h2><button v-if="detail.canEdit" class="button secondary" :disabled="busy" @click="refreshFacts">刷新并采用当前事实</button></div><p>登记信息与自动采集分别保留来源，尚未核实的业务条件继续取证。</p><p v-if="detail.automaticApplicability" class="assessment-auto-fact">范围自动判定 · {{ detail.automaticApplicability.state === 'applicable' ? '登记活动符合评估范围' : '待核实触发条件' }} · {{ detail.automaticApplicability.reason }}</p><div class="table-scroll"><table class="data-table"><thead><tr><th>事实</th><th>观察结果</th><th>来源与记录</th></tr></thead><tbody><tr v-for="fact in detail.facts" :key="fact.key"><td>{{ assessmentFactLabels[fact.key] ?? fact.key }}</td><td>{{ fact.state === 'known' ? fact.value : '待核实' }}</td><td>{{ fact.source }}<small>{{ fact.record }}<template v-if="fact.observedAt"> · {{ formatDate(fact.observedAt) }}</template></small></td></tr></tbody></table></div></section>
+      <form class="panel" @submit.prevent="saveAnswers">
+        <h2>评估答复</h2><p>{{ detail.basis }}</p>
+        <fieldset v-for="q in detail.template.questions" :key="q.key" class="assessment-question" :disabled="!detail.canEdit || detail.stale || busy"><legend>{{ q.title }} <small v-if="q.required">须完成</small></legend><p><span class="badge">{{ q.obligation === 'recommended' ? '组织治理建议' : '依条件适用' }}</span> {{ q.applicability }}</p><p><a :href="q.basisUrl" target="_blank" rel="noopener noreferrer">{{ q.basis }}</a></p><p v-if="factFor(q)" class="assessment-auto-fact">自动事实 · {{ factFor(q)?.state === 'known' ? factFor(q)?.value : '待核实' }}<button v-if="q.kind === 'text' && factFor(q)?.state === 'known' && detail.canEdit && !detail.stale" class="button secondary" type="button" @click="answers[q.key]!.value = factFor(q)?.value">采用此事实</button></p>
+          <label v-if="q.kind === 'single'" class="field">核验结论<select v-model="answers[q.key]!.value"><option value="">请选择</option><option v-for="option in q.options" :key="option" :value="option">{{ optionLabel(option) }}</option></select></label>
+          <div v-else-if="q.kind === 'multi'" class="assessment-options"><label v-for="option in q.options" :key="option"><input v-model="answers[q.key]!.values" type="checkbox" :value="option">{{ optionLabel(option) }}</label></div>
+          <label v-else-if="q.kind === 'text'" class="field">答复<textarea v-model="answers[q.key]!.value" maxlength="2000" rows="4"></textarea></label>
+          <label v-else-if="q.kind === 'number'" class="field">经核实的数值<input :value="answers[q.key]!.number ?? ''" type="number" min="0" step="1" @input="setNumber(q.key, $event)"></label>
+          <label v-else class="field">已登记证据（可多选）<select v-model="answers[q.key]!.evidenceIds" multiple size="5"><option v-for="e in detail.evidence" :key="e.id" :value="e.id">#{{ e.id }} · {{ e.source }} · {{ e.summary }}</option></select><span v-if="!detail.evidence.length">请先在相关资产或活动的检查中登记证据。</span></label>
+          <label class="field">理由与范围说明<textarea v-model="answers[q.key]!.note" maxlength="1000" rows="2"></textarea></label><details><summary>取证要求与验收标准</summary><p>{{ q.evidence }}</p><p>{{ q.acceptance }}</p></details>
+        </fieldset>
+        <label class="field">关联整改检查编号（逗号分隔）<input v-model="checkIds" :disabled="!detail.canEdit || detail.stale || busy" inputmode="numeric"></label>
+        <div v-if="detail.canEdit" class="actions"><button class="button primary" :disabled="busy || detail.stale">保存答复</button><button class="button secondary" type="button" :disabled="busy || detail.stale" @click="review('submit')">提交独立复核</button></div>
+      </form>
+      <section class="panel"><h2>取证缺口与整改</h2><p v-if="!detail.gaps.length && !detail.risks.length">当前答复已覆盖模板要求，结论由独立人员核验。</p><ul><li v-for="gap in detail.gaps" :key="gap.key">{{ gap.title }} · {{ gap.reason }}</li><li v-for="risk in detail.risks" :key="'risk:' + risk.key">{{ risk.title }} · {{ risk.reason }}</li></ul><p v-for="check in detail.checks" :key="check.id"><a :href="home + '/checks/' + check.id">检查 #{{ check.id }}</a> · {{ check.requirementCode }} · {{ check.status }} · {{ check.ownerTeam }}</p><p v-if="detail.evidenceTruncated">候选证据列表已达到展示上限，请按实际范围核对采用证据编号。</p></section>
+      <section v-if="detail.canReview" class="panel"><h2>独立复核</h2><label class="field">复核意见<textarea v-model="reviewNote" maxlength="1000" rows="3"></textarea></label><div class="actions"><button class="button secondary" :disabled="busy || !reviewNote.trim()" @click="review('return')">退回补充</button><button class="button primary" :disabled="busy || !reviewNote.trim() || !detail.canApprove" @click="review('approve')">独立通过</button></div><p v-if="!detail.canApprove">活动过期、未完成答复和关联整改检查会阻止通过。</p></section>
+      <section class="panel"><h2>评估历史</h2><ol class="assessment-history"><li v-for="event in detail.events" :key="event.id"><strong>{{ { created: '创建评估', answers_saved: '保存答复', submit: '提交复核', return: '退回补充', approve: '独立通过', stale: '标记过期' }[event.action] ?? event.action }}</strong> · {{ event.actor }} · {{ formatDate(event.createdAt) }}<p v-if="event.note">{{ event.note }}</p></li></ol></section>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.assessments-page { display: grid; gap: 24px; }
+.assessment-summary, form.panel { padding: 18px; }
+.assessments-page > section.panel > h2,
+.assessments-page > section.panel > p { margin-left: 18px; margin-right: 18px; }
+.assessments-page > section.panel > .assessment-form,
+.assessments-page > section.panel > .assessment-template-editor { margin: 18px; }
+.assessments-page > section.panel > .assessment-history { margin-right: 18px; margin-left: 18px; }
+.assessment-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 18px; align-items: end; }
+.assessment-summary { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.assessment-question { margin: 24px 0; padding: 22px; border: 1px solid var(--line, #dbe5ed); border-radius: 12px; min-width: 0; }
+.assessment-question legend { padding: 0 8px; font-weight: 600; }
+.assessment-question p { max-width: 80ch; }
+.assessment-question .field { margin: 16px 0; }
+.assessment-question:disabled { opacity: 1; }
+.assessment-question textarea, .assessment-question select, .assessment-question input { max-width: 100%; }
+.assessment-options { display: flex; gap: 16px; flex-wrap: wrap; margin: 18px 0; }
+.assessment-options label { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+.assessment-auto-fact { padding: 14px; background: var(--surface-muted, #f5f8fe); border-radius: 8px; }
+.assessment-template-editor { margin-top: 28px; }
+.assessment-history { padding-left: 24px; }
+.assessment-history li { padding: 10px 0; }
+small { display: block; margin-top: 5px; color: var(--muted, #53667d); overflow-wrap: anywhere; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 600px) { .assessment-question { padding: 14px; } }
+</style>

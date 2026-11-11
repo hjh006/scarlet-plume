@@ -20,17 +20,38 @@ var (
 )
 
 type Observation struct {
-	Method          string           `json:"method"`
-	Route           string           `json:"route"`
-	Status          int              `json:"status"`
-	ObservedAt      time.Time        `json:"observedAt"`
-	DatabaseSystems []string         `json:"databaseSystems,omitempty"`
-	TraceRef        string           `json:"traceRef,omitempty"`
-	SpanRef         string           `json:"spanRef,omitempty"`
-	SubjectRef      string           `json:"subjectRef,omitempty"`
-	DatabaseTargets []DatabaseTarget `json:"databaseTargets,omitempty"`
-	DataFields      []DataField      `json:"dataFields,omitempty"`
-	CaptureWarnings []string         `json:"captureWarnings,omitempty"`
+	Method             string           `json:"method"`
+	Route              string           `json:"route"`
+	Status             int              `json:"status"`
+	ObservedAt         time.Time        `json:"observedAt"`
+	DatabaseSystems    []string         `json:"databaseSystems,omitempty"`
+	TraceRef           string           `json:"traceRef,omitempty"`
+	SpanRef            string           `json:"spanRef,omitempty"`
+	ParentSpanRef      string           `json:"parentSpanRef,omitempty"`
+	ServiceCalls       []ServiceCall    `json:"serviceCalls,omitempty"`
+	SubjectRef         string           `json:"subjectRef,omitempty"`
+	DatabaseTargets    []DatabaseTarget `json:"databaseTargets,omitempty"`
+	DataFields         []DataField      `json:"dataFields,omitempty"`
+	CaptureWarnings    []string         `json:"captureWarnings,omitempty"`
+	AuthState          string           `json:"authState,omitempty"`
+	AuthRequired       *bool            `json:"authRequired,omitempty"`
+	SecuritySignals    []SecuritySignal `json:"securitySignals,omitempty"`
+	InspectedLocations []string         `json:"inspectedLocations,omitempty"`
+}
+
+// SecuritySignal is a bounded source-side pattern observation, not proof of a vulnerability.
+type SecuritySignal struct {
+	Kind     string `json:"kind"`
+	Location string `json:"location"`
+	Count    int64  `json:"count"`
+	Observed int64  `json:"observed"`
+}
+
+// ServiceCall preserves only an explicitly configured peer.service alias and
+// the HTTP CLIENT span that the receiving SERVER must name as its parent.
+type ServiceCall struct {
+	TargetService string `json:"targetService"`
+	SpanRef       string `json:"spanRef"`
 }
 
 type DatabaseTarget struct {
@@ -67,6 +88,9 @@ func NormalizeObservation(o Observation) (Observation, error) {
 		return Observation{}, ErrInvalidObservation
 	}
 	o.ObservedAt = o.ObservedAt.UTC()
+	if err := normalizeSecurity(&o); err != nil {
+		return Observation{}, err
+	}
 	systems := make([]string, 0)
 	for _, item := range o.DatabaseSystems {
 		system := strings.ToLower(item)

@@ -15,3 +15,5 @@ __pycache__/
 .coverage.*
 /htmlcov/
 /.scarlet-runtime-tls/
+
+/.scarlet-validation/

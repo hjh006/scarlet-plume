@@ -1,0 +1,46 @@
+name: scarlet-discovery-sample
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SCARLET_DISCOVERY_MYSQL_ROOT_PASSWORD:?Set a random root password}
+      MYSQL_DATABASE: discovery_sample
+      MYSQL_USER: discovery_reader
+      MYSQL_PASSWORD: ${SCARLET_DISCOVERY_MYSQL_PASSWORD:?Set a random reader password}
+    ports: ["127.0.0.1:13316:3306"]
+    volumes: ["./discovery-sample/mysql.sql:/docker-entrypoint-initdb.d/001-sample.sql:ro", "mysql_data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+  mariadb:
+    image: mariadb:11.8
+    environment:
+      MARIADB_ROOT_PASSWORD: ${SCARLET_DISCOVERY_MYSQL_ROOT_PASSWORD:?Set a random root password}
+      MARIADB_DATABASE: discovery_sample
+      MARIADB_USER: discovery_reader
+      MARIADB_PASSWORD: ${SCARLET_DISCOVERY_MYSQL_PASSWORD:?Set a random reader password}
+    ports: ["127.0.0.1:13318:3306"]
+    volumes: ["./discovery-sample/mysql.sql:/docker-entrypoint-initdb.d/001-sample.sql:ro", "mariadb_data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+  mongodb:
+    image: mongo:8.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: discovery_admin
+      MONGO_INITDB_ROOT_PASSWORD: ${SCARLET_DISCOVERY_MONGO_PASSWORD:?Set a random mongo password}
+    ports: ["127.0.0.1:13317:27017"]
+    volumes: ["./discovery-sample/mongo.js:/docker-entrypoint-initdb.d/001-sample.js:ro", "mongo_data:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+volumes:
+  mysql_data:
+  mariadb_data:
+  mongo_data:

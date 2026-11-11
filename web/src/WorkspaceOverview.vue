@@ -9,7 +9,7 @@ import './overview.css'
 const props = defineProps<{ home: string; overview: Overview | null; loading?: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
 const metrics = computed(() => [
-  { label: '接入来源', value: props.overview?.counts.activeSources, route: 'automation', icon: 'assets', tone: 'teal' },
+  { label: '已配置来源', value: props.overview?.counts.activeSources, route: 'automation', icon: 'assets', tone: 'teal' },
   { label: '数据资产', value: props.overview?.counts.assets, route: 'assets', icon: 'classification', tone: 'violet' },
   { label: '待处置发现', value: props.overview?.counts.openRuntimeFindings, route: 'api-security/runtime', icon: 'warning', tone: 'coral' },
   { label: '待复核检查', value: props.overview?.counts.inReview, route: 'checks', icon: 'checks', tone: 'blue' },
@@ -22,15 +22,15 @@ const tasks = computed(() => [
 const sources = computed(() => props.overview?.collectionSources ?? [])
 const findings = computed(() => props.overview?.recentFindings ?? [])
 const sourceStates: Record<string, string> = {
-  collecting: '采集中', queued: '已排队', paused: '已暂停', enabled: '已启用', failed: '采集失败', never_run: '待首次采集', observing: '已接入',
+  collecting: '采集中', queued: '已排队', paused: '已暂停', enabled: '已启用', failed: '采集失败', never_run: '待首次记录', observing: '已接入',
 }
 const destinations = computed(() => [
   { label: '分类识别', detail: `${props.overview?.counts.assets ?? 0} 项资产`, icon: 'classification', route: 'classification', tone: 'violet' },
   { label: '监管取证', detail: `${props.overview?.counts.checks ?? 0} 项检查`, icon: 'checks', route: 'checks', tone: 'blue' },
   { label: '报告归档', detail: '查看真实检查与证据', icon: 'reports', route: 'reports/archives', tone: 'teal' },
 ])
-function sourceTarget(kind: string) { return props.home + (kind === 'runtime' ? '/api-security/runtime' : '/automation') }
-function sourceIcon(provider: string) { return ['otlp', 'gateway'].includes(provider) ? 'api-security' : provider === 'postgresql' ? 'assets' : 'integrations' }
+function sourceTarget(kind: string) { return props.home + (kind === 'runtime' ? '/api-security/runtime' : kind === 'discovery' ? '/discovery' : kind === 'operations' ? '/operations' : '/automation') }
+function sourceIcon(provider: string) { return ['otlp', 'gateway'].includes(provider) ? 'api-security' : ['postgresql','mysql','mariadb','mongodb'].includes(provider) ? 'assets' : 'integrations' }
 function sourceProvider(provider: string) { return provider === 'otlp' ? '应用探针 · OTLP' : provider === 'gateway' ? '独立 Agent / 网关' : provider === 'feishu' ? '飞书' : providerLabel(provider) }
 </script>
 
@@ -104,7 +104,7 @@ function sourceProvider(provider: string) { return provider === 'otlp' ? '应用
         <div class="overview-panel-heading"><h2 id="overview-collections-title">采集来源状态</h2><a class="quiet-link" :href="home + '/automation'">管理来源 <Icon name="chevron" /></a></div>
         <ul v-if="sources.length" class="overview-source-list"><li v-for="source in sources" :key="source.kind + ':' + source.id"><Icon :name="sourceIcon(source.provider)" /><span class="overview-source-name"><a :href="sourceTarget(source.kind)">{{ source.name }}</a><small>{{ sourceProvider(source.provider) }}</small></span><span class="overview-source-status" :data-state="source.state">{{ sourceStates[source.state] || '状态待确认' }}</span><time v-if="source.lastObservedAt || source.lastRunAt" :datetime="source.lastObservedAt || source.lastRunAt">{{ formatDate(source.lastObservedAt || source.lastRunAt || '') }}</time><span v-else class="overview-source-time">尚无采集记录</span></li></ul>
         <div v-else class="overview-empty"><Icon name="automation" /><strong>尚无接入来源</strong><p>配置 PostgreSQL 自动采集，或接入独立 Agent 与应用探针。</p><a :href="home + '/automation'">添加采集来源 <Icon name="chevron" /></a></div>
-        <p v-if="sources.length" class="overview-source-note">状态来自任务配置与最近记录，不代表实时连通性。</p>
+        <p v-if="sources.length" class="overview-source-note">来源数按配置统计，包含暂停的发现任务及尚未撤销的集成；此处最多预览6项。状态来自最近记录，不代表实时连通性。</p>
       </section>
     </div>
 

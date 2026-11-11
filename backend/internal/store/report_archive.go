@@ -87,6 +87,15 @@ func archiveManagedPostgresReport(ctx context.Context, tx pgx.Tx, job Automation
 		if err := readReportDataFlows(ctx, reportTx, job.workspaceID, &report); err != nil {
 			return err
 		}
+		if err := readReportCatalogDiscovery(ctx, reportTx, job.workspaceID, &report); err != nil {
+			return err
+		}
+		if err := readReportOperations(ctx, reportTx, job.workspaceID, &report); err != nil {
+			return err
+		}
+		if err := readReportAssessmentReferences(ctx, reportTx, job.workspaceID, &report); err != nil {
+			return err
+		}
 		snapshot, err := json.Marshal(report)
 		if err != nil {
 			return err

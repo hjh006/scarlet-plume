@@ -41,6 +41,8 @@ export const assetCategoryLabels: Record<string, string> = {
   business: '业务数据', personal: '个人信息', sensitive_personal: '敏感个人信息',
 }
 
+export const assetStatutoryCategoryLabels: Record<string,string> = {unknown:'待认定',general:'一般数据',important:'重要数据',core:'核心数据'}
+
 export const assetBusinessLevelLabels: Record<string, string> = {
   internal: '内部', confidential: '机密',
 }
@@ -96,7 +98,7 @@ export interface Overview {
     id: number
     name: string
     provider: string
-    kind: 'automation' | 'runtime'
+    kind: 'automation' | 'runtime' | 'discovery' | 'operations'
     state: 'collecting' | 'queued' | 'paused' | 'enabled' | 'failed' | 'never_run' | 'observing'
     lastObservedAt?: string
     lastRunAt?: string
@@ -180,7 +182,16 @@ export function formatDate(value: string) {
   return Number.isNaN(date.valueOf()) ? '—' : dateFormat.format(date)
 }
 
-export function providerLabel(provider: string) {
+export function providerLabel(provider: string): string {
+  if (provider.startsWith('discovery:')) return '数据发现 · ' + providerLabel(provider.slice('discovery:'.length))
+  if (provider === 'discovery') return '多源数据发现'
+  if (provider === 'mysql') return 'MySQL'
+  if (provider === 'mariadb') return 'MariaDB'
+  if (provider === 'mongodb') return 'MongoDB'
+  if (provider === 'cmdb') return 'CMDB 导入'
+  if (provider === 'security-events' || provider === 'security_events') return '安全事件集成'
+  if (provider === 'postgres_control') return 'PostgreSQL 权限执行器'
+
   if (provider === 'postgresql') return 'PostgreSQL'
   if (provider === 'openmetadata') return 'OpenMetadata'
   if (provider === 'openapi') return 'OpenAPI'
