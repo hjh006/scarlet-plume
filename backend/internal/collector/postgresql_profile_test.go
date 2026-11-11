@@ -42,6 +42,7 @@ func TestPostgreSQLBoundedSourceAggregates(t *testing.T) {
 	t.Cleanup(func() { _ = admin.Close(context.Background()) })
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	schema, reader := "profile_"+suffix, "profile_reader_"+suffix
+	const password = "profile-test-fixture"
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -58,7 +59,7 @@ func TestPostgreSQLBoundedSourceAggregates(t *testing.T) {
 	})
 	_, err = admin.Exec(ctx, fmt.Sprintf(`
 CREATE SCHEMA %[1]s;
-CREATE ROLE %[2]s LOGIN;
+CREATE ROLE %[2]s LOGIN PASSWORD '%[3]s';
 GRANT USAGE ON SCHEMA %[1]s TO %[2]s;
 CREATE TABLE %[1]s.a_customers(id bigint PRIMARY KEY, contact text NOT NULL UNIQUE, mobile text, doc text, card text, payload jsonb, CHECK (id>0));
 COMMENT ON TABLE %[1]s.a_customers IS 'Synthetic customer metadata';
@@ -83,7 +84,7 @@ CREATE TABLE %[1]s."f_quoted" ("value""; select" text);
 INSERT INTO %[1]s."f_quoted" VALUES ('quoted@example.test');
 GRANT SELECT ON %[1]s.a_customers,%[1]s.c_rls,%[1]s.d_large,%[1]s.e_slow,%[1]s.f_quoted TO %[2]s;
 ANALYZE %[1]s.a_customers;
-`, schema, reader))
+`, schema, reader, password))
 	must(err)
 	_, err = admin.Exec(ctx, "COMMENT ON TABLE "+schema+".f_quoted IS '"+strings.Repeat("x", 600)+"'")
 	must(err)
@@ -93,7 +94,7 @@ ANALYZE %[1]s.a_customers;
 	}
 	u, err := url.Parse(dsn)
 	must(err)
-	u.User = url.User(reader)
+	u.User = url.UserPassword(reader, password)
 	tables, err := InspectPostgreSQL(ctx, u.String(), []string{schema}, true)
 	must(err)
 	find := func(name string) PostgreSQLTable {

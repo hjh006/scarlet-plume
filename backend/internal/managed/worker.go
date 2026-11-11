@@ -72,7 +72,9 @@ func (m *Manager) collectClaim(ctx context.Context, claim store.ManagedPostgresC
 		Host: claim.Config.Host, Port: claim.Config.Port, Database: claim.Config.Database,
 		User: claim.Config.User, Schemas: claim.Config.Schemas,
 	}
-	delivery := store.AutomationDelivery{RunID: claim.RunID, Provider: "postgresql", Source: claim.Source}
+	// The source snapshot can predate collection completion. Fresh retests must
+	// start after remediation, including when a collection spans an edit.
+	delivery := store.AutomationDelivery{RunID: claim.RunID, Provider: "postgresql", Source: claim.Source, ObservedAt: time.Now().UTC()}
 	collectionCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
@@ -112,7 +114,6 @@ func (m *Manager) collectClaim(ctx context.Context, claim store.ManagedPostgresC
 			delivery.Assets[i] = store.CollectedAsset{SourceRef: asset.SourceRef, Name: asset.Name}
 		}
 	}
-	delivery.ObservedAt = time.Now().UTC()
 	digest := sha256.Sum256(encoded)
 	delivery.Digest = hex.EncodeToString(digest[:])
 	return delivery
