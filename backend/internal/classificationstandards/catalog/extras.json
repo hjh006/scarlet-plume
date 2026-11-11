@@ -1,0 +1,699 @@
+[
+  {
+    "id": "qxt-757-2025",
+    "code": "QX/T 757—2025",
+    "title": "气象数据安全分级指南",
+    "industry": "气象",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2025-05-19",
+    "effectiveOn": "2025-10-01",
+    "authority": "中国气象局",
+    "url": "https://www.cma.gov.cn/zfxxgk/gknr/flfgbz/bz/202512/P020251225481554080615.pdf",
+    "scope": "推荐性气象行业标准。适用于气象行业开展数据安全分级，涉及气象观测原始数据、数据集及加工形成的衍生数据。",
+    "levels": [
+      {
+        "code": "l4",
+        "label": "4级"
+      },
+      {
+        "code": "l3",
+        "label": "3级"
+      },
+      {
+        "code": "l2",
+        "label": "2级"
+      },
+      {
+        "code": "l1",
+        "label": "1级"
+      }
+    ],
+    "rules": [
+      {
+        "id": "meteorological-data-context",
+        "clause": "5.1–5.3、附录 A（资料性）",
+        "title": "评估气象数据的分级要素",
+        "criterion": "确定待分级的气象数据集或衍生数据，结合区域、数值或时空精度、规模、深度和业务重要性评估危害。",
+        "evidence": "观测或产品来源、时空分辨率和覆盖范围、产出方式、影响分析。"
+      },
+      {
+        "id": "meteorological-grade-review",
+        "clause": "5.4–5.5、6.1–6.3",
+        "title": "复核气象数据四级定级",
+        "criterion": "根据影响对象及程度核对四级划分，并将标识补充至目录，由数据安全管理决策组织批准。",
+        "evidence": "定级清单、影响分析、标识、目录和审批记录。",
+        "levelCodes": [
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      },
+      {
+        "id": "meteorological-core-important-baseline",
+        "clause": "7",
+        "title": "核验核心和重要气象数据的安全级别",
+        "criterion": "按国家及行业主管部门规定识别和认定核心、重要数据。已认定的核心数据宜至少为四级，已认定的重要数据宜至少为三级。",
+        "evidence": "主管部门目录或告知、认定依据、气象行业安全级别记录。",
+        "levelCodes": [
+          "l4",
+          "l3"
+        ]
+      },
+      {
+        "id": "meteorological-data-regrade",
+        "clause": "6.4",
+        "title": "复核合并和衍生气象数据",
+        "criterion": "数据时效、规模、应用场景或影响变化时重新定级。合并、脱敏、汇聚融合形成的新数据也应重新评估。",
+        "evidence": "处理方式、数据血缘、变更前后范围、重定级记录。"
+      }
+    ]
+  },
+  {
+    "id": "nyt-4261-2022",
+    "code": "NY/T 4261—2022",
+    "title": "农业大数据安全管理指南",
+    "industry": "农业",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2022-11-11",
+    "effectiveOn": "2023-03-01",
+    "authority": "农业农村部",
+    "url": "https://www.moa.gov.cn/ztzl/zhnyzxd/bzgf/xb/202411/P020241122655981957113.pdf",
+    "scope": "推荐性农业行业标准。适用于农业组织管理农业大数据，也供第三方评估参考。按本标准记录技术分级初始值，重要和核心数据认定依现行主管规定核验。",
+    "levels": [
+      {
+        "code": "l5",
+        "label": "五级",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "l4",
+        "label": "四级",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "l3",
+        "label": "三级",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "l2",
+        "label": "二级",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "l1",
+        "label": "一级",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "agricultural-grading-object",
+        "clause": "7.2.1–7.2.4",
+        "title": "确定农业数据项和集合的分类粒度",
+        "criterion": "结合应用场景确定分类到数据项、集合或两者，并按影响对象、范围、程度评估安全属性。",
+        "evidence": "目录和集合边界、数据来源、业务用途、影响评估。"
+      },
+      {
+        "id": "agricultural-grading-reference",
+        "clause": "7.3.1–7.3.2、附录 A（规范性）",
+        "title": "对照五级初始值判断标准",
+        "criterion": "结合农业业务与地域特点，按影响对象、范围和程度评估五级初始值。多项条件涉及不同级别时从高考虑并复核适用目录。",
+        "evidence": "影响对象、范围与严重程度、定级依据、适用的行业目录、复核记录。",
+        "levelCodes": [
+          "l5",
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      },
+      {
+        "id": "agricultural-grading-approval",
+        "clause": "7.4–7.5、附录 B（规范性）",
+        "title": "留存农业分类分级审批和变更",
+        "criterion": "初始分类分级经过专家研判和部门评审后履行审批。数据内容、场景、处理方式或适用要求变化时重新评估。",
+        "evidence": "初始等级、专家意见、部门评审和审批记录、变更后的目录。"
+      }
+    ]
+  },
+  {
+    "id": "nbs-classification-2022",
+    "code": "2022 年版",
+    "title": "统计数据分类分级标准规范（2022）",
+    "industry": "统计",
+    "kind": "guideline",
+    "status": "effective",
+    "authority": "国家统计局",
+    "url": "https://www.stats.gov.cn/zs/tjws/jbtjzswd/tjbz/202503/t20250324_1959129.html",
+    "scope": "国家统计局于 2022 年 12 月印发的统计工作分类分级规范。适用于统计工作中处理的非涉密数据。规则以国家统计局公开释义的章节为依据。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心统计数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要统计数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般统计数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "statistical-data-taxonomy",
+        "clause": "国家统计局公开释义二（一）",
+        "title": "区分基层数据和综合数据",
+        "criterion": "根据数据来源和加工过程，将直接从统计调查对象采集的数据与整理、汇总或推算形成的数据分别编目。",
+        "evidence": "调查对象类型、采集或计算方式、数据血缘和口径。"
+      },
+      {
+        "id": "statistical-national-census",
+        "clause": "国家统计局公开释义二（二）第1项",
+        "title": "核验全国规模普查的基层数据",
+        "criterion": "复核是否为全国规模的重大国情国力普查基层数据，并结合覆盖度、精度、规模及政治安全影响核对核心统计数据条件。",
+        "evidence": "调查项目、普查范围、基层数据性质、规模和主管部门依据。",
+        "levelCodes": [
+          "core"
+        ]
+      },
+      {
+        "id": "statistical-provincial-coverage",
+        "clause": "国家统计局公开释义二（二）第2项",
+        "title": "核验重要统计数据覆盖范围",
+        "criterion": "核查基层数据覆盖是否达到省级及以上，抽样样本是否足以推算省级及以上总量。对重要领域、特定群体和发布前的综合数据复核其影响。",
+        "evidence": "覆盖范围、抽样和估算方法、公开状态、领域与群体范围、主管部门依据。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "statistical-grading-updates",
+        "clause": "国家统计局公开释义二（二）第3–4项、三",
+        "title": "按最高级别复核并动态更新",
+        "criterion": "同一类别含不同等级时按最高级别定级。统计处理活动或外部风险变化后，复核数据类别及安全等级。",
+        "evidence": "目录、分级结果及变更差异、审批和复核记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "kssj-aq11-2023",
+    "code": "KSSJ/AQ11—2023",
+    "title": "智能化矿山数据融合共享 数据分级定级规范",
+    "industry": "矿山",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2023-06-26",
+    "authority": "国家矿山安全监察局",
+    "url": "https://www.chinamine-safety.gov.cn/xw/zt/2018zt/mkjqryfyy/gzdt_01/202307/W020230704681873630871.pdf",
+    "scope": "国家矿山安全监察局发布的智能化矿山数据融合共享技术规范。适用于智能化矿山数据安全分级定级，也供第三方开展检查评估时参考。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general-4",
+        "label": "一般数据（4级）",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "general-3",
+        "label": "一般数据（3级）",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "general-2",
+        "label": "一般数据（2级）",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "general-1",
+        "label": "一般数据（1级）",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "mine-safety-impact",
+        "clause": "5.1–5.3、表 3–4",
+        "title": "复核矿山生产安全和其他影响",
+        "criterion": "根据矿山数据受损的后果，分别评估矿山生产安全、国家安全、公共利益和组织及个人权益。结合现行监管目录复核重要和核心数据，或按表 4 细分一般数据。",
+        "evidence": "数据用途、采矿或生产系统依赖、影响对象和严重程度、监管目录或确认依据。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general-4",
+          "general-3",
+          "general-2",
+          "general-1"
+        ]
+      },
+      {
+        "id": "mine-derived-data",
+        "clause": "6.2–6.3",
+        "title": "按加工和融合变化复核矿山数据",
+        "criterion": "以原始数据级别为基准，对统计、汇聚、脱敏等加工结果重新评估。数据体量、应用场景或影响变化时复核。",
+        "evidence": "数据血缘、加工方式、变更前后规模和适用范围、复核与审批记录。"
+      },
+      {
+        "id": "mine-grading-flow",
+        "clause": "5.2、6.4",
+        "title": "记录矿山数据定级和目录",
+        "criterion": "按资产梳理、分类、定级、审核流程办理，分别记录核心和重要数据目录并核对适用备案要求。",
+        "evidence": "数据清单、影响评估、定级及审核记录、适用目录和备案凭证。"
+      }
+    ]
+  },
+  {
+    "id": "hj-417-2025",
+    "code": "HJ 417—2025",
+    "title": "生态环境信息分类与代码",
+    "industry": "生态环境",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2025-02-10",
+    "effectiveOn": "2025-05-01",
+    "authority": "生态环境部",
+    "url": "https://www.mee.gov.cn/ywgz/fgbz/bz/bzwb/other/xxbz/202502/t20250220_1102564.shtml",
+    "scope": "生态环境部发布的国家生态环境标准，替代 HJ/T 417—2007。适用于生态环境信息的处理、编目与交换，提供业务分类和编码。",
+    "levels": [],
+    "rules": [
+      {
+        "id": "ecology-environment-taxonomy",
+        "clause": "4–7",
+        "title": "按生态环境信息类目编目",
+        "criterion": "按正式类目和编码梳理生态环境政务、监管、监测、调查等数据。安全级别应结合另行适用的分级依据确定。",
+        "evidence": "业务归属、类目和代码、映射后的目录、责任单位。"
+      },
+      {
+        "id": "ecology-environment-mapping",
+        "clause": "8、附录 A（资料性）",
+        "title": "复核历史生态环境目录映射",
+        "criterion": "已有 HJ/T 417—2007 目录时，使用新旧代码映射检查迁移和缺失条目。",
+        "evidence": "旧目录、新目录、代码映射、未匹配项处理记录。"
+      }
+    ]
+  },
+  {
+    "id": "gbt-44462-4-2026",
+    "code": "GB/T 44462.4—2026",
+    "title": "工业互联网企业网络安全 第4部分：数据防护要求",
+    "industry": "工业互联网",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2026-03-31",
+    "effectiveOn": "2026-10-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=7F3CAB698C68BE2407C0FD636C9B75AC",
+    "scope": "推荐性国家标准。适用于工业互联网企业开展数据安全防护，也可供开展数据安全评估时参考。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "industrial-internet-asset-grading",
+        "clause": "5 a)–c)、附录 A",
+        "title": "梳理工业互联网数据资产并定级",
+        "criterion": "制定并定期评审分类分级策略，盘点企业全量工业互联网数据并依据附录分类。结合危害对象与程度确定一般、重要或核心数据。",
+        "evidence": "分类分级策略、全量资产清单、附录类别、潜在影响和定级评审。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "industrial-internet-grading-catalog",
+        "clause": "5 d)–e)、附录 B",
+        "title": "维护目录并核查变更备案",
+        "criterion": "形成并定期复查分类分级目录。重大生产经营变化或系统改建导致数据管理、流动或级别变化时更新。对重要或核心数据核验适用备案和变更程序。",
+        "evidence": "数据目录与版本、内部审核、变更记录、监管目录或备案凭证。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gbt-42447-2023",
+    "code": "GB/T 42447—2023",
+    "title": "信息安全技术 电信领域数据安全指南",
+    "industry": "电信",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2023-03-17",
+    "effectiveOn": "2023-10-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=78419327C5FA2389D10516874C69D7CE",
+    "scope": "推荐性国家标准。供电信数据处理者开展电信领域数据安全管理使用，按数据类别和级别采取适合的保护措施。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "telecom-national-inventory",
+        "clause": "5、6 b)、7.2 a)",
+        "title": "按来源、用途和业务复核电信数据目录",
+        "criterion": "定期梳理电信领域数据资产，按业务需求、来源和用途分类，依适用标准分级并更新清单。",
+        "evidence": "业务需求、来源和用途、数据资产版本、分类分级记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "telecom-national-important-core",
+        "clause": "5、7.2 b)",
+        "title": "维护电信重要和核心数据目录",
+        "criterion": "按照国家及行业有关规范识别重要或核心数据，更新目录、核查备案，并应用对应的增强措施。",
+        "evidence": "适用的识别指南及告知、目录版本和备案凭证、保护措施。",
+        "levelCodes": [
+          "core",
+          "important"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "lyt-2170-2026",
+    "code": "LY/T 2170—2026",
+    "title": "林业草原网络安全技术要求",
+    "industry": "林业草原",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2026-06-03",
+    "effectiveOn": "2026-09-01",
+    "authority": "国家林业和草原局",
+    "url": "https://hbba.sacinfo.org.cn/portal/online/84104ba1dfe2508a0b00ca3aaac7508a53df73ecac1d9aacd07ec9737d57814a",
+    "scope": "推荐性林业行业标准，适用于林草信息系统及数据的安全建设和管理，涉及国家秘密的系统和数据不适用。已核验官方公开正式全文。2026年9月1日起代替 LY/T 2170—2013、LY/T 2413.3—2015、LY/T 2929—2017；数据分级依 GB/T 43697—2024 和林草领域规则、目录，本标准不另设一套独立安全等级。",
+    "levels": [],
+    "rules": [
+      {
+        "id": "forestry-classification-scope",
+        "clause": "12.1 a)",
+        "title": "结合林草规则识别并分级",
+        "criterion": "盘点系统承载的数据，结合林草重要数据规则、标准和目录，依 GB/T 43697—2024 分类分级。",
+        "evidence": "系统数据目录、林草适用依据、类别级别和复核记录。"
+      },
+      {
+        "id": "forestry-level-protection-access",
+        "clause": "12.1 b)、c)",
+        "title": "将分类级别用于防护和授权",
+        "criterion": "依据数据类别和级别配置保护措施与使用权限。",
+        "evidence": "分类分级清单、防护措施、权限矩阵及有效权限核验。"
+      },
+      {
+        "id": "forestry-collection-classification",
+        "clause": "12.2 d)",
+        "title": "采集数据时同步分类分级",
+        "criterion": "采集过程中同步落实林草领域的数据分类分级规则。",
+        "evidence": "采集任务、规则版本、入库分类标签和异常复核。"
+      },
+      {
+        "id": "forestry-level-masking",
+        "clause": "12.4 f)",
+        "title": "按类别和级别制定脱敏流程",
+        "criterion": "识别需脱敏的数据，并结合类别及级别实施相应处理流程。",
+        "evidence": "脱敏范围、分类级别、策略和处理效果核验。"
+      }
+    ]
+  },
+  {
+    "id": "gyt-339-2-2020",
+    "code": "GY/T 339.2—2020",
+    "title": "有线电视网络大数据技术规范 第2部分：平台要求",
+    "industry": "广播电视",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2020-12-22",
+    "effectiveOn": "2020-12-22",
+    "authority": "国家广播电视总局",
+    "url": "https://www.nrta.gov.cn/module/download/downfile.jsp?classid=0&filename=36ceb3f3766f44d78d918b31b0a47184.pdf",
+    "scope": "推荐性广播电视和网络视听行业标准。适用于有线电视网络大数据平台的设计、建设和运行，规定平台分类分级与标签管控能力。",
+    "levels": [],
+    "rules": [
+      {
+        "id": "cable-television-platform-grading",
+        "clause": "6.7.1.1 a)–c)",
+        "title": "核验平台分类分级与标签授权能力",
+        "criterion": "检查有线电视大数据平台能否按数据分类、级别和安全标签执行授权及访问控制，并在采集、存储、处理和分析环节一致实施分级保护。",
+        "evidence": "标签定义、权限策略、跨环节配置或测试记录、样例授权与拒绝事件。"
+      }
+    ]
+  },
+  {
+    "id": "gbt-42012-2022",
+    "code": "GB/T 42012—2022",
+    "title": "信息安全技术 即时通信服务数据安全要求",
+    "industry": "即时通信",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2022-10-14",
+    "effectiveOn": "2023-05-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=136B8F06A548FAE8ABB375E4C65C1E38",
+    "scope": "推荐性国家标准。适用于即时通信服务提供者开展数据安全保护，也可供监管、评估等参考。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "messaging-service-taxonomy",
+        "clause": "5.2、6 d)",
+        "title": "识别即时通信服务数据类别",
+        "criterion": "区分个人或组织用户数据与业务数据，核对账号资料、组织通讯录、业务统计和运营数据的实际用途。",
+        "evidence": "账号及通讯录字段字典、用户类型、运营数据来源、处理活动目录。"
+      },
+      {
+        "id": "messaging-service-grading",
+        "clause": "6 c)、附录 B（资料性）",
+        "title": "复核即时通信服务的数据级别",
+        "criterion": "识别核心、重要和一般数据，依不同级别确定相应保护措施。结合适用主管部门目录及附录中的重要数据识别参考核查具体数据集。",
+        "evidence": "数据分类分级目录、数据范围与影响评估、适用条目及其来源、保护措施与复核记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gbt-42014-2022",
+    "code": "GB/T 42014—2022",
+    "title": "信息安全技术 网上购物服务数据安全要求",
+    "industry": "电子商务",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2022-10-14",
+    "effectiveOn": "2023-05-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=9679A3BF5D736D7FC92FD8157AAAAC82",
+    "scope": "推荐性国家标准。适用于网上购物服务提供者开展数据安全保护，也可供监管、评估等参考。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "shopping-service-taxonomy",
+        "clause": "5.2、6 d)",
+        "title": "识别网上购物服务数据类别",
+        "criterion": "区分买家消费记录、收件信息和卖家账户等用户数据，与商品、库存、销量和平台经营等业务数据。",
+        "evidence": "买卖双方及收件人角色、数据字典、订单履约或运营用途、目录映射。"
+      },
+      {
+        "id": "shopping-service-grading",
+        "clause": "6 c)、附录 B（资料性）",
+        "title": "复核网上购物服务的数据级别",
+        "criterion": "识别核心、重要和一般数据，依不同级别确定相应保护措施。结合适用主管部门目录及附录中的重要数据识别参考核查具体数据集。",
+        "evidence": "数据分类分级目录、数据范围与影响评估、适用条目及其来源、保护措施与复核记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gbt-42015-2022",
+    "code": "GB/T 42015—2022",
+    "title": "信息安全技术 网络支付服务数据安全要求",
+    "industry": "网络支付",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2022-10-14",
+    "effectiveOn": "2023-05-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=CEB5771DBBF05ED5EA99EBA50896537F",
+    "scope": "推荐性国家标准。适用于网络支付服务提供者开展数据安全保护，也可供监管、评估等参考。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "payment-service-taxonomy",
+        "clause": "5.2、6 d)",
+        "title": "识别网络支付服务数据类别",
+        "criterion": "区分个人和组织的用户数据，与商户签约、支付结算等业务数据。按实际身份鉴别和交易用途复核个人信息敏感性。",
+        "evidence": "用户与商户角色、支付流程、字段用途、脱敏字段字典及已评审的类别。"
+      },
+      {
+        "id": "payment-service-grading",
+        "clause": "6 c)、附录 B（资料性）",
+        "title": "复核网络支付服务的数据级别",
+        "criterion": "识别核心、重要和一般数据，依不同级别确定相应保护措施。结合适用主管部门目录及附录中的重要数据识别参考核查具体数据集。",
+        "evidence": "数据分类分级目录、数据范围与影响评估、适用条目及其来源、保护措施与复核记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gbt-42016-2022",
+    "code": "GB/T 42016—2022",
+    "title": "信息安全技术 网络音视频服务数据安全要求",
+    "industry": "网络音视频",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2022-10-14",
+    "effectiveOn": "2023-05-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=20615352AC128FC97F8005161976B921",
+    "scope": "推荐性国家标准。适用于网络音视频服务提供者开展数据安全保护，也可供监管、评估等参考。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "audiovisual-service-taxonomy",
+        "clause": "5.2、6 d)",
+        "title": "识别网络音视频服务数据类别",
+        "criterion": "区分账户资料、浏览和播放等用户数据，与内容数据、平台运营数据等业务数据。",
+        "evidence": "账户和行为数据字典、内容与运营数据来源、使用场景、分类目录。"
+      },
+      {
+        "id": "audiovisual-service-grading",
+        "clause": "6 c)、附录 B（资料性）",
+        "title": "复核网络音视频服务的数据级别",
+        "criterion": "识别核心、重要和一般数据，依不同级别确定相应保护措施。结合适用主管部门目录及附录中的重要数据识别参考核查具体数据集。",
+        "evidence": "数据分类分级目录、数据范围与影响评估、适用条目及其来源、保护措施与复核记录。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      }
+    ]
+  }
+]

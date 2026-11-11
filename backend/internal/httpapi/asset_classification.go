@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/classificationstandards"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 )
 
@@ -13,10 +14,15 @@ func (s *server) classificationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base, s.workspace(false, s.listAssetClassifications))
 	mux.HandleFunc("GET "+base+"/{asset}", s.workspace(false, s.getAssetClassification))
 	mux.HandleFunc("PUT "+base+"/{asset}", s.workspace(true, s.updateAssetClassification))
+	const standards = "/api/v1/workspaces/{slug}/classification/standards"
+	mux.HandleFunc("GET "+standards, s.workspace(false, s.classificationStandards))
+	mux.HandleFunc("PUT "+standards+"/default", s.workspace(true, s.setClassificationStandardDefault))
 }
 
 func classificationFailure(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, classificationstandards.ErrSelection):
+		fail(w, http.StatusBadRequest, "请核对现行标准、所选等级与条款是否匹配。")
 	case errors.Is(err, store.ErrInvalid):
 		fail(w, http.StatusBadRequest, "请核对分类、分级、判定理由和版本。")
 	case errors.Is(err, store.ErrForbidden):
@@ -77,6 +83,9 @@ func (s *server) updateAssetClassification(w http.ResponseWriter, r *http.Reques
 		BusinessLevel     string `json:"businessLevel"`
 		StatutoryCategory string `json:"statutoryCategory"`
 		Basis             string `json:"basis"`
+		StandardID        string `json:"standardId"`
+		LevelCode         string `json:"levelCode"`
+		RuleID            string `json:"ruleId"`
 	}
 	if !readJSONLimit(w, r, &payload, 8<<10) {
 		return
@@ -88,10 +97,43 @@ func (s *server) updateAssetClassification(w http.ResponseWriter, r *http.Reques
 	detail, err := s.store.UpdateAssetClassification(r.Context(), ws.ID, user.ID, id, store.AssetClassificationInput{
 		Revision: *payload.Revision, Category: payload.Category, BusinessLevel: payload.BusinessLevel,
 		StatutoryCategory: payload.StatutoryCategory, Basis: payload.Basis,
+		StandardID: payload.StandardID, LevelCode: payload.LevelCode, RuleID: payload.RuleID,
 	})
 	if err != nil {
 		classificationFailure(w, err)
 		return
 	}
 	respond(w, http.StatusOK, detail)
+}
+
+func (s *server) classificationStandards(w http.ResponseWriter, r *http.Request, _ store.User, ws store.Workspace) {
+	items, err := classificationstandards.List()
+	if err != nil {
+		storeFailure(w, err)
+		return
+	}
+	id, err := s.store.ClassificationStandardDefault(r.Context(), ws.ID)
+	if err != nil {
+		storeFailure(w, err)
+		return
+	}
+	respond(w, http.StatusOK, map[string]any{"items": items, "defaultStandardId": id, "catalogAsOf": classificationstandards.CatalogAsOf})
+}
+
+func (s *server) setClassificationStandardDefault(w http.ResponseWriter, r *http.Request, user store.User, ws store.Workspace) {
+	if ws.Role != "owner" {
+		classificationFailure(w, store.ErrForbidden)
+		return
+	}
+	var input struct {
+		StandardID string `json:"standardId"`
+	}
+	if !readJSONLimit(w, r, &input, 2<<10) {
+		return
+	}
+	if err := s.store.SetClassificationStandardDefault(r.Context(), ws.ID, user.ID, input.StandardID); err != nil {
+		classificationFailure(w, err)
+		return
+	}
+	respond(w, http.StatusOK, map[string]string{"defaultStandardId": input.StandardID})
 }

@@ -1,0 +1,1128 @@
+[
+  {
+    "id": "gbt-43697-2024",
+    "code": "GB/T 43697—2024",
+    "title": "数据安全技术 数据分类分级规则",
+    "industry": "通用",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2024-03-15",
+    "effectiveOn": "2024-10-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=F0C385EDC38CBF277AEC021F23126ADE",
+    "scope": "推荐性国家标准。供行业领域主管部门、各地区各部门和数据处理者开展分类分级使用。涉及国家秘密的数据和军事数据按相应规定处理。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "industry-business-classification",
+        "clause": "5.1–5.2",
+        "title": "按行业和业务属性分类",
+        "criterion": "先确定数据所属行业领域，再结合业务属性细分。涉及个人信息等有专门管理要求的类别时，依相应规定识别和标识。",
+        "evidence": "数据来源、所属业务、数据主体和处理活动台账，标明分类口径。"
+      },
+      {
+        "id": "impact-assessment",
+        "clause": "6.1–6.6",
+        "title": "评估分级要素与危害",
+        "criterion": "先确定分级对象，再结合领域、群体、区域、精度、规模、深度、覆盖度和重要性评估风险。依据可能造成的最高影响综合定级。",
+        "evidence": "数据项或数据集范围、分级要素及取值来源、影响对象和程度、复核结论。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "cii-operating-data",
+        "clause": "6.5 b)、附录 G c)、g)",
+        "title": "复核关键信息基础设施数据",
+        "criterion": "核查数据是否支撑关键信息基础设施所属行业的核心业务，或是否反映关键信息基础设施运行、网络配置、拓扑、应急和安全情况。结合实际危害识别候选。",
+        "evidence": "关键信息基础设施或业务范围依据、数据语义及系统依赖、访问范围、风险评估。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "nonpublic-vulnerability-data",
+        "clause": "6.5 b)、附录 G h)",
+        "title": "复核未公开重大漏洞或攻击信息",
+        "criterion": "核查未公开重大漏洞、攻击方法或辅助信息能否被用于攻击重点目标。核验信息未公开状态及可能造成的危害。",
+        "evidence": "漏洞级别、披露状态和时间、受影响目标及其依赖、风险评估。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "important-data-identification",
+        "clause": "6.5 b)、6.6 b)、附录 G（规范性）",
+        "title": "识别重要数据候选",
+        "criterion": "对照附录 G 和适用行业目录逐项核查。仅影响组织自身或公民个体的情形通常不足以认定重要数据。",
+        "evidence": "适用目录或告知文件及版本、附录条目、命中所需场景和范围、人工确认记录。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "core-data-identification",
+        "clause": "3.3、6.5 a)",
+        "title": "核验核心数据条件",
+        "criterion": "核查数据是否关系国家安全重点领域、国民经济命脉、重要民生或重大公共利益，并结合覆盖度、精度、规模、深度、直接危害程度及主管部门认定。",
+        "evidence": "数据覆盖对象与口径、风险场景、主管部门目录或确认依据、内部审批记录。",
+        "levelCodes": [
+          "core"
+        ]
+      },
+      {
+        "id": "derived-and-combined-data",
+        "clause": "4 d)、6.6 d) 和 f)、附录 I（资料性）",
+        "title": "复核汇聚与衍生数据",
+        "criterion": "以数据项的最高级别作为数据集默认级别，复核规模、覆盖度等变化。对汇聚或衍生数据，结合血缘和加工后新增影响重新评估。",
+        "evidence": "数据血缘、加工方式、变更记录、规模和覆盖度差异、定级评审记录。"
+      },
+      {
+        "id": "ordinary-grading",
+        "clause": "6.5 c)、6.6 e)、附录 H（资料性）",
+        "title": "核对一般数据及企业细分口径",
+        "criterion": "完成重要和核心数据识别后，按标准确定一般数据范围。需要细化一般数据保护时，结合组织自身安全需求参考附录 H。",
+        "evidence": "重要和核心数据识别结果、适用的组织细分方法、一般数据清单。",
+        "levelCodes": [
+          "general"
+        ]
+      },
+      {
+        "id": "dynamic-grading",
+        "clause": "7.2、附录 J（资料性）",
+        "title": "复核数据级别变化",
+        "criterion": "数据业务属性、重要性或潜在危害变化时，重新审核分类分级结果，按规定更新数据目录和标识。",
+        "evidence": "变化事件、旧版及新版目录、复核人员、更新时间和报送记录。"
+      }
+    ]
+  },
+  {
+    "id": "gbt-45574-2025",
+    "code": "GB/T 45574—2025",
+    "title": "数据安全技术 敏感个人信息处理安全要求",
+    "industry": "通用",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2025-04-25",
+    "effectiveOn": "2025-11-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=F9F3A2EBF49E9B4D73AD8C8912986D5A",
+    "scope": "推荐性国家标准。适用于个人信息处理者识别和处理敏感个人信息，也供主管部门和第三方评估机构监督管理和评估。",
+    "levels": [
+      {
+        "code": "sensitive-pi",
+        "label": "敏感个人信息"
+      }
+    ],
+    "rules": [
+      {
+        "id": "sensitive-pi-identification",
+        "clause": "4.1–4.2、附录 A（规范性）",
+        "title": "按语义和个人权益影响识别敏感个人信息",
+        "criterion": "结合信息用途及泄露、非法使用对人格尊严、人身或财产安全的影响，复核生物识别、医疗健康、金融账户、连续轨迹等类别。结合适用规定识别不满十四周岁未成年人的个人信息。",
+        "evidence": "分类标签、数据主体和用途、影响分析、例外适用依据，使用脱敏证据。",
+        "levelCodes": [
+          "sensitive-pi"
+        ]
+      },
+      {
+        "id": "sensitive-pi-combination",
+        "clause": "4.1 c)",
+        "title": "复核一般个人信息的汇聚影响",
+        "criterion": "多项个人信息关联后，重新评估汇聚结果泄露或被非法使用对自然人的影响。达到识别条件时对整体采用相应保护措施。",
+        "evidence": "汇聚前后数据类别、关联条件、影响分析和批准后的识别结论。",
+        "levelCodes": [
+          "sensitive-pi"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "jrt-0197-2020",
+    "code": "JR/T 0197—2020",
+    "title": "金融数据安全 数据安全分级指南",
+    "industry": "金融业",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2020-09-23",
+    "effectiveOn": "2020-09-23",
+    "authority": "中国人民银行",
+    "url": "https://cfstc.pbc.gov.cn/bzgk/detail/?bzId=1873&id=0",
+    "scope": "推荐性金融行业标准。供金融业机构开展电子数据安全分级使用。五个安全等级依该标准评估，法定数据类别依主管部门规则另行确认。",
+    "levels": [
+      {
+        "code": "l5",
+        "label": "5级"
+      },
+      {
+        "code": "l4",
+        "label": "4级"
+      },
+      {
+        "code": "l3",
+        "label": "3级"
+      },
+      {
+        "code": "l2",
+        "label": "2级"
+      },
+      {
+        "code": "l1",
+        "label": "1级"
+      }
+    ],
+    "rules": [
+      {
+        "id": "evaluate-security-properties",
+        "clause": "5.2、5.3.2",
+        "title": "评估金融数据安全属性",
+        "criterion": "分别评估保密性、完整性、可用性受到破坏后的影响，并结合数据体量、客户范围和资金规模判断是否需要从高定级。",
+        "evidence": "关键业务和数据资产清单、影响评估、聚合规模、客户与资金统计口径。"
+      },
+      {
+        "id": "highest-financial-grade",
+        "clause": "5.3.1–5.3.2",
+        "title": "核对五级条件",
+        "criterion": "已按主管部门规定识别的重要数据，依本标准定级不得低于五级。危及国家安全或严重影响公众权益也是五级的典型判断依据。",
+        "evidence": "重要数据识别依据、关键业务依赖和国家安全或公众权益影响评估。",
+        "levelCodes": [
+          "l5"
+        ]
+      },
+      {
+        "id": "personal-finance-c3",
+        "clause": "5.3.1–5.3.2、表 2",
+        "title": "核对 C3 类信息的安全级别",
+        "criterion": "个人金融信息 C3 是四级的典型特征。结合使用场景和影响评估确定最低参考等级，存在更高危害时从高考虑。",
+        "evidence": "JR/T 0171 类别核对、字段用途、访问范围和危害评估记录。",
+        "levelCodes": [
+          "l4"
+        ]
+      },
+      {
+        "id": "personal-finance-c2",
+        "clause": "5.3.1–5.3.2、表 2",
+        "title": "核对 C2 类信息的安全级别",
+        "criterion": "个人金融信息 C2 是三级的典型特征。按具体影响范围和程度复核级别。",
+        "evidence": "字段语义和数据主体、个人金融信息分类、业务重要性和权限。",
+        "levelCodes": [
+          "l3"
+        ]
+      },
+      {
+        "id": "personal-finance-c1",
+        "clause": "5.3.1–5.3.2、表 2",
+        "title": "核对 C1 类信息的安全级别",
+        "criterion": "个人金融信息 C1 是二级的典型特征。机构内部受限使用和较轻私益损害可作为参考。",
+        "evidence": "字段业务用途、访问范围、隐私或组织权益影响评估。",
+        "levelCodes": [
+          "l2"
+        ]
+      },
+      {
+        "id": "public-financial-data",
+        "clause": "5.3.1、表 2",
+        "title": "核验一级数据的公开范围",
+        "criterion": "公开可获得且损害很小的数据可参照一级。应确认公开对象、来源和对公共利益的实际影响。",
+        "evidence": "依法公开依据、公开页面或内部发布审批、风险评估。",
+        "levelCodes": [
+          "l1"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "jrt-0171-2020",
+    "code": "JR/T 0171—2020",
+    "title": "个人金融信息保护技术规范",
+    "industry": "金融业",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2020-02-13",
+    "effectiveOn": "2020-02-13",
+    "authority": "中国人民银行",
+    "url": "https://cfstc.pbc.gov.cn/bzgk/detail/?bzId=1856&id=0",
+    "scope": "推荐性金融行业标准。适用于金融业机构开展个人金融信息保护，相关机构可参考。C1 至 C3 表示个人金融信息的敏感度类别。",
+    "levels": [
+      {
+        "code": "c3",
+        "label": "C3 类"
+      },
+      {
+        "code": "c2",
+        "label": "C2 类"
+      },
+      {
+        "code": "c1",
+        "label": "C1 类"
+      }
+    ],
+    "rules": [
+      {
+        "id": "authentication-information",
+        "clause": "4.2",
+        "title": "识别 C3 鉴别信息",
+        "criterion": "核对信息是否用于银行卡、支付账户、信贷或交易等用户鉴别。结合业务语义判断银行卡密码、卡片验证码等线索。",
+        "evidence": "身份鉴别流程、字段字典和业务确认，记录字段名及用途即可。",
+        "levelCodes": [
+          "c3"
+        ]
+      },
+      {
+        "id": "personal-finance-information",
+        "clause": "4.1–4.2",
+        "title": "识别 C2 个人金融信息",
+        "criterion": "核对金融账户标识、交易和借贷信息，以及与个人身份相关的信息。检查数据的实际用途和能否关联到自然人。",
+        "evidence": "分类字典、数据主体和关联关系、脱敏字段元数据、责任人确认。",
+        "levelCodes": [
+          "c2"
+        ]
+      },
+      {
+        "id": "remaining-personal-finance-information",
+        "clause": "4.2",
+        "title": "复核 C1 适用情形",
+        "criterion": "对于未落入 C2 或 C3 的个人金融信息，结合单项及关联使用时的敏感程度复核 C1。",
+        "evidence": "个人金融信息识别依据、已有分类结果及组合关联风险。",
+        "levelCodes": [
+          "c1"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "pbc-order-3-2025",
+    "code": "中国人民银行令〔2025〕第3号",
+    "title": "中国人民银行业务领域数据安全管理办法",
+    "industry": "人民银行业务领域",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2025-05-01",
+    "effectiveOn": "2025-06-30",
+    "authority": "中国人民银行",
+    "url": "https://www.pbc.gov.cn/zhengwugongkai/attachDir/2025/11/2025111915275027791.pdf",
+    "scope": "中国人民银行规章。适用于境内开展的人民银行业务领域数据处理及安全监管。业务数据指人民银行承担监督管理职责的业务领域内产生和收集的非涉密网络数据。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "resource-catalog",
+        "clause": "第七条、第八条、第十条",
+        "title": "维护业务数据资源目录",
+        "criterion": "对数据项标识个人信息、外部收集、存储系统和关联业务。分类分级结果履行内部审批，资源目录至少每年更新一次。",
+        "evidence": "目录导出、系统和数据项映射、版本更新记录、内部审批。"
+      },
+      {
+        "id": "sensitivity-marking",
+        "clause": "第八条第二项",
+        "title": "标识业务数据项敏感性",
+        "criterion": "结构化数据项逐项标识敏感性，非结构化数据优先按可拆分项中最高敏感性标识。按业务语境核验敏感个人信息等高敏感性情形。",
+        "evidence": "字段字典、敏感性标签、非结构化拆分或人工复核依据。"
+      },
+      {
+        "id": "availability-category",
+        "clause": "第八条第三项",
+        "title": "按业务影响核验可用性分类",
+        "criterion": "评估数据被篡改或破坏后对业务的影响，核对不同系统的数据恢复点目标。",
+        "evidence": "业务影响分析、恢复点目标、系统与业务映射。"
+      },
+      {
+        "id": "important-core-declaration",
+        "clause": "第九条",
+        "title": "识别并申报重要及核心数据",
+        "criterion": "核查本机构存储的业务数据是否落入重要或核心数据条件，依规定申报并核对主管部门目录告知。",
+        "evidence": "行业目录适用依据、影响评估、申报记录、主管部门确认或告知。",
+        "levelCodes": [
+          "important",
+          "core"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "nfra-24-2024",
+    "code": "金规〔2024〕24号",
+    "title": "银行保险机构数据安全管理办法",
+    "industry": "银行保险业",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2024-12-27",
+    "effectiveOn": "2024-12-27",
+    "authority": "国家金融监督管理总局",
+    "url": "https://www.nfra.gov.cn/cn/view/pages/ItemDetail.html?docId=1192308",
+    "scope": "国家金融监督管理总局发布的监管办法。适用于办法第二条列明的银行保险机构，具体机构类型以正文为准。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "sensitive-general",
+        "label": "敏感数据",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "ordinary-general",
+        "label": "其他一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "bank-insurance-business-catalog",
+        "clause": "第十六条、第十七条",
+        "title": "按业务属性维护数据目录",
+        "criterion": "根据业务和经营管理数据的属性，至少考虑客户、业务、经营管理、系统运行和安全管理等类型。结合分类分级维护目录。",
+        "evidence": "业务条线、目录版本、资产归类、部门和责任人清单。"
+      },
+      {
+        "id": "bank-insurance-sensitivity",
+        "clause": "第十八条",
+        "title": "判定一般数据细分等级",
+        "criterion": "核查数据泄露、篡改或损毁是否对经济运行、社会稳定、公共利益产生一定影响，或对组织、公民个体产生重要影响。按评估区分敏感数据和其他一般数据。",
+        "evidence": "数据内容描述、业务用途、影响对象和程度的评估及复核。",
+        "levelCodes": [
+          "sensitive-general",
+          "ordinary-general"
+        ]
+      },
+      {
+        "id": "bank-insurance-important-core",
+        "clause": "第十八条",
+        "title": "核验重要和核心数据条件",
+        "criterion": "结合领域、群体、区域、精度、规模、覆盖度或深度，分别核验对国家安全、经济运行、社会稳定、公共健康和安全等的潜在影响。",
+        "evidence": "适用目录与主管部门通知、影响分析、边界口径及确认记录。",
+        "levelCodes": [
+          "important",
+          "core"
+        ]
+      },
+      {
+        "id": "bank-insurance-regrade",
+        "clause": "第十九条、第二十七条",
+        "title": "复核属性或汇聚变化",
+        "criterion": "业务属性、重要性、潜在损害或汇聚融合结果发生变化时，及时评估级别并经审批调整相应保护措施。",
+        "evidence": "数据血缘或变更事件、调整审批、更新后的目录和保护措施。"
+      }
+    ]
+  },
+  {
+    "id": "cac-fin-info-2-2026",
+    "code": "国信办通字〔2026〕2号",
+    "title": "金融信息服务数据分类分级指南",
+    "industry": "金融信息服务",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2026-06-08",
+    "effectiveOn": "2026-06-08",
+    "authority": "国家互联网信息办公室、中国人民银行、国家金融监督管理总局、中国证券监督管理委员会、国家统计局、国家外汇管理局",
+    "url": "https://www.cac.gov.cn/2026-06/13/c_1782919789934988.htm",
+    "scope": "六部门正式印发。适用于在中国境内从事金融信息服务的提供者，覆盖业务、用户和企业数据。涉及国家秘密的数据和军事数据适用相应规定。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "sensitive-general",
+        "label": "敏感一般数据",
+        "statutoryCategory": "general"
+      },
+      {
+        "code": "ordinary-general",
+        "label": "常规一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "financial-information-taxonomy",
+        "clause": "4、附录 A",
+        "title": "按正式指南归类",
+        "criterion": "将金融信息服务数据划入业务、用户或企业数据，依附录 A 细分并核对具体业务含义。",
+        "evidence": "数据来源、使用场景、业务责任人、适用附录条目。"
+      },
+      {
+        "id": "financial-information-leveling",
+        "clause": "5.1–5.5、附录 A",
+        "title": "评估影响并核对等级参考",
+        "criterion": "结合覆盖度、时间跨度、精度、公开状态和地域评估危害。应用附录条目前核对口径及适用条件，保留决定依据。",
+        "evidence": "分级要素和来源、公开情况、覆盖范围、统计口径、影响对象和程度。",
+        "levelCodes": [
+          "core",
+          "important",
+          "sensitive-general",
+          "ordinary-general"
+        ]
+      },
+      {
+        "id": "financial-information-important-core",
+        "clause": "5.5、6",
+        "title": "复核重要和核心数据",
+        "criterion": "核验主管部门、地区标准或目录告知，结合指南判定条件和适用阈值复核候选，按规定形成分类分级清单和重要数据目录。",
+        "evidence": "部门告知或目录、阈值计算、交叉复核记录、报送依据和凭证。",
+        "levelCodes": [
+          "core",
+          "important"
+        ]
+      },
+      {
+        "id": "financial-information-change",
+        "clause": "5.6、6",
+        "title": "复核分级条件变化",
+        "criterion": "精度、覆盖范围、公开状态、加工方式等分级条件变化时重新核查。核心或重要数据有重大变化时核查重新报送条件，例如重要数据规模变化达到 30%。",
+        "evidence": "版本差异、数据血缘、分级要素及数量或存储规模变化、更新后的分级及报送记录。"
+      },
+      {
+        "id": "financial-user-basic-threshold",
+        "clause": "附录 A 个人用户基本信息",
+        "title": "按人数核查基本信息数据集",
+        "criterion": "对适用金融信息服务场景的个人用户基本信息数据集，以涉及自然人数为口径。达到 1000 万人时对照附录复核重要数据，低于阈值时参考敏感一般数据。",
+        "evidence": "数据集范围与用途、去重人数、统计时间和计算记录、复核结论。",
+        "levelCodes": [
+          "important",
+          "sensitive-general"
+        ]
+      },
+      {
+        "id": "financial-user-transaction-threshold",
+        "clause": "附录 A 个人用户交易数据",
+        "title": "按人数核查交易数据集",
+        "criterion": "对适用金融信息服务场景的个人用户交易数据集，涉及人数达到 100 万时对照附录复核重要数据，低于阈值时参考敏感一般数据。",
+        "evidence": "交易数据集语义、覆盖人数及去重口径、计算记录、复核结论。",
+        "levelCodes": [
+          "important",
+          "sensitive-general"
+        ]
+      },
+      {
+        "id": "financial-user-biometric-threshold",
+        "clause": "附录 A 个人用户生物特征识别信息",
+        "title": "按人数核查生物识别数据集",
+        "criterion": "对适用金融信息服务场景的个人用户生物特征识别信息数据集，涉及人数达到 10 万时对照附录复核重要数据，低于阈值时参考敏感一般数据。",
+        "evidence": "生物识别用途、数据范围、去重人数及统计口径、复核结论。",
+        "levelCodes": [
+          "important",
+          "sensitive-general"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gbt-42775-2023",
+    "code": "GB/T 42775—2023",
+    "title": "证券期货业数据安全风险防控 数据分类分级指引",
+    "industry": "证券期货业",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2023-08-06",
+    "effectiveOn": "2023-08-06",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=DB820CE40307DA73731814F2AB0E2DD6",
+    "scope": "推荐性国家标准。适用于证券期货业各类机构防控数据安全风险时开展分类分级，其他相关机构可参考。涉及国家秘密的数据适用相应规定。",
+    "levels": [
+      {
+        "code": "l4",
+        "label": "4级（极高）"
+      },
+      {
+        "code": "l3",
+        "label": "3级（高）"
+      },
+      {
+        "code": "l2",
+        "label": "2级（中）"
+      },
+      {
+        "code": "l1",
+        "label": "1级（低）"
+      }
+    ],
+    "rules": [
+      {
+        "id": "securities-business-data",
+        "clause": "6.4.1–6.4.2",
+        "title": "从业务条线映射到数据资产",
+        "criterion": "确定交易、监管、信息披露等业务条线，再按管理主体与管理范围细分，并将表、字段或文件等数据资产归入对应类别。",
+        "evidence": "业务条线、主体与范围映射、数据表和字段或文件清单。"
+      },
+      {
+        "id": "securities-grading",
+        "clause": "7.1–7.3",
+        "title": "评估证券期货数据影响",
+        "criterion": "评估子行业、行业机构和客户等受影响对象，区分跨子行业、多机构和单机构范围，再结合业务影响程度及实际可访问范围复核四级定级。",
+        "evidence": "保密性、完整性与可用性影响评估，开放或访问范围、分级审批。",
+        "levelCodes": [
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      },
+      {
+        "id": "securities-level-reference",
+        "clause": "7.3、附录 A（资料性）",
+        "title": "核对行业等级和附录最低参考",
+        "criterion": "按从高到低的极高、高、中、低四级复核，并用附录中匹配机构类型及业务场景的最低参考级别校验。",
+        "evidence": "机构和业务类型、影响三要素、必要知悉范围、所用附录条目和内部定级记录。",
+        "levelCodes": [
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      },
+      {
+        "id": "securities-dataset-change",
+        "clause": "8.1–8.5",
+        "title": "复核数据规模、聚合和时效变化",
+        "criterion": "规模、聚合或时效变化，以及对外提供和衍生加工时，重新评估数据级别。",
+        "evidence": "数据量和覆盖度、加工和提供记录、时效变化、复核前后等级。"
+      }
+    ]
+  },
+  {
+    "id": "jrt-0158-2018",
+    "code": "JR/T 0158—2018",
+    "title": "证券期货业数据分类分级指引",
+    "industry": "证券期货业",
+    "kind": "industry",
+    "status": "superseded",
+    "publishedOn": "2018-09-27",
+    "effectiveOn": "2018-09-27",
+    "authority": "中国证券监督管理委员会",
+    "url": "https://cfstc.pbc.gov.cn/bzgk/detail/?bzId=1753&id=3",
+    "scope": "金融标准全文公开系统标注为废止，并列明由 GB/T 42775—2023 替代。供历史版本追溯使用。",
+    "levels": [],
+    "rules": []
+  },
+  {
+    "id": "miit-166-2022",
+    "code": "工信部网安〔2022〕166号",
+    "title": "工业和信息化领域数据安全管理办法（试行）",
+    "industry": "工业和信息化",
+    "kind": "guideline",
+    "status": "effective",
+    "publishedOn": "2022-12-08",
+    "effectiveOn": "2023-01-01",
+    "authority": "工业和信息化部",
+    "url": "https://www.miit.gov.cn/gyhxxhb/jgsj/wlaqglj/sjaq/art/2022/art_8aefad495b3940f8a3236eef1d83096c.html",
+    "scope": "工信部正式印发的试行办法。适用于工业、相关软件和信息技术服务、电信和无线电等符合办法定义的数据处理者。",
+    "levels": [
+      {
+        "code": "core",
+        "label": "核心数据",
+        "statutoryCategory": "core"
+      },
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      },
+      {
+        "code": "general",
+        "label": "一般数据",
+        "statutoryCategory": "general"
+      }
+    ],
+    "rules": [
+      {
+        "id": "miit-classification",
+        "clause": "第七条、第八条",
+        "title": "按来源、用途和业务分类",
+        "criterion": "定期盘点数据，按行业和业务特点划分研发、生产运行、管理、运维、业务服务等类别，并更新目录。",
+        "evidence": "业务流程、资产清单、数据来源与用途、行业分类对应。"
+      },
+      {
+        "id": "miit-impact-assessment",
+        "clause": "第九条至第十一条",
+        "title": "评估行业影响与级联范围",
+        "criterion": "分别核查危害强度、影响行业和区域、持续时间及对生产运行、电信服务或无线电业务的潜在影响，综合评定数据级别。",
+        "evidence": "影响分析、关键生产运行依赖、范围与时长、行业目录或认定文件。",
+        "levelCodes": [
+          "core",
+          "important",
+          "general"
+        ]
+      },
+      {
+        "id": "miit-filing",
+        "clause": "第十二条",
+        "title": "核验目录备案和变更",
+        "criterion": "向属地行业监管部门备案重要和核心数据目录。某类数据规模变化达到规定阈值或其他备案事项变化时，核查变更备案时限。",
+        "evidence": "目录版本和规模统计、原备案及变更回执、变更时间。",
+        "levelCodes": [
+          "important",
+          "core"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sjt-12043-2025",
+    "code": "SJ/T 12043—2025",
+    "title": "工业数据分类分级指南",
+    "industry": "工业",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2025-09-09",
+    "effectiveOn": "2025-12-01",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=53F41DDFDC493089E06397BE0A0A51F6",
+    "scope": "现行推荐性电子行业标准。已核验官方标准目录，具体分类和分级规则以公开或授权的正式文本为准。",
+    "levels": [],
+    "rules": []
+  },
+  {
+    "id": "ydt-3813-2020",
+    "code": "YD/T 3813—2020",
+    "title": "基础电信企业数据分类分级方法",
+    "industry": "基础电信",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2020-12-09",
+    "effectiveOn": "2020-12-09",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=B80DCDBCBAF0CE3AE05397BE0A0A06D8",
+    "scope": "推荐性通信行业标准。适用于基础电信企业开展数据分类分级，涉及国家秘密的数据适用相应规定。",
+    "levels": [
+      {
+        "code": "l4",
+        "label": "第四级"
+      },
+      {
+        "code": "l3",
+        "label": "第三级"
+      },
+      {
+        "code": "l2",
+        "label": "第二级"
+      },
+      {
+        "code": "l1",
+        "label": "第一级"
+      }
+    ],
+    "rules": [
+      {
+        "id": "telecom-classification",
+        "clause": "数据分类分级方法（TC260-PG-20212A 附录 C.2 参考）",
+        "title": "区分用户相关和企业自身数据",
+        "criterion": "从基础电信业务活动和管理场景盘点资产，分别梳理用户相关数据及企业自身相关数据，再结合字段和业务细分。",
+        "evidence": "数据流转清单、系统或业务环节、数据主体、类别及业务确认。"
+      },
+      {
+        "id": "telecom-technical-levels",
+        "clause": "数据分类分级方法（TC260-PG-20212A 表 C.4 参考）",
+        "title": "记录基础电信安全级别",
+        "criterion": "记录按本标准复核后的第一至第四级。对重要数据另对照当前电信领域重要数据识别指南和主管部门目录。",
+        "evidence": "分级评估、适用范围、企业数据目录及复核记录。",
+        "levelCodes": [
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ydt-4244-2023",
+    "code": "YD/T 4244—2023",
+    "title": "电信网和互联网数据分类分级技术要求与测试方法",
+    "industry": "电信网和互联网",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2023-05-22",
+    "effectiveOn": "2023-08-01",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=FE86C10A0D163123E05397BE0A0A2FC5",
+    "scope": "推荐性通信行业标准。面向电信网和互联网数据分类分级相关技术工具的设计、开发、测试和评估。已核验官方目录。",
+    "levels": [],
+    "rules": []
+  },
+  {
+    "id": "ydt-4981-2024",
+    "code": "YD/T 4981—2024",
+    "title": "工业领域重要数据识别指南",
+    "industry": "工业",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2024-12-10",
+    "effectiveOn": "2025-04-01",
+    "authority": "工业和信息化部",
+    "url": "https://oss.jiaozuo.gov.cn/jiaozuo_gxj/upfile/202506/2025061738898197.pdf",
+    "scope": "推荐性通信行业标准。适用于工业企业及软件和信息技术服务企业识别工业领域重要数据。覆盖钢铁、有色、石化化工、装备、消费品、电子信息和软件等工业细分行业。依据政府公开的正式标准正文整理。",
+    "levels": [
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      }
+    ],
+    "rules": [
+      {
+        "id": "industrial-important-review-scope",
+        "clause": "4 a)、4 c)–f)、5.1–5.4",
+        "title": "组织工业数据识别与内部审批",
+        "criterion": "组织研发、生产、运维等部门盘点资产，再从行业与公共安全影响识别重要数据候选并内部审批。核对已有行业或属地规定。",
+        "evidence": "部门资产清单、业务分类、影响评估、识别清单和内部审批记录。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-national-security-context",
+        "clause": "6.2–6.3",
+        "title": "复核国家安全相关工业数据",
+        "criterion": "核查非涉密原始数据与国家秘密生成的关联，以及对经济、科技、网络或人工智能等国家安全领域的潜在严重影响。结合具体用途复核重要数据。",
+        "evidence": "数据用途和处理环节、公开状态、相关技术或业务的重要性、潜在影响和主管部门依据。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-development-supply-chain",
+        "clause": "6.4",
+        "title": "复核行业发展与供应链安全",
+        "criterion": "核查关键技术、工艺、设备以及行业供应链、经济运行、生产管控或绿色发展数据，评估数据事件对行业发展安全的严重影响。",
+        "evidence": "行业覆盖、关键技术或设备依赖、供应链或生产影响分析、数据公开情况。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-export-controls",
+        "clause": "6.5",
+        "title": "核对出口管制物项技术数据",
+        "criterion": "在工业业务范围内，核查数据是否涉及出口管制物项的核心技术、设计、工艺、制作方法或源代码。",
+        "evidence": "适用的管制清单和版本、技术与物项对应、研发或生产用途、责任部门复核。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-materials-sector",
+        "clause": "6.6.1–6.6.3",
+        "title": "复核钢铁、有色与石化化工特定数据",
+        "criterion": "按细分行业核查特钢成分与工艺、战略矿产供应链、重点危险化学品生产、油气炼化控制等场景，并核实其行业影响。",
+        "evidence": "所属行业、工艺或设备类型、关键控制系统依赖、供应链或危险化学品范围、影响评估。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-equipment-consumer-sector",
+        "clause": "6.6.4–6.6.5",
+        "title": "复核装备与消费品特定数据",
+        "criterion": "核对高端装备、航空船舶关键部件、汽车核心竞争技术、战略性食盐储备、未公开重大食品安全事件及高端医疗器械等数据场景。",
+        "evidence": "产品或设施类型、技术先进性和范围、储备或食品安全事件依据、数据来源和公开情况。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-electronics-software-sector",
+        "clause": "6.6.6–6.6.7",
+        "title": "复核电子信息和重点软件研发数据",
+        "criterion": "核对先进集成电路、重大计算装备、重要元器件国产化，以及工业软件等重点攻关软件研发设计数据的实际范围。",
+        "evidence": "技术或软件类别、研发设计用途、关键性与行业影响、责任部门确认。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-sensitive-person-count",
+        "clause": "6.7 a)",
+        "title": "核查工业数据中的敏感个人信息规模",
+        "criterion": "对工业数据处理者收集或产生的数据，核查敏感个人信息是否涉及至少 10 万人。对特定群体还需结合国家安全、经济运行、社会稳定、公共健康和安全等影响单独复核。",
+        "evidence": "工业业务范围、敏感个人信息识别依据、数据集范围、去重人数及计算口径、群体与危害评估。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-other-major-impact",
+        "clause": "6.7 b)",
+        "title": "核查重大事故及级联影响",
+        "criterion": "核查数据事件是否对工业发展或生产运行造成严重影响，可能导致重大安全事故，或产生跨行业、跨区域、跨企业的显著级联影响。",
+        "evidence": "事故风险分析、影响企业与区域、持续时间和依赖链、主管部门评估结论。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "industrial-large-pi-reporting",
+        "clause": "6.8",
+        "title": "核查千万级个人信息处理的报送",
+        "criterion": "工业数据处理者还需识别涉及至少 1000 万人的个人信息处理，并向行业监管部门报送，落实相应网络数据安全管理要求。",
+        "evidence": "个人信息处理规模和去重口径、统计时间、报送记录及收件部门。"
+      },
+      {
+        "id": "industrial-important-filing",
+        "clause": "4 f)、5.5",
+        "title": "核验重要数据目录备案和变更",
+        "criterion": "将经内部审批的重要数据目录向行业监管部门报送。目录审核反馈及数据范围、用途、共享或敏感性变化后，复核识别并更新报送。",
+        "evidence": "目录版本、内部审批、监管审核或备案反馈、变更事件及重新报送凭证。",
+        "levelCodes": [
+          "important"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ydt-3867-2024",
+    "code": "YD/T 3867—2024",
+    "title": "电信领域重要数据识别指南",
+    "industry": "电信",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2024-07-05",
+    "effectiveOn": "2024-10-01",
+    "authority": "工业和信息化部",
+    "url": "https://hubca.miit.gov.cn/zwgk/wlaqgl/art/2025/art_3ab1b8e5a3614e4893438fba11b9ee83.html",
+    "scope": "推荐性通信行业标准。适用于电信业务经营者识别重要数据，代替 YD/T 3867—2021。军事、政务、国家秘密数据不适用。规则依据湖北通信管理局2025年公开的规范文件正文整理，条款编号按该公开版；其中补充事项独立记录，不把个人信息规模直接等同于重要数据。",
+    "levels": [
+      {
+        "code": "important",
+        "label": "重要数据",
+        "statutoryCategory": "important"
+      }
+    ],
+    "rules": [
+      {
+        "id": "telecom-important-process",
+        "clause": "5.2—5.6、6.2、6.5（湖北通信管理局公开版）",
+        "title": "形成并维护识别目录",
+        "criterion": "盘清业务和系统，分析数据要素及危害，组织识别与目录更新。",
+        "evidence": "范围、影响分析、责任人、审批和目录版本。"
+      },
+      {
+        "id": "telecom-important-network",
+        "clause": "3.4、6.3.2",
+        "title": "核查重要网络的规划运维数据",
+        "criterion": "先确认设施或系统符合3.4，再核查其规划、参数、采购及运维数据。",
+        "evidence": "设施认定依据、数据关联与业务复核。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "telecom-important-safety",
+        "clause": "6.3.3",
+        "title": "核查安全和应急通信数据",
+        "criterion": "核对重要设施安全能力、重大事件与未公开高危漏洞，以及物理安全、应急通信条款。",
+        "evidence": "设施范围、事件或漏洞等级、应急保障范围。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "telecom-important-business",
+        "clause": "6.3.4",
+        "title": "核查经济运行与业务发展数据",
+        "criterion": "核查反映经济、产业、核心业务整体或特定人群、千万以上用户特征的非公开统计；核查上年相关核心业务收入百亿元以上经营者的非公开战略决策，业务范围按本条确定。",
+        "evidence": "统计用途、用户人数、公开状态、业务许可及上年收入。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "telecom-important-technology",
+        "clause": "6.3.5",
+        "title": "核查关键技术成果数据",
+        "criterion": "核查电信出口管制技术、重大科技成果以及涉国家安全科技计划的数据。",
+        "evidence": "管制清单、成果级别或项目认定。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "telecom-important-personal",
+        "clause": "6.3.6",
+        "title": "核查特定个人信息集合",
+        "criterion": "核查十万人以上的敏感个人信息、特定群体信息及主管部门认定数据。",
+        "evidence": "去重人数、敏感类型、群体或认定依据。",
+        "levelCodes": [
+          "important"
+        ]
+      },
+      {
+        "id": "telecom-large-personal-separate",
+        "clause": "6.4（湖北通信管理局公开版补充事项）",
+        "title": "单列大规模个人信息处理",
+        "criterion": "识别处理一千万人以上个人信息的情况，按条例落实对应义务，另行判断是否重要数据。",
+        "evidence": "人数口径、处理清单及条例义务核验。"
+      }
+    ]
+  },
+  {
+    "id": "ydt-3802-2025",
+    "code": "YD/T 3802—2025",
+    "title": "电信领域数据安全分级保护要求",
+    "industry": "电信",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2025-12-17",
+    "effectiveOn": "2026-04-01",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=490534C38E29C1A3E06397BE0A0A0AB9",
+    "scope": "推荐性通信行业标准。适用于电信数据处理者按等级保护电信领域数据，全部代替 YD/T 3802—2020。已核验官方目录。",
+    "levels": [],
+    "rules": []
+  },
+  {
+    "id": "ydt-7441-2026",
+    "code": "YD/T 7441—2026",
+    "title": "互联网域名服务数据分类分级方法",
+    "industry": "互联网域名服务",
+    "kind": "industry",
+    "status": "effective",
+    "publishedOn": "2026-07-15",
+    "effectiveOn": "2026-11-01",
+    "authority": "工业和信息化部",
+    "url": "https://std.samr.gov.cn/hb/search/stdHBDetailed?id=5A166B0E8C362BDAE06397BE0A0A0423",
+    "scope": "推荐性通信行业标准。面向互联网域名从业机构开展域名服务数据分类分级。适用范围排除国家秘密、核心数据和重要数据。已核验官方目录。",
+    "levels": [],
+    "rules": []
+  },
+  {
+    "id": "gbt-39725-2020",
+    "code": "GB/T 39725—2020",
+    "title": "信息安全技术 健康医疗数据安全指南",
+    "industry": "卫生健康",
+    "kind": "national",
+    "status": "effective",
+    "publishedOn": "2020-12-14",
+    "effectiveOn": "2021-07-01",
+    "authority": "国家市场监督管理总局、国家标准化管理委员会",
+    "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=239351905E7B62A7DF537856738247CE",
+    "scope": "推荐性国家标准，供健康医疗数据控制者及相关组织开展安全管理。五级划分以数据使用范围和个人健康医疗数据主体的受损程度为依据，另按适用规定核查重要和核心数据。",
+    "levels": [
+      {
+        "code": "l5",
+        "label": "第5级"
+      },
+      {
+        "code": "l4",
+        "label": "第4级"
+      },
+      {
+        "code": "l3",
+        "label": "第3级"
+      },
+      {
+        "code": "l2",
+        "label": "第2级"
+      },
+      {
+        "code": "l1",
+        "label": "第1级"
+      }
+    ],
+    "rules": [
+      {
+        "id": "healthcare-business-data-categories",
+        "clause": "6.1、表 1",
+        "title": "按健康医疗数据类别建立目录",
+        "criterion": "结合业务语义，区分个人属性、健康状况、医疗应用、医疗支付、卫生资源和公共卫生数据，形成对应目录。",
+        "evidence": "医疗业务流程、字段或文件字典、数据主体、用途与类别映射。"
+      },
+      {
+        "id": "healthcare-access-grading",
+        "clause": "6.2",
+        "title": "按访问范围和主体影响复核五级划分",
+        "criterion": "评估数据使用范围、可识别性和未经授权披露对个人的损害，区分公开、较大范围、中等范围、较小范围及严格限制的使用情形。",
+        "evidence": "实际可访问人员和用途、公开或审批依据、可识别及重识别分析、对主体损害评估。",
+        "levelCodes": [
+          "l5",
+          "l4",
+          "l3",
+          "l2",
+          "l1"
+        ]
+      },
+      {
+        "id": "healthcare-reidentification",
+        "clause": "6.2 c)–d)",
+        "title": "复核去标识化后仍可重识别的数据",
+        "criterion": "核查部分去标识化数据是否仍能重识别，以及直接可识别数据的诊疗使用范围，结合具体影响确定适用等级。",
+        "evidence": "去标识化方式、关联条件和重识别评估、授权项目组或诊疗人员范围。",
+        "levelCodes": [
+          "l4",
+          "l3"
+        ]
+      },
+      {
+        "id": "healthcare-restricted-sensitive",
+        "clause": "6.2 e)",
+        "title": "核验严格限制使用的健康数据",
+        "criterion": "对未经授权披露可能严重损害主体的数据，结合特殊病种等场景核验最高限制级的适用性和知悉人员范围。",
+        "evidence": "业务和信息类型说明、潜在损害评估、主治及授权人员清单、审批记录。",
+        "levelCodes": [
+          "l5"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ydt-7344-2026",
+    "code": "YD/T 7344—2026",
+    "title": "工业互联网数据安全分类分级要求",
+    "industry": "工业互联网",
+    "kind": "industry",
+    "status": "published",
+    "publishedOn": "2026-08-17",
+    "effectiveOn": "2026-12-01",
+    "authority": "工业和信息化部",
+    "url": "https://wap.miit.gov.cn/zwgk/zcwj/wjfb/gg/art/2026/art_74c4c2a0052143fcacd282226eedba23.html",
+    "scope": "已发布、尚未实施的推荐性通信行业标准，2026年12月1日实施。工信部2026年第22号公告附件1第639项确认，适用于工业企业、工业互联网平台和标识解析企业的数据分类分级；不适用国家秘密数据。当前仅核验正式发布信息，未据公告摘要编写正文规则。",
+    "levels": [],
+    "rules": []
+  }
+]

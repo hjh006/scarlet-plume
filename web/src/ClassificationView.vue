@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
-  ApiError, assetBusinessLevelLabels, assetCategoryLabels, describeError, formatDate, providerLabel, request,
+  ApiError, assetBusinessLevelLabels, assetCategoryLabels, describeError, documentationUrl, formatDate, providerLabel, request,
   workspacePath, type Asset, type Workspace,
 } from './api'
 import { postgresSensitivityLabel } from './postgresql'
+import { isReferencePublication, standardKindLabels, standardsByIndustry, type ClassificationStandards, type ClassificationStandardSnapshot } from './classification-standards'
 import Icon from './Icon.vue'
 
 interface Candidate {
@@ -14,11 +15,13 @@ interface Candidate {
 interface Classification {
   asset: Asset; revision: number; candidates: Candidate[]; candidateCount: number
   suggestedCategory?: string; suggestedBusinessLevel?: string
+  standard?: ClassificationStandardSnapshot
 }
 interface Values { category: string; businessLevel: string; statutoryCategory: string; basis: string }
 interface History extends Values {
   id: number; revision: number; actor: string; createdAt: string
   previousCategory: string; previousBusinessLevel: string; previousStatutoryCategory: string; previousBasis: string
+  standard?: ClassificationStandardSnapshot
 }
 interface Detail extends Classification { history: History[]; historyTruncated?: boolean }
 interface Counts { total: number; pending: number; reviewed: number; importantOrCore: number }
@@ -27,7 +30,8 @@ interface Page { items: Classification[]; nextCursor?: number | null; counts: Co
 const props = defineProps<{ workspace: Workspace; assetId?: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
-const apiPath = workspacePath(props.workspace.slug) + '/classification/assets'
+const classificationPath = workspacePath(props.workspace.slug) + '/classification'
+const apiPath = classificationPath + '/assets'
 const detailPath = props.assetId ? apiPath + '/' + encodeURIComponent(props.assetId) : ''
 const canEdit = computed(() => props.workspace.role === 'owner' || props.workspace.role === 'operator')
 const active = new AbortController()
@@ -39,6 +43,12 @@ const conflict = ref(false)
 const loadError = ref('')
 const saveError = ref('')
 const notice = ref('')
+const standardCatalog = ref<ClassificationStandards>()
+const standardsLoading = ref(false)
+const standardsError = ref('')
+const standardId = ref('')
+const levelCode = ref('')
+const ruleId = ref('')
 const status = ref('')
 const statutoryFilter = ref('')
 let appliedFilters = ''
@@ -51,6 +61,25 @@ const metrics = [
   { key: 'total', label: '资产总数' }, { key: 'pending', label: '待确认' },
   { key: 'reviewed', label: '已确认' }, { key: 'importantOrCore', label: '重要或核心数据' },
 ] as const
+const standardOptions = computed(() => standardCatalog.value?.items.filter(item => item.status === 'effective' || isReferencePublication(item)) ?? [])
+const standardOptionGroups = computed(() => standardsByIndustry(standardOptions.value))
+const selectedStandard = computed(() => standardOptions.value.find(item => item.id === standardId.value))
+const selectedLevel = computed(() => selectedStandard.value?.levels?.find(level => level.code === levelCode.value))
+const ruleOptions = computed(() => (selectedStandard.value?.rules ?? []).filter(rule =>
+  !rule.levelCodes?.length || rule.levelCodes.includes(levelCode.value),
+))
+const selectedRule = computed(() => ruleOptions.value.find(rule => rule.id === ruleId.value))
+const historicalStandard = computed(() => detail.value?.standard?.id === standardId.value && !selectedStandard.value
+  ? detail.value?.standard
+  : undefined)
+const statutorySelection = computed({
+  get: () => selectedLevel.value?.statutoryCategory ?? draft.statutoryCategory,
+  set: (value: string) => { draft.statutoryCategory = value },
+})
+const validStandard = computed(() => selectedStandard.value &&
+  (!selectedStandard.value.levels?.length || selectedLevel.value) &&
+  (!selectedStandard.value.rules?.length || selectedRule.value),
+)
 
 function errorText(error: unknown) {
   if (active.signal.aborted) return ''
@@ -63,12 +92,38 @@ function errorText(error: unknown) {
 
 function setDetail(value: Detail) {
   detail.value = value
+  standardId.value = value.standard?.id ?? standardCatalog.value?.defaultStandardId ?? ''
+  levelCode.value = value.standard?.levelCode ?? ''
+  ruleId.value = value.standard?.ruleId ?? ''
   Object.assign(draft, {
     category: value.asset.category || 'unknown',
     businessLevel: value.asset.businessLevel || 'unknown',
     statutoryCategory: value.asset.statutoryCategory || 'unknown',
     basis: value.asset.classificationBasis || '',
   })
+}
+
+async function loadStandards() {
+  standardsLoading.value = true
+  standardsError.value = ''
+  try {
+    const catalog = await request<ClassificationStandards>(classificationPath + '/standards', { signal: active.signal })
+    standardCatalog.value = catalog
+    if (!standardId.value) standardId.value = catalog.defaultStandardId
+  } catch (error) {
+    standardsError.value = errorText(error)
+  } finally {
+    standardsLoading.value = false
+  }
+}
+
+function changeStandard() {
+  levelCode.value = ''
+  ruleId.value = ''
+}
+
+function changeLevel() {
+  if (!selectedRule.value) ruleId.value = ''
 }
 
 async function load(append = false) {
@@ -110,6 +165,10 @@ async function save() {
   if (!detail.value || !canEdit.value || loading.value || saving.value || conflict.value) return
   saveError.value = ''
   notice.value = ''
+  if (!validStandard.value) {
+    saveError.value = '请选择标准或参考资料，并填写适用的标准等级和规则。'
+    return
+  }
   const basis = draft.basis.trim()
   if (!basis || basis.length > 400) {
     saveError.value = '请填写 1 到 400 字的分类判定依据。'
@@ -118,7 +177,14 @@ async function save() {
   saving.value = true
   try {
     const updated = await request<Detail>(detailPath, {
-      method: 'PUT', body: JSON.stringify({ revision: detail.value.revision, ...draft, basis }), signal: active.signal,
+      method: 'PUT',
+      body: JSON.stringify({
+        revision: detail.value.revision, ...draft, basis, statutoryCategory: statutorySelection.value,
+        standardId: standardId.value,
+        levelCode: selectedLevel.value?.code,
+        ruleId: selectedRule.value?.id,
+      }),
+      signal: active.signal,
     })
     setDetail(updated)
     notice.value = '分类已确认，变更已登记到历史和平台审计。'
@@ -132,7 +198,10 @@ async function save() {
   }
 }
 
-onMounted(() => { void load() })
+onMounted(() => {
+  void load()
+  if (detailPath && canEdit.value) void loadStandards()
+})
 onBeforeUnmount(() => active.abort())
 </script>
 
@@ -146,6 +215,7 @@ onBeforeUnmount(() => active.abort())
         <p>{{ assetId ? '核对自动识别线索，记录分类决定和判定依据。' : '查看采集器的字段识别线索、已确认分类和变更历史。' }}</p>
       </div>
       <div class="page-actions">
+        <a class="button button-secondary" :href="home + '/classification/standards'">标准库</a>
         <a v-if="assetId && detail?.asset.sourceProvider === 'postgresql'" class="button button-secondary" :href="home + '/assets/' + assetId">查看字段与权限</a>
         <a v-if="!assetId" class="button button-secondary" :href="home + '/assets'">查看数据资产</a>
       </div>
@@ -192,6 +262,7 @@ onBeforeUnmount(() => active.abort())
                 <td>
                   <span class="badge" :class="item.revision ? 'status-verified' : 'status-draft'">{{ item.revision ? '已确认' : '待确认' }}</span>
                   <span v-if="item.revision" class="table-secondary">版本 {{ item.revision }}</span>
+                  <span v-if="item.standard" class="table-secondary">{{ item.standard.code }}<template v-if="item.standard.levelLabel"> · {{ item.standard.levelLabel }}</template></span>
                 </td>
               </tr>
             </tbody>
@@ -216,6 +287,16 @@ onBeforeUnmount(() => active.abort())
           <div><dt>数据属性</dt><dd>{{ categories[detail.asset.category || 'unknown'] }}</dd></div>
           <div><dt>企业内部敏感级别</dt><dd>{{ levels[detail.asset.businessLevel || 'unknown'] }}</dd></div>
           <div><dt>法定类别</dt><dd>{{ statutory[detail.asset.statutoryCategory || 'unknown'] }}</dd></div>
+          <div v-if="detail.standard"><dt>采用标准</dt><dd>
+            <a v-if="documentationUrl(detail.standard.url)" class="table-link" :href="documentationUrl(detail.standard.url)"
+               target="_blank" rel="noopener noreferrer">{{ detail.standard.code }} · {{ detail.standard.title }}</a>
+            <span v-else>{{ detail.standard.code }} · {{ detail.standard.title }}</span>
+            <span class="table-secondary">{{ detail.standard.industry }} · {{ standardKindLabels[detail.standard.kind] }}</span>
+          </dd></div>
+          <div v-if="detail.standard?.levelLabel"><dt>标准等级</dt><dd>{{ detail.standard.levelLabel }}</dd></div>
+          <div v-if="detail.standard?.ruleTitle"><dt>采用规则</dt><dd>{{ detail.standard.ruleClause }} · {{ detail.standard.ruleTitle }}</dd></div>
+          <div v-if="detail.standard?.ruleCriterion" class="detail-wide"><dt>规则判定条件</dt><dd class="text-block">{{ detail.standard.ruleCriterion }}</dd></div>
+          <div v-if="detail.standard?.ruleEvidence" class="detail-wide"><dt>规则取证要求</dt><dd class="text-block">{{ detail.standard.ruleEvidence }}</dd></div>
           <div class="detail-wide"><dt>判定依据</dt><dd class="text-block">{{ detail.asset.classificationBasis || '—' }}</dd></div>
         </dl>
         <p v-if="!detail.revision" class="field-hint classification-note">已有分类值可来自资产历史记录。完成本页确认后，平台开始记录分类版本。</p>
@@ -261,6 +342,51 @@ onBeforeUnmount(() => active.abort())
                   :disabled="loading || saving || conflict" @click="fillSuggestions">填入识别建议</button>
         </div>
         <form class="classification-form" @submit.prevent="save">
+          <p v-if="standardsLoading" class="field-hint" role="status">正在读取可选标准…</p>
+          <div v-if="standardsError" class="message message-error classification-feedback">
+            <p role="alert">{{ standardsError }}</p>
+            <button type="button" class="button button-secondary" @click="loadStandards">重新读取标准</button>
+          </div>
+          <fieldset v-if="standardCatalog" class="classification-fields classification-standard-fields"
+                    :disabled="loading || saving || conflict || standardsLoading">
+            <div class="field">
+              <label for="classification-standard">采用标准</label>
+              <select id="classification-standard" v-model="standardId" required @change="changeStandard">
+                <option value="" disabled>请选择标准或参考资料</option>
+                <option v-if="historicalStandard" :value="historicalStandard.id" disabled>{{ historicalStandard.code }} · 历史版本</option>
+                <optgroup v-for="[industry, standards] in standardOptionGroups" :key="industry" :label="industry">
+                  <option v-for="standard in standards" :key="standard.id" :value="standard.id">
+                    {{ standard.code }} · {{ standard.title }}{{ standard.id === standardCatalog.defaultStandardId ? '（工作区默认）' : '' }}{{ isReferencePublication(standard) ? '（发布资料，仅供参考）' : '' }}
+                  </option>
+                </optgroup>
+              </select>
+              <p v-if="historicalStandard" class="field-hint">确认新版本时请选择现行标准或可选参考资料。</p>
+            </div>
+            <div v-if="selectedStandard?.levels?.length" class="field">
+              <label for="classification-standard-level">标准等级</label>
+              <select id="classification-standard-level" v-model="levelCode" required @change="changeLevel">
+                <option value="" disabled>请选择等级</option>
+                <option v-for="level in selectedStandard.levels" :key="level.code" :value="level.code">{{ level.label }}</option>
+              </select>
+            </div>
+            <div v-if="selectedStandard?.rules?.length" class="field">
+              <label for="classification-standard-rule">采用规则</label>
+              <select id="classification-standard-rule" v-model="ruleId" :disabled="Boolean(selectedStandard.levels?.length && !selectedLevel)" required>
+                <option value="" disabled>{{ selectedStandard.levels?.length && !selectedLevel ? '请先选择等级' : '请选择规则' }}</option>
+                <option v-for="rule in ruleOptions" :key="rule.id" :value="rule.id">{{ rule.clause }} · {{ rule.title }}</option>
+              </select>
+            </div>
+          </fieldset>
+          <dl v-if="selectedRule" class="classification-rule-preview">
+            <div><dt>判定要点</dt><dd>{{ selectedRule.criterion }}</dd></div>
+            <div v-if="selectedRule.evidence"><dt>取证要求</dt><dd>{{ selectedRule.evidence }}</dd></div>
+          </dl>
+          <details v-if="selectedStandard" class="classification-standard-scope">
+            <summary>{{ selectedStandard.levels?.length || selectedStandard.rules?.length ? '标准适用范围' : '参考标准适用范围' }}</summary>
+            <p>{{ selectedStandard.scope }}</p>
+            <a v-if="documentationUrl(selectedStandard.url)" class="table-link" :href="documentationUrl(selectedStandard.url)"
+               target="_blank" rel="noopener noreferrer">查看官方来源</a>
+          </details>
           <fieldset class="classification-fields" :disabled="loading || saving || conflict">
             <div class="field">
               <label for="classification-category">数据属性</label>
@@ -272,7 +398,10 @@ onBeforeUnmount(() => active.abort())
             </div>
             <div class="field">
               <label for="classification-statutory">法定类别</label>
-              <select id="classification-statutory" v-model="draft.statutoryCategory"><option v-for="(label, value) in statutory" :key="value" :value="value">{{ label }}</option></select>
+              <select id="classification-statutory" v-model="statutorySelection" :disabled="Boolean(selectedLevel?.statutoryCategory)">
+                <option v-for="(label, value) in statutory" :key="value" :value="value">{{ label }}</option>
+              </select>
+              <p v-if="selectedLevel?.statutoryCategory" class="field-hint">由所选标准等级确定。</p>
             </div>
           </fieldset>
           <div class="field">
@@ -283,7 +412,7 @@ onBeforeUnmount(() => active.abort())
           <p v-if="notice" class="message message-success classification-feedback" role="status">{{ notice }}</p>
           <p v-if="saveError" class="message message-error classification-feedback" role="alert">{{ saveError }}</p>
           <div class="form-actions">
-            <button type="submit" class="button button-primary" :disabled="loading || saving || conflict">{{ saving ? '正在保存…' : '保存分类' }}</button>
+            <button type="submit" class="button button-primary" :disabled="loading || saving || conflict || !validStandard">{{ saving ? '正在保存…' : '保存分类' }}</button>
             <button v-if="conflict" type="button" class="button button-secondary" :disabled="loading" @click="load()">读取最新版本</button>
           </div>
         </form>
@@ -297,6 +426,20 @@ onBeforeUnmount(() => active.abort())
             <strong>版本 {{ entry.revision }}</strong>
             <div class="event-meta">{{ entry.actor }} · <time :datetime="entry.createdAt">{{ formatDate(entry.createdAt) }}</time></div>
             <p>{{ categories[entry.category] }} · {{ levels[entry.businessLevel] }} · {{ statutory[entry.statutoryCategory] }}</p>
+            <p v-if="entry.standard" class="classification-history-standard">
+              <a v-if="documentationUrl(entry.standard.url)" class="table-link" :href="documentationUrl(entry.standard.url)"
+                 target="_blank" rel="noopener noreferrer">{{ entry.standard.code }} · {{ entry.standard.title }}</a>
+              <span v-else>{{ entry.standard.code }} · {{ entry.standard.title }}</span>
+              <span v-if="entry.standard.levelLabel"> · {{ entry.standard.levelLabel }}</span>
+              <span v-if="entry.standard.ruleTitle"> · {{ entry.standard.ruleClause }} {{ entry.standard.ruleTitle }}</span>
+            </p>
+            <details v-if="entry.standard?.ruleCriterion || entry.standard?.ruleEvidence" class="classification-history-rule">
+              <summary class="table-link">查看当时采用的规则内容</summary>
+              <dl>
+                <div v-if="entry.standard.ruleCriterion"><dt>判定条件</dt><dd class="text-block">{{ entry.standard.ruleCriterion }}</dd></div>
+                <div v-if="entry.standard.ruleEvidence"><dt>取证要求</dt><dd class="text-block">{{ entry.standard.ruleEvidence }}</dd></div>
+              </dl>
+            </details>
             <p class="text-block">{{ entry.basis }}</p>
             <details v-if="entry.previousCategory || entry.previousBusinessLevel || entry.previousStatutoryCategory || entry.previousBasis">
               <summary class="table-link">查看变更前记录</summary>
@@ -323,6 +466,18 @@ onBeforeUnmount(() => active.abort())
 .classification-form { padding: .9rem 1.1rem 1.1rem; }
 .classification-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
 .classification-fields .field { min-width: 0; margin: 0; }
+.classification-standard-fields { margin-bottom: .8rem; }
+.classification-rule-preview { margin-bottom: .8rem; padding: .55rem .75rem; border-radius: .4rem; background: var(--surface-subtle); }
+.classification-rule-preview > div + div { margin-top: .45rem; }
+.classification-rule-preview dt { font-weight: 700; }
+.classification-standard-scope { margin-bottom: .8rem; color: var(--secondary); font-size: .84rem; }
+.classification-standard-scope summary { color: var(--accent); font-weight: 700; }
+.classification-standard-scope p { margin-block: .25rem; }
+.classification-history-standard { margin-top: .35rem; }
+.classification-history-rule { margin-top: .4rem; }
+.classification-history-rule dl { padding: .4rem .65rem; border-radius: .35rem; background: var(--surface-subtle); }
+.classification-history-rule dt { font-weight: 700; }
+.classification-history-rule dl > div + div { margin-top: .4rem; }
 .classification-feedback { margin-top: .75rem; }
 .classification-detail summary { cursor: pointer; }
 @media (max-width: 43.99rem) {
