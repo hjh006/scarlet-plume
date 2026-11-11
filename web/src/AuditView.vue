@@ -40,6 +40,7 @@ const actionLabels: Record<string, string> = {
   'check.verified': '独立复核通过',
   'check.postgres_binding': '绑定 PostgreSQL 来源',
   'classification.reviewed': '确认数据分类',
+  'classification.detected': '自动识别数据分类',
   'risk.triaged': '更新风险研判',
   'api.scanned': '扫描 API 契约',
   'runtime.source_created': '创建观测来源',

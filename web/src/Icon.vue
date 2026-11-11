@@ -5,12 +5,12 @@ defineProps<{ name: string }>()
 <template>
   <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
     <template v-if="name === 'mark'">
-      <path d="M2 19.6c2.3-6.3 5.7-8.5 10.7-10.3 3.9-1.4 7.3-3.1 9.3-6.7-.5 5.3-3.2 8.5-8.5 10.3-5.7 1.9-8.2 3.1-11.5 6.7Z" fill="currentColor" stroke="none" />
-      <path d="M2 22c1.3-3.7 5.1-6 11.5-8 2.2-.7 4-1.6 5.9-2.9-1.2 4.1-4.4 6.2-8.5 7.1C6.8 19.1 4 20.1 2 22Z" fill="currentColor" stroke="none" />
+      <path d="M3.1 18.8C1.7 12.1 5 7.1 11.4 5.3 16.1 4 19.2 3.5 21.5 1c.2 6.2-1.9 10.1-6.1 12.8-3.9 2.4-8 3.1-12.3 5Z" fill="currentColor" stroke="none" />
+      <path d="M2 22c3-5.6 7.5-9.4 15.5-16.2" stroke="currentColor" stroke-width="1.2" />
+      <path d="m7 15-.2-4.4m3.2 2.2.1-5m2.9 2.2 4.1-.4m-8.5 5.3 4.5-.2" stroke="white" stroke-width=".65" />
     </template>
     <template v-else-if="name === 'overview'">
-      <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+      <path d="m3 11 9-8 9 8M5 9.5V21h14V9.5M9 21v-7h6v7" />
     </template>
     <template v-else-if="name === 'assets'">
       <ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" />
@@ -30,7 +30,15 @@ defineProps<{ name: string }>()
       <rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9h16m-10 0v11m4-7h3m-3 3h3" />
     </template>
     <path v-else-if="name === 'reports'" d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6" />
-    <path v-else-if="name === 'classification'" d="M3 4h8l10 10-7 7L4 11zM8 8h.01" />
+    <path v-else-if="name === 'classification'" d="m3 7 9-5 9 5-9 5-9-5Zm0 5 9 5 9-5M3 17l9 5 9-5" />
+    <path v-else-if="name === 'data-flows'" d="M3 7h17m-5-4 5 4-5 4M21 17H4m5-4-5 4 5 4" />
+    <template v-else-if="name === 'api-lifecycle'">
+      <path d="M20 8a8 8 0 0 0-13-3L4 8m0-5v5h5m-5 8a8 8 0 0 0 13 3l3-3m0 5v-5h-5" /><path d="m10 9-2 3 2 3m4-6 2 3-2 3" />
+    </template>
+    <template v-else-if="name === 'warning'">
+      <path d="m10.4 3.8-8 14A1.5 1.5 0 0 0 3.7 20h16.6a1.5 1.5 0 0 0 1.3-2.2l-8-14a1.8 1.8 0 0 0-3.2 0Z" /><path d="M12 8v5m0 3h.01" />
+    </template>
+    <path v-else-if="name === 'shield'" d="M12 3c2.5 1.7 5 2.6 8 3v5.5c0 4-3.3 7.4-8 9.5-4.7-2.1-8-5.5-8-9.5V6c3-.4 5.5-1.3 8-3Zm-4 9 3 3 5-6" />
     <template v-else-if="name === 'audit'">
       <circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" />
     </template>

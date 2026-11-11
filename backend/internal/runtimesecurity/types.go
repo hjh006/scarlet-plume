@@ -20,11 +20,35 @@ var (
 )
 
 type Observation struct {
-	Method          string    `json:"method"`
-	Route           string    `json:"route"`
-	Status          int       `json:"status"`
-	ObservedAt      time.Time `json:"observedAt"`
-	DatabaseSystems []string  `json:"databaseSystems,omitempty"`
+	Method          string           `json:"method"`
+	Route           string           `json:"route"`
+	Status          int              `json:"status"`
+	ObservedAt      time.Time        `json:"observedAt"`
+	DatabaseSystems []string         `json:"databaseSystems,omitempty"`
+	TraceRef        string           `json:"traceRef,omitempty"`
+	SpanRef         string           `json:"spanRef,omitempty"`
+	SubjectRef      string           `json:"subjectRef,omitempty"`
+	DatabaseTargets []DatabaseTarget `json:"databaseTargets,omitempty"`
+	DataFields      []DataField      `json:"dataFields,omitempty"`
+	CaptureWarnings []string         `json:"captureWarnings,omitempty"`
+}
+
+type DatabaseTarget struct {
+	System    string `json:"system"`
+	Source    string `json:"source"`
+	Database  string `json:"database"`
+	Schema    string `json:"schema"`
+	Table     string `json:"table"`
+	Operation string `json:"operation"`
+}
+
+type DataField struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
+	Category string `json:"category"`
+	Count    int64  `json:"count"`
+	Observed int64  `json:"observed"`
+	Method   string `json:"method"`
 }
 
 // RouteKey compares trusted templates whose parameter labels may differ.
@@ -57,6 +81,9 @@ func NormalizeObservation(o Observation) (Observation, error) {
 	}
 	slices.Sort(systems)
 	o.DatabaseSystems = systems
+	if err := normalizeCapture(&o); err != nil {
+		return Observation{}, err
+	}
 	return o, nil
 }
 

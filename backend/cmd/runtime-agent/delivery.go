@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/hjh006/scarlet-plume/backend/internal/runtimesecurity"
 )
 
 const (
@@ -21,11 +23,13 @@ const (
 )
 
 type observationEvent struct {
-	Method     string    `json:"method"`
-	Route      string    `json:"route"`
-	Status     int       `json:"status"`
-	ObservedAt time.Time `json:"observedAt"`
-	EventID    string    `json:"eventId"`
+	Method          string                      `json:"method"`
+	Route           string                      `json:"route"`
+	Status          int                         `json:"status"`
+	ObservedAt      time.Time                   `json:"observedAt"`
+	EventID         string                      `json:"eventId"`
+	DataFields      []runtimesecurity.DataField `json:"dataFields,omitempty"`
+	CaptureWarnings []string                    `json:"captureWarnings,omitempty"`
 }
 
 type observer struct {

@@ -345,6 +345,10 @@ func (s *Store) FinishManagedPostgresJob(ctx context.Context, claim ManagedPostg
 					return err
 				}
 			}
+		} else if run.Status == "error" {
+			if err := captureDataFlowSnapshot(ctx, tx, job.workspaceID, job.actorID, "postgresql"); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(ctx, `
 			UPDATE plume.managed_postgres_jobs

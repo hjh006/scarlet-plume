@@ -4,16 +4,18 @@ import { activityKindLabels, type Activity, type ActivityPage } from './activity
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import { checkStatusLabels, eventLabels, type Check, type CheckEvent, type Evidence } from './workflow'
 import { postgresAssessmentLabels, postgresAssessmentReasons, postgresPublicSelect, type PostgresEvidence } from './postgresql'
-import type { ReportCounts, ReportIdentification, ReportSource } from './reports'
+import type { ReportCounts, ReportDataFlows, ReportIdentification, ReportSource } from './reports'
 import Icon from './Icon.vue'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
 import type { ClassificationRecord } from './classification-standards'
+import { dataFlowWarning } from './data-flows'
 
 interface ComplianceReport {
   generatedAt: string
   scope: { activityId?: number; activityName?: string; source?: ReportSource }
   counts: ReportCounts
   identification?: ReportIdentification
+  dataFlows?: ReportDataFlows
   checks: { check: Check; evidence: Evidence[]; events: CheckEvent[]; automaticEvaluation?: PostgresEvidence; classification?: ClassificationRecord }[]
 }
 
@@ -190,7 +192,7 @@ onBeforeUnmount(() => active.abort())
   </section>
   <section v-if="report?.identification" class="panel report-results" aria-labelledby="report-identification-title">
     <div class="panel-heading">
-      <div><h2 id="report-identification-title">数据自动识别</h2><p>疑似敏感字段根据字段名称和类型识别，供分级分类时核对。</p></div>
+      <div><h2 id="report-identification-title">数据自动识别</h2><p>汇总元数据及授权范围内的受限格式统计，具体方法与覆盖范围见证据。</p></div>
     </div>
     <dl class="report-counts">
       <div><dt>采集表数</dt><dd>{{ report.identification.tables }}</dd></div>
@@ -200,6 +202,23 @@ onBeforeUnmount(() => active.abort())
       <div><dt>PUBLIC SELECT 授权表数</dt><dd>{{ report.identification.publicTableSelect }}</dd></div>
       <div><dt>PUBLIC SELECT 授权字段数</dt><dd>{{ report.identification.publicColumnSelect }}</dd></div>
     </dl>
+  </section>
+
+  <section v-if="report?.dataFlows" class="panel report-results" aria-labelledby="report-flows-title">
+    <div class="panel-heading">
+      <div><h2 id="report-flows-title">工作区数据流快照摘要</h2><p>快照 #{{ report.dataFlows.snapshotId }} · {{ formatDate(report.dataFlows.capturedAt) }}</p></div>
+      <a class="text-link" :href="home + '/data-flows'">查看数据流转<Icon name="arrow" /></a>
+    </div>
+    <dl class="report-counts">
+      <div><dt>应用</dt><dd>{{ report.dataFlows.summary.applications }}</dd></div>
+      <div><dt>接口</dt><dd>{{ report.dataFlows.summary.apis }}</dd></div>
+      <div><dt>库表</dt><dd>{{ report.dataFlows.summary.tables }}</dd></div>
+      <div><dt>去标识主体</dt><dd>{{ report.dataFlows.summary.subjects }}</dd></div>
+      <div><dt>节点</dt><dd>{{ report.dataFlows.summary.nodes }}</dd></div>
+      <div><dt>关系</dt><dd>{{ report.dataFlows.summary.edges }}</dd></div>
+    </dl>
+    <p class="muted">{{ report.dataFlows.basis }}</p>
+    <ul v-if="report.dataFlows.warnings.length"><li v-for="warning in report.dataFlows.warnings" :key="warning">{{ dataFlowWarning(warning) }}</li></ul>
   </section>
   <section v-if="report" class="panel report-results" aria-labelledby="report-results-title">
     <div class="panel-heading">

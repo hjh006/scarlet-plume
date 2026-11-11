@@ -58,6 +58,7 @@ func NewWithManaged(st *store.Store, origin string, secure bool, manager *manage
 	s.runtimeRiskRoutes(mux)
 	s.actionAuditRoutes(mux)
 	s.classificationRoutes(mux)
+	s.dataFlowRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})

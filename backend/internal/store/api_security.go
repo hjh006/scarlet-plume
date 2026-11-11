@@ -112,7 +112,10 @@ func (s *Store) ImportAPISecurityScan(ctx context.Context, workspaceID, actorID 
 		}
 		_, err = tx.Exec(ctx, `UPDATE plume.api_security_scans SET operations = $2, check_count = $3 WHERE id = $1`,
 			scan.ID, scan.Operations, scan.CheckCount)
-		return err
+		if err != nil {
+			return err
+		}
+		return captureDataFlowSnapshot(ctx, tx, workspaceID, actorID, "openapi")
 	})
 	if err != nil {
 		return APISecurityScan{}, storeError(err)

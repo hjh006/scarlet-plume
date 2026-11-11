@@ -189,6 +189,20 @@ func (s *Store) DeliverRuntimeBatch(ctx context.Context, kind, tokenDigest, batc
 		(kind == "gateway" && len(observations) == 0) {
 		return RuntimeReceipt{}, ErrInvalid
 	}
+	// Persist the same normalized projection used for replay identity. A local
+	// loop variable in prepareRuntimeBatch must not leave the input slice raw.
+	projected := make([]runtimesecurity.Observation, len(observations))
+	for i, observation := range observations {
+		if kind == "gateway" && (len(observation.DatabaseTargets) > 0 || len(observation.DatabaseSystems) > 0) {
+			return RuntimeReceipt{}, ErrInvalid
+		}
+		normalized, err := runtimesecurity.NormalizeObservation(observation)
+		if err != nil {
+			return RuntimeReceipt{}, ErrInvalid
+		}
+		projected[i] = normalized
+	}
+	observations = projected
 	aggregates, digest, lastSeen, err := prepareRuntimeBatch(kind, observations)
 	if err != nil {
 		return RuntimeReceipt{}, err
@@ -276,9 +290,14 @@ func (s *Store) DeliverRuntimeBatch(ctx context.Context, kind, tokenDigest, batc
 				UPDATE plume.runtime_security_sources
 				SET findings_warning = $2, findings_warning_at = clock_timestamp() WHERE id = $1
 			`, sourceID, warning)
+			if err != nil {
+				return err
+			}
+		}
+		if err := persistDataFlowObservations(ctx, tx, workspaceID, sourceID, actorID, service, kind, batchID, observations); err != nil {
 			return err
 		}
-		return nil
+		return captureDataFlowSnapshot(ctx, tx, workspaceID, actorID, "runtime")
 	})
 	if err != nil {
 		return RuntimeReceipt{}, storeError(err)
@@ -293,7 +312,7 @@ func prepareRuntimeBatch(kind string, observations []runtimesecurity.Observation
 	normalized := make([]string, 0, len(observations))
 	for _, observation := range observations {
 		observation, err := runtimesecurity.NormalizeObservation(observation)
-		if err != nil || kind == "gateway" && len(observation.DatabaseSystems) != 0 ||
+		if err != nil || kind == "gateway" && (len(observation.DatabaseSystems) != 0 || len(observation.DatabaseTargets) != 0) ||
 			observation.ObservedAt.Before(now.Add(-7*24*time.Hour)) || observation.ObservedAt.After(now.Add(5*time.Minute)) {
 			return nil, "", time.Time{}, ErrInvalid
 		}

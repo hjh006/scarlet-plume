@@ -22,6 +22,17 @@ type ComplianceReport struct {
 	Counts         ReportCounts          `json:"counts"`
 	Checks         []ReportCheck         `json:"checks"`
 	Identification *ReportIdentification `json:"identification,omitempty"`
+	DataFlows      *ReportDataFlows      `json:"dataFlows,omitempty"`
+}
+
+// The embedded summary is frozen with the report. It remains available even
+// after the graph snapshot's separate retention window expires.
+type ReportDataFlows struct {
+	SnapshotID int64           `json:"snapshotId"`
+	CapturedAt time.Time       `json:"capturedAt"`
+	Summary    DataFlowSummary `json:"summary"`
+	Warnings   []string        `json:"warnings"`
+	Basis      string          `json:"basis"`
 }
 
 type ReportWorkspace struct {
@@ -90,12 +101,40 @@ func (s *Store) ComplianceReport(ctx context.Context, workspaceID, actorID, acti
 		if err := readReportChecks(ctx, tx, workspaceID, activityID, &report); err != nil {
 			return err
 		}
-		return readReportHistory(ctx, tx, workspaceID, &report)
+		if err := readReportHistory(ctx, tx, workspaceID, &report); err != nil {
+			return err
+		}
+		return readReportDataFlows(ctx, tx, workspaceID, &report)
 	})
 	if err != nil {
 		return ComplianceReport{}, err
 	}
 	return report, nil
+}
+
+func readReportDataFlows(ctx context.Context, tx pgx.Tx, workspaceID int64, report *ComplianceReport) error {
+	var result ReportDataFlows
+	err := tx.QueryRow(ctx, `
+		SELECT id, created_at, payload->'summary', COALESCE(payload->'warnings', '[]'::jsonb)
+		FROM plume.data_flow_snapshots
+		WHERE workspace_id = $1 AND status = 'ready'
+		  AND COALESCE(scope->>'service', '') = '' AND COALESCE(scope->>'category', '') = ''
+		  AND COALESCE(scope->>'subjectRef', '') = '' AND COALESCE(scope->>'traceRef', '') = ''
+		  AND COALESCE(scope->>'focus', '') = ''
+		ORDER BY id DESC LIMIT 1
+	`, workspaceID).Scan(&result.SnapshotID, &result.CapturedAt, &result.Summary, &result.Warnings)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if result.Warnings == nil {
+		result.Warnings = []string{}
+	}
+	result.Basis = "补充范围为工作区最新可用的全范围数据流结构快照，与本报告的检查或采集来源范围分别列示。统计覆盖已接入来源及其观察窗口，不构成全量业务链路或整体合规结论。快照摘要随报告冻结。"
+	report.DataFlows = &result
+	return nil
 }
 
 func readReportChecks(ctx context.Context, tx pgx.Tx, workspaceID, activityID int64, report *ComplianceReport) error {

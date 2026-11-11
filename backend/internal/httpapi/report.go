@@ -86,7 +86,11 @@ func writeReportExport(w http.ResponseWriter, report store.ComplianceReport, for
 }
 
 var reportLabels = map[string]string{
-	"draft": "待取证", "in_review": "待复核", "needs_work": "待整改", "verified": "已验证",
+	"scope_is_connected_sources":           "仅覆盖已接入且可见的来源",
+	"runtime_window_7_days":                "运行时关联只覆盖最近7天",
+	"database_family_is_not_table_lineage": "数据库类型关联不代表已定位具体库表",
+	"unmatched_database_target":            "部分数据库目标未匹配到唯一的当前目录资产",
+	"draft":                                "待取证", "in_review": "待复核", "needs_work": "待整改", "verified": "已验证",
 	"observation": "初次取证", "remediation": "整改", "retest": "复测",
 	"created": "创建检查", "evidence": "登记证据", "submitted": "提交复核", "changes": "要求整改",
 	"postgres_binding": "关联 PostgreSQL 自动证据",
@@ -193,6 +197,19 @@ header{border-top:5px solid #3357aa;padding:.75rem 0 1.2rem}h1{margin:.25em 0;fo
 <div><dt>PUBLIC 字段级 SELECT</dt><dd>{{.PublicColumnSelect}} 个字段</dd></div>
 </dl>
 <p class="muted">采集范围包括字段、约束、直接授权及可读取范围内的有界格式统计。各项证据列明实际观察范围和仍需补充的条件。</p>
+</section>
+{{end}}
+{{with .DataFlows}}
+<section class="panel">
+<h2>工作区数据流快照摘要</h2>
+<p>快照 #{{.SnapshotID}} · {{date .CapturedAt}}（北京时间）</p>
+<dl class="summary">
+<div><dt>应用</dt><dd>{{.Summary.Applications}}</dd></div><div><dt>接口</dt><dd>{{.Summary.APIs}}</dd></div>
+<div><dt>库表</dt><dd>{{.Summary.Tables}}</dd></div><div><dt>去标识主体</dt><dd>{{.Summary.Subjects}}</dd></div>
+<div><dt>节点</dt><dd>{{.Summary.Nodes}}</dd></div><div><dt>关系</dt><dd>{{.Summary.Edges}}</dd></div>
+</dl>
+<p class="muted">{{.Basis}}</p>
+{{if .Warnings}}<p>快照覆盖说明：{{range .Warnings}}<span class="wrap">{{label .}} </span>{{end}}</p>{{end}}
 </section>
 {{end}}
 <section class="panel">

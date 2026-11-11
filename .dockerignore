@@ -7,6 +7,10 @@
 !backend/cmd/server/**
 !backend/cmd/agent/
 !backend/cmd/agent/**
+!backend/cmd/runtime-agent/
+!backend/cmd/runtime-agent/**
+!backend/cmd/gateway-log/
+!backend/cmd/gateway-log/**
 !backend/internal/
 !backend/internal/**
 !web/

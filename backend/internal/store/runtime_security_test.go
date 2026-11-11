@@ -219,4 +219,53 @@ func TestRuntimeSecurityStore(t *testing.T) {
 	if len(latest) != 1000 {
 		t.Fatalf("posture exceeded the workspace display bound: %d", len(latest))
 	}
+
+	captureToken := digest(slug + "-capture")
+	captureSource, err := repo.CreateRuntimeSource(ctx, workspace.ID, owner.ID, "Controlled capture", "Capture API", "otlp", captureToken)
+	want(err, nil)
+	captured := runtimesecurity.Observation{Method: "get", Route: "/capture/{id}", Status: 200, ObservedAt: now,
+		TraceRef: strings.Repeat("1", 32), SpanRef: strings.Repeat("2", 16), SubjectRef: strings.Repeat("3", 64),
+		DatabaseTargets: []runtimesecurity.DatabaseTarget{{System: "PostgreSQL", Source: "Sample source", Database: "scarlet_sample", Schema: "inventory", Table: "contacts", Operation: "select"}},
+		DataFields:      []runtimesecurity.DataField{{Name: "phone", Location: "request", Category: "phone", Count: 1, Observed: 2, Method: "format"}, {Name: "email", Location: "response", Category: "email", Count: 1, Observed: 2, Method: "format"}},
+		CaptureWarnings: []string{"json_dynamic_keys", "json_depth_limit"}}
+	inputBefore, _ := json.Marshal(captured)
+	captureBatch := digest("capture persistence batch")
+	accepted, err := repo.DeliverRuntimeBatch(ctx, "otlp", captureToken, captureBatch, []runtimesecurity.Observation{captured})
+	want(err, nil)
+	if accepted.Accepted != 1 || accepted.Replayed {
+		t.Fatal("controlled capture did not produce a new accepted batch")
+	}
+	inputAfter, _ := json.Marshal(captured)
+	if string(inputBefore) != string(inputAfter) {
+		t.Fatal("runtime persistence mutated the caller's nested capture slices")
+	}
+	reorderedCapture := captured
+	reorderedCapture.Method = "GET"
+	reorderedCapture.Route = "/capture/{contact_id}"
+	reorderedCapture.DatabaseTargets = slices.Clone(captured.DatabaseTargets)
+	reorderedCapture.DatabaseTargets[0].System = "postgresql"
+	reorderedCapture.DatabaseTargets[0].Operation = "SELECT"
+	reorderedCapture.DataFields = slices.Clone(captured.DataFields)
+	slices.Reverse(reorderedCapture.DataFields)
+	reorderedCapture.CaptureWarnings = slices.Clone(captured.CaptureWarnings)
+	slices.Reverse(reorderedCapture.CaptureWarnings)
+	replayedCapture, err := repo.DeliverRuntimeBatch(ctx, "otlp", captureToken, captureBatch, []runtimesecurity.Observation{reorderedCapture})
+	want(err, nil)
+	if !replayedCapture.Replayed {
+		t.Fatal("canonical capture retry was persisted a second time")
+	}
+	changedCapture := reorderedCapture
+	changedCapture.DataFields = slices.Clone(reorderedCapture.DataFields)
+	changedCapture.DataFields[0].Count = 2
+	_, err = repo.DeliverRuntimeBatch(ctx, "otlp", captureToken, captureBatch, []runtimesecurity.Observation{changedCapture})
+	want(err, store.ErrConflict)
+	audit, err := repo.RuntimeAudit(ctx, workspace.ID, store.RuntimeAuditFilter{Hours: 1, SourceID: captureSource.ID, Method: "GET"})
+	want(err, nil)
+	if len(audit.Items) != 1 || audit.Items[0].Method != "GET" || audit.Items[0].Route != "/capture/{id}" {
+		t.Fatal("capture retry/conflict duplicated audit or persisted a non-normalized method")
+	}
+	gatewayClaim := captured
+	gatewayClaim.DatabaseSystems = nil
+	_, err = repo.DeliverRuntimeBatch(ctx, "gateway", quotaToken, digest("forbidden gateway database relationship"), []runtimesecurity.Observation{gatewayClaim})
+	want(err, store.ErrInvalid)
 }

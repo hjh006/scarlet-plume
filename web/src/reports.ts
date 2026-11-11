@@ -27,6 +27,14 @@ export interface ReportIdentification {
   publicColumnSelect: number
 }
 
+export interface ReportDataFlows {
+  snapshotId: number
+  capturedAt: string
+  summary: { nodes: number; edges: number; applications: number; apis: number; tables: number; subjects: number }
+  warnings: string[]
+  basis: string
+}
+
 export interface ReportArchive extends ReportSource {
   id: number
   generatedAt: string

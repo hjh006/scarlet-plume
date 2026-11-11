@@ -85,6 +85,8 @@ go run ./cmd/server -web ../web/dist -allow-insecure-loopback
 
 「API 安全」可扫描 OpenAPI 3.0 或 3.1 JSON，自动登记接口资产，将鉴权与疑似敏感字段等契约风险接入检查和取证流程，并导出扫描结果。 [API 安全与能力对照](docs/api-security.md)、[API 运行时观测与 HTTPS 接入](docs/runtime-security.md)
 
+“API生命周期”对照契约版本和运行时观测；“数据流转”汇总已接入来源的应用、接口和真实库表关系，支持结构快照、差异及去标识溯源。可选源端JSON识别只上报类型统计。详见 [数据流与本地真实查询样例](docs/data-flows.md)、[红途材料能力映射与实施边界](docs/hongtu-capability-mapping.md)。
+
 离线清单导入仍可使用。采集器从客户环境读取源连接配置。在 `backend/` 下运行下面的本地示例，盘点指定 schema 后生成 JSON，使用授权工作区的「集成与导入」上传。生产源使用专用元数据账号，并移除回环明文选项。
 
 ```sh
@@ -116,7 +118,7 @@ unset SCARLET_REVIEWER_PASSWORD
 
 经办人可以在「监管检查」关联资产与规则、登记脱敏证据并提交。创建人、当前提交人和证据登记人都需要回避复核。飞书 G03 检查可绑定指定的直接协作者，要求整改后登记整改记录、重新采集同一目标，再由独立复核人核对。采集器通过模拟飞书接口测试，Go、PostgreSQL 与 Vue 通过合成清单跑通完整流程，真实飞书租户联调待进行。 [联调步骤与验收口径](docs/feishu.md)
 
-运行 `go test -race ./...` 时，可为 `PLUME_STORE_TEST_DSN` 配置专用的测试 PostgreSQL 数据库以执行持久化和授权集成测试。GitHub Actions 在 PostgreSQL 18 验证两个开发栈，并使用由 Django 演示命令生成的独立数据库测试历史导入。
+运行 `go test -race -p 1 ./...` 时，可为 `PLUME_STORE_TEST_DSN` 配置专用的测试 PostgreSQL 数据库以执行持久化和授权集成测试。各包共享测试库中的全局采集队列，因此按包串行执行；包内竞态检测仍启用。GitHub Actions 在 PostgreSQL 18 验证两个开发栈，并使用由 Django 演示命令生成的独立数据库测试历史导入。
 
 ## Django 基线本地运行
 

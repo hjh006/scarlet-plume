@@ -25,6 +25,7 @@ func main() {
 	upstreamOrigin := flag.String("upstream", "", "fixed upstream HTTP or HTTPS origin")
 	platformOrigin := flag.String("url", "", "Scarlet Plume origin, defaults to SCARLET_RUNTIME_URL")
 	local := flag.Bool("local", false, "allow plaintext telemetry to the local Docker app or loopback")
+	inspectJSON := flag.Bool("inspect-json", false, "inspect bounded authorized JSON bodies at the proxy; emit field statistics only")
 	certPath := flag.String("tls-cert", "", "PEM certificate chain for the HTTPS listener")
 	keyPath := flag.String("tls-key", "", "PEM private key for the HTTPS listener")
 	clientCA := flag.String("tls-client-ca", "", "require a client certificate signed by this PEM CA")
@@ -69,7 +70,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           proxyHandler(upstream, upstreamTransport, templates, telemetry),
+		Handler:           proxyHandlerWithInspection(upstream, upstreamTransport, templates, telemetry, *inspectJSON),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
@@ -144,12 +145,20 @@ func directTransport() *http.Transport {
 type observationKey struct{}
 
 type requestObservation struct {
-	method string
-	route  string
-	sent   bool
+	method          string
+	route           string
+	status          int
+	sent            bool
+	requestCapture  *bodyCapture
+	responseCapture *bodyCapture
+	warnings        []string
 }
 
 func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []routeTemplate, telemetry *observer) http.Handler {
+	return proxyHandlerWithInspection(upstream, transport, routes, telemetry, false)
+}
+
+func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, routes []routeTemplate, telemetry *observer, inspectJSON bool) http.Handler {
 	record := func(request *http.Request, status int) {
 		if request == nil {
 			return
@@ -158,11 +167,11 @@ func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []route
 		if observation == nil || observation.sent {
 			return
 		}
-		observation.sent = true
-		telemetry.enqueue(observationEvent{
-			Method: observation.method, Route: observation.route,
-			Status: status, ObservedAt: time.Now().UTC(),
-		})
+		observation.status = status
+		if !inspectJSON || status == http.StatusSwitchingProtocols {
+			telemetry.enqueue(observationEvent{Method: observation.method, Route: observation.route, Status: status, ObservedAt: time.Now().UTC()})
+			observation.sent = true
+		}
 	}
 	proxy := &httputil.ReverseProxy{
 		Rewrite:   func(r *httputil.ProxyRequest) { r.SetURL(upstream) },
@@ -170,6 +179,11 @@ func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []route
 		ErrorLog:  log.New(io.Discard, "", 0),
 		ModifyResponse: func(response *http.Response) error {
 			record(response.Request, response.StatusCode)
+			if inspectJSON && response.StatusCode != http.StatusSwitchingProtocols && response.Request != nil {
+				if observation, _ := response.Request.Context().Value(observationKey{}).(*requestObservation); observation != nil {
+					response.Body, observation.responseCapture = wrapCaptureBody(response.Body, response.Header, response.ContentLength, &observation.warnings)
+				}
+			}
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, _ error) {
@@ -183,7 +197,17 @@ func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []route
 			http.MethodOptions, http.MethodHead, http.MethodPatch, http.MethodTrace:
 			if route := matchRoute(routes, r.URL.EscapedPath()); route != "" {
 				metadata := &requestObservation{method: r.Method, route: route}
+				if inspectJSON {
+					r.Body, metadata.requestCapture = wrapCaptureBody(r.Body, r.Header, r.ContentLength, &metadata.warnings)
+				}
 				r = r.WithContext(context.WithValue(r.Context(), observationKey{}, metadata))
+				defer func() {
+					if metadata.status == 0 || metadata.sent {
+						return
+					}
+					fields, warnings := captureBodyStatistics(metadata)
+					telemetry.enqueue(observationEvent{Method: metadata.method, Route: metadata.route, Status: metadata.status, ObservedAt: time.Now().UTC(), DataFields: fields, CaptureWarnings: warnings})
+				}()
 			}
 		}
 		proxy.ServeHTTP(w, r)

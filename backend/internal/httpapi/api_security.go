@@ -19,6 +19,7 @@ func (s *server) apiSecurityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+base, s.workspace(true, s.scanAPISecurity))
 	mux.HandleFunc("GET "+base+"/{scan}", s.workspace(false, s.readAPISecurity))
 	mux.HandleFunc("GET "+base+"/{scan}/export", s.workspace(false, s.exportAPISecurity))
+	s.apiLifecycleRoutes(mux)
 }
 
 func (s *server) listAPISecurity(w http.ResponseWriter, r *http.Request, _ store.User, workspace store.Workspace) {
