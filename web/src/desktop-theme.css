@@ -8,11 +8,14 @@
   --secondary: #64748d;
   --line: #dce5f0;
   --input-line: #c6d6ea;
-  --nav-surface: #0c1631;
-  --nav-hover: #1a2a52;
-  --nav-active: #26388b;
-  --nav-text: #e0e8f7;
-  --nav-muted: #9aacc9;
+  --brand-gradient: linear-gradient(112deg, #2e2c80 0%, #075d98 24%, #00738e 51%, #0a5b95 77%, #6656d5 100%);
+  --brand-nav-gradient: linear-gradient(165deg, #2e2c80 0%, #075d98 24%, #00738e 51%, #0a5b95 77%, #6656d5 100%);
+  --brand-node-surface: #154b7d;
+  --nav-surface: #075d98;
+  --nav-hover: rgb(17 53 115 / 65%);
+  --nav-active: #253887;
+  --nav-text: #fff;
+  --nav-muted: #edf5ff;
   --accent: #076ca7;
   --accent-hover: #075487;
   --accent-soft: #e6f2fc;
@@ -49,7 +52,7 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .desktop-design .sidebar {
   position: sticky; top: 0; align-self: start; display: flex; flex-direction: column;
   width: 216px; height: 100dvh; min-height: 0; overflow: hidden;
-  padding: 22px 12px 14px; border: 0; background: var(--nav-surface); color: var(--nav-text);
+  padding: 22px 12px 14px; border: 0; background: var(--brand-nav-gradient); color: var(--nav-text);
 }
 .desktop-design .sidebar .brand { margin: 0 10px 23px; color: #fff; gap: 11px; }
 .brand .brand-mark { width: 42px; height: 48px; background: transparent; color: var(--coral); }
@@ -59,29 +62,30 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .sidebar .brand small { color: #e9effc; }
 .desktop-design .sidebar-nav {
   display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 0;
-  overflow: auto; scrollbar-width: thin; scrollbar-color: #536587 transparent;
+  overflow: auto; scrollbar-width: thin; scrollbar-color: #c5def2 transparent;
 }
 .desktop-design .nav-group { display: grid; gap: 1px; margin: 0; }
 .desktop-design .nav-group + .nav-group { margin-top: 12px; }
-.desktop-design .nav-label { padding: 6px 12px 8px; color: #a5b4cf; font-size: 10px; font-weight: 500; }
+.desktop-design .nav-label { padding: 6px 12px 8px; color: var(--nav-muted); font-size: 10px; font-weight: 500; }
 .desktop-design .sidebar-nav a {
   position: relative; min-height: 34px; padding: 7px 12px; border-radius: 7px;
   gap: 12px; color: var(--nav-text); font-size: 12px; font-weight: 400; line-height: 1.55;
 }
-.desktop-design .sidebar-nav a .icon { width: 18px; height: 18px; color: #cbd8ed; }
+.desktop-design .sidebar-nav a .icon { width: 18px; height: 18px; color: #edf5ff; }
 .desktop-design .sidebar-nav a:hover { color: #fff; background: var(--nav-hover); }
 .desktop-design .sidebar-nav a[aria-current="page"] { color: #fff; background: var(--nav-active); font-weight: 700; box-shadow: inset 3px 0 var(--coral); }
 .desktop-design .sidebar-nav a[aria-current="page"]::before { content: none; }
 .desktop-design .sidebar-nav a[aria-current="page"] .icon { color: #fff; }
-.desktop-design .sidebar-footer { margin: 14px 0 0; padding: 12px 8px 0; border-top: 1px solid #33415f; }
+.desktop-design .sidebar :focus-visible { outline-color: #fff; outline-offset: -2px; }
+.desktop-design .sidebar-footer { margin: 14px 0 0; padding: 12px 8px 0; border-top: 1px solid rgb(237 245 255 / 35%); }
 .desktop-design .sidebar-footer a { gap: 8px; min-height: 36px; padding: 0; color: #edf2ff; font-size: 11px; }
 .desktop-design .sidebar-footer a:hover { color: #fff; background: transparent; }
 .sidebar-workspace > span { flex: 1; min-width: 0; }
 .sidebar-workspace strong { display: block; font-size: 11px; font-weight: 500; }
-.sidebar-workspace small, .sidebar-identity small { display: block; margin-top: 2px; color: #a9b9d4; font-size: 10px; }
+.sidebar-workspace small, .sidebar-identity small { display: block; margin-top: 2px; color: var(--nav-muted); font-size: 10px; }
 .sidebar-identity { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; }
 .sidebar-identity strong { font-weight: 500; }
-.sidebar-identity .account-avatar { width: 28px; height: 28px; color: #fff; background: #33496d; }
+.sidebar-identity .account-avatar { width: 28px; height: 28px; color: #fff; background: #28578e; }
 .desktop-design .topbar { height: 64px; min-height: 64px; padding: 0 24px; gap: 16px; background: #fbfdff; }
 .desktop-design .workspace-name { gap: 10px; font-size: 12px; }
 .desktop-design .workspace-switcher { min-height: 36px; font-size: 12px; }
@@ -162,16 +166,16 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .workspace-row-name small { margin-top: 5px; font-size: 12px; }
 .public-main-login { width: 100%; max-width: none; margin: 0; }
 .public-main-login .login-layout { display: grid; grid-template-columns: 55% 45%; min-height: 100dvh; width: 100%; max-width: none; margin: 0; }
-.public-main-login .login-intro { display: flex; flex-direction: column; padding: 48px 50px; border: 0; border-radius: 0; color: #fff; background: #0c1631; }
+.public-main-login .login-intro { display: flex; flex-direction: column; padding: 48px 50px; border: 0; border-radius: 0; color: #fff; background: var(--brand-gradient); }
 .public-main-login .login-intro::before { content: none; }
 .public-main-login .login-intro .brand { color: #fff; align-self: flex-start; }
 .public-main-login .login-intro .brand-mark { margin: 0; }
-.public-main-login .login-intro .brand small { color: #e3eafb; }
+.public-main-login .login-intro .brand small { color: #edf5ff; }
 .public-main-login .login-proposition { margin-top: 106px; }
 .public-main-login .login-proposition h1 { margin: 0 0 18px; color: #fff; font-size: 32px; line-height: 1.55; }
-.public-main-login .login-proposition p { color: #c6d3e9; font-size: 14px; }
+.public-main-login .login-proposition p { color: #edf5ff; font-size: 14px; }
 .public-main-login .feather-motif { display: block; width: 100%; max-height: 430px; margin: 48px 0; flex: 1; }
-.public-main-login .login-scope { margin-top: auto; color: #c6d3e9; font-size: 12px; }
+.public-main-login .login-scope { margin-top: auto; color: #edf5ff; font-size: 12px; }
 .login-form-region { display: grid; place-items: center; padding: 48px; }
 .public-main-login .login-panel { width: 100%; max-width: 440px; padding: 35px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .public-main-login .login-panel h2 { font-size: 28px; line-height: 1.4; }
