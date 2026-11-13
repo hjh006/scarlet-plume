@@ -37,7 +37,7 @@ WORKDIR /app
 COPY --from=backend /out/ /usr/local/bin/
 COPY --from=frontend /src/web/dist/ /app/web/
 COPY --from=backend /downloads/ /app/web/downloads/
-COPY docs/endpoint-channel-enforcement.md docs/windows-native-endpoint-observation.md docs/windows-enterprise-native-controls.md /app/web/downloads/
+COPY docs/endpoint-channel-enforcement.md docs/windows-native-endpoint-observation.md docs/windows-enterprise-native-controls.md docs/windows-clipboard-session.md /app/web/downloads/
 USER 10001:10001
 EXPOSE 8080
 ENTRYPOINT ["scarlet-server"]

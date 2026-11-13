@@ -13,7 +13,7 @@ import (
 
 const endpointHeartbeatTTL = 5 * time.Minute
 
-var endpointModes = []string{"monitor", "block_sensitive", "block_all"}
+var endpointModes = []string{"monitor", "block_sensitive", "block_all", "clear_sensitive", "clear_all"}
 var endpointCategories = []string{"email", "phone", "national_id", "financial_account", "credential", "personal_name", "address", "ip_address", "business"}
 
 func endpointExecutor(os, channel, scope string) string {
@@ -22,6 +22,9 @@ func endpointExecutor(os, channel, scope string) string {
 	}
 	if os != "windows" {
 		return ""
+	}
+	if scope == "session_response" && channel == "clipboard" {
+		return endpointSessionExecutor
 	}
 	if scope == "native_control" {
 		return endpointNativeExecutor(channel)
@@ -36,21 +39,21 @@ func endpointExecutor(os, channel, scope string) string {
 }
 func normalizeEndpointHeartbeat(in *EndpointHeartbeatInput) bool {
 	in.ObservedAt = in.ObservedAt.UTC().Truncate(time.Microsecond)
-	if !digestPattern.MatchString(in.DeviceRef) || !slices.Contains([]string{"windows", "linux", "darwin"}, in.OS) || !validCheckText(in.AgentVersion, 80) || in.ObservedAt.Before(time.Now().Add(-endpointHeartbeatTTL)) || in.ObservedAt.After(time.Now().Add(time.Minute)) || len(in.Capabilities) > 9 || len(in.Capabilities) == 0 {
+	if !digestPattern.MatchString(in.DeviceRef) || !slices.Contains([]string{"windows", "linux", "darwin"}, in.OS) || !validCheckText(in.AgentVersion, 80) || in.ObservedAt.Before(time.Now().Add(-endpointHeartbeatTTL)) || in.ObservedAt.After(time.Now().Add(time.Minute)) || len(in.Capabilities) > 10 || len(in.Capabilities) == 0 {
 		return false
 	}
 	seen := map[string]bool{}
 	for i := range in.Capabilities {
 		c := &in.Capabilities[i]
 		key := c.Channel + ":" + c.Scope
-		if seen[key] || !slices.Contains([]string{"usb", "print", "clipboard"}, c.Channel) || !slices.Contains([]string{"observation", "controlled_operations", "native_control"}, c.Scope) || len(c.Reason) > 300 || strings.ContainsAny(c.Reason, "\x00\r\n") {
+		if seen[key] || !slices.Contains([]string{"usb", "print", "clipboard"}, c.Channel) || !slices.Contains([]string{"observation", "controlled_operations", "native_control", "session_response"}, c.Scope) || len(c.Reason) > 300 || strings.ContainsAny(c.Reason, "\x00\r\n") {
 			return false
 		}
 		seen[key] = true
 		if c.Modes == nil {
 			c.Modes = []string{}
 		}
-		if c.Privilege != "" && !slices.Contains([]string{"administrator", "system", "not_elevated", "unknown"}, c.Privilege) {
+		if c.Privilege != "" && !slices.Contains([]string{"administrator", "system", "not_elevated", "unknown", "interactive_user"}, c.Privilege) {
 			return false
 		}
 		if c.Scope == "native_control" {
@@ -60,11 +63,18 @@ func normalizeEndpointHeartbeat(in *EndpointHeartbeatInput) bool {
 			if !c.Supported && (c.TargetScope != "" || c.ConfigDigest != "" || len(c.TargetRefs) > 0) && !validEndpointTargets(c.Channel, c.TargetScope, c.ConfigDigest, c.TargetRefs) {
 				return false
 			}
+		} else if c.Scope == "session_response" {
+			if c.Supported && !validEndpointSessionCapability(in.OS, *c) {
+				return false
+			}
+			if !c.Supported && (c.TargetScope != "" || c.ConfigDigest != "" || len(c.TargetRefs) > 0) && !validEndpointSessionTarget(c.Channel, c.TargetScope, c.ConfigDigest, c.TargetRefs) {
+				return false
+			}
 		} else if c.TargetScope != "" || c.ConfigDigest != "" || len(c.TargetRefs) > 0 || c.Privilege != "" {
 			return false
 		}
 		if !c.Supported {
-			if len(c.Modes) != 0 || c.Executor != "" && c.Executor != endpointExecutor(in.OS, c.Channel, c.Scope) && !(c.Channel == "usb" && c.Executor == "usb_copy_guard") && !(c.Scope == "native_control" && c.Executor == endpointNativeExecutor(c.Channel)) || !validCheckText(c.Reason, 300) {
+			if len(c.Modes) != 0 || c.Executor != "" && c.Executor != endpointExecutor(in.OS, c.Channel, c.Scope) && !(c.Channel == "usb" && c.Executor == "usb_copy_guard") && !(c.Scope == "native_control" && c.Executor == endpointNativeExecutor(c.Channel)) && !(c.Scope == "session_response" && c.Channel == "clipboard" && c.Executor == endpointSessionExecutor) || !validCheckText(c.Reason, 300) {
 				return false
 			}
 			continue
@@ -75,7 +85,7 @@ func normalizeEndpointHeartbeat(in *EndpointHeartbeatInput) bool {
 		}
 		modeSeen := map[string]bool{}
 		for _, m := range c.Modes {
-			if !slices.Contains(endpointModes, m) || modeSeen[m] || c.Scope == "observation" && m != "monitor" {
+			if !slices.Contains(endpointModes, m) || modeSeen[m] || c.Scope == "observation" && m != "monitor" || c.Scope == "session_response" && !slices.Contains(endpointSessionModes, m) || c.Scope != "session_response" && (m == "clear_sensitive" || m == "clear_all") {
 				return false
 			}
 			modeSeen[m] = true
@@ -148,6 +158,9 @@ func (s *Store) EndpointHeartbeat(ctx context.Context, digest string, in Endpoin
 				return err
 			}
 		}
+		if err = endChangedEndpointSessions(ctx, tx, ws, source.ID, in); err != nil {
+			return err
+		}
 		_, err = tx.Exec(ctx, `INSERT INTO plume.endpoint_devices(workspace_id,source_id,device_ref,os,heartbeat,heartbeat_digest,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(source_id) DO UPDATE SET heartbeat=EXCLUDED.heartbeat,heartbeat_digest=EXCLUDED.heartbeat_digest,observed_at=EXCLUDED.observed_at,last_seen_at=clock_timestamp()`, ws, source.ID, in.DeviceRef, in.OS, in, hash, in.ObservedAt)
 		if err != nil {
 			return err
@@ -188,14 +201,31 @@ func (s *Store) ListEndpointDevices(ctx context.Context, ws, actor int64) ([]End
 }
 
 func validateEndpointPolicy(in *EndpointPolicyInput) bool {
-	if in.SourceID < 1 || !digestPattern.MatchString(in.DeviceRef) || !slices.Contains([]string{"usb", "print", "clipboard"}, in.Channel) || !slices.Contains([]string{"controlled_operations", "native_control"}, in.Scope) || !slices.Contains(endpointModes, in.Mode) || !validCheckText(in.Reason, 400) || in.DurationMinutes < 1 || in.DurationMinutes > 1440 || in.Revision < 0 || len(in.Categories) > 9 {
+	if in.SourceID < 1 || !digestPattern.MatchString(in.DeviceRef) || !slices.Contains([]string{"usb", "print", "clipboard"}, in.Channel) || !slices.Contains([]string{"controlled_operations", "native_control", "session_response"}, in.Scope) || !slices.Contains(endpointModes, in.Mode) || !validCheckText(in.Reason, 400) || in.DurationMinutes < 1 || in.DurationMinutes > 1440 || in.Revision < 0 || len(in.Categories) > 9 {
 		return false
 	}
 	if in.Scope == "native_control" {
 		if in.Mode != "block_all" || len(in.Categories) != 0 || !validEndpointTargets(in.Channel, in.TargetScope, in.ConfigDigest, in.TargetRefs) {
 			return false
 		}
-	} else if in.TargetScope != "" || in.ConfigDigest != "" || len(in.TargetRefs) > 0 {
+	} else if in.Scope == "session_response" {
+		if !validEndpointSessionTarget(in.Channel, in.TargetScope, in.ConfigDigest, in.TargetRefs) || !slices.Contains(endpointSessionModes, in.Mode) {
+			return false
+		}
+		if in.Mode != "clear_sensitive" && len(in.Categories) > 0 {
+			return false
+		}
+		if in.Mode == "clear_sensitive" {
+			if len(in.Categories) == 0 {
+				return false
+			}
+			for _, c := range in.Categories {
+				if !slices.Contains(endpointSessionCategories, c) {
+					return false
+				}
+			}
+		}
+	} else if in.Mode == "clear_sensitive" || in.Mode == "clear_all" || in.TargetScope != "" || in.ConfigDigest != "" || len(in.TargetRefs) > 0 {
 		return false
 	}
 	if in.Categories == nil {
@@ -213,7 +243,7 @@ func validateEndpointPolicy(in *EndpointPolicyInput) bool {
 }
 func readEndpointPolicy(ctx context.Context, tx pgx.Tx, ws, id int64) (EndpointPolicy, error) {
 	var p EndpointPolicy
-	err := tx.QueryRow(ctx, `SELECT p.body,p.actor_id,p.digest,p.status,COALESCE(u.username,''),p.approved_at,p.decision_note FROM plume.endpoint_channel_policies p LEFT JOIN plume.users u ON u.id=p.approved_by WHERE p.workspace_id=$1 AND p.id=$2`, ws, id).Scan(&p, &p.CreatorID, &p.Digest, &p.Status, &p.Approver, &p.ApprovedAt, &p.DecisionNote)
+	err := tx.QueryRow(ctx, `SELECT p.body,p.actor_id,p.digest,p.status,COALESCE(u.username,''),p.approved_at,p.decision_note,p.ended_at FROM plume.endpoint_channel_policies p LEFT JOIN plume.users u ON u.id=p.approved_by WHERE p.workspace_id=$1 AND p.id=$2`, ws, id).Scan(&p, &p.CreatorID, &p.Digest, &p.Status, &p.Approver, &p.ApprovedAt, &p.DecisionNote, &p.EndedAt)
 	return p, storeError(err)
 }
 func refreshEndpointPolicy(ctx context.Context, tx pgx.Tx, ws, actor int64, role string, p *EndpointPolicy) error {
@@ -222,7 +252,7 @@ func refreshEndpointPolicy(ctx context.Context, tx pgx.Tx, ws, actor int64, role
 		return err
 	}
 	c, h := endpointCapability(d, p.Channel, p.Scope)
-	valid := (p.Scope != "native_control" || endpointNativeCapabilityMatches(*p, c)) && d.Current && d.DeviceRef == p.DeviceRef && d.OS == p.OS && c.Supported && h == p.CapabilityDigest && c.Executor == p.Executor && slices.Contains(c.Modes, p.Mode)
+	valid := ((p.Scope != "native_control" && p.Scope != "session_response") || endpointNativeCapabilityMatches(*p, c)) && d.Current && d.DeviceRef == p.DeviceRef && d.OS == p.OS && c.Supported && h == p.CapabilityDigest && c.Executor == p.Executor && slices.Contains(c.Modes, p.Mode)
 	unexpired := p.ExpiresAt.After(time.Now())
 	p.Current = p.Status == "approved" && valid && unexpired
 	p.CanReview = p.Status == "draft" && p.CreatorID != actor && (role == "owner" || role == "reviewer") && valid && unexpired
@@ -243,6 +273,7 @@ func refreshEndpointPolicy(ctx context.Context, tx pgx.Tx, ws, actor int64, role
 			p.DeploymentState = r.Status
 		}
 	}
+	refreshEndpointSession(p, d, c)
 	return refreshEndpointNative(ctx, tx, ws, p)
 }
 func (s *Store) CreateEndpointPolicy(ctx context.Context, ws, actor int64, in EndpointPolicyInput) (EndpointPolicy, error) {
@@ -288,7 +319,7 @@ func (s *Store) CreateEndpointPolicy(ctx context.Context, ws, actor int64, in En
 		p.OS = d.OS
 		p.CreatorID = actor
 		c, h := endpointCapability(d, p.Channel, p.Scope)
-		if p.Scope == "native_control" && (!c.Supported || !endpointNativeCapabilityMatches(p, c)) {
+		if (p.Scope == "native_control" || p.Scope == "session_response") && (!c.Supported || !endpointNativeCapabilityMatches(p, c)) {
 			return ErrEvidenceRequired
 		}
 		p.Executor = c.Executor
@@ -374,7 +405,7 @@ func (s *Store) DecideEndpointPolicy(ctx context.Context, ws, actor, id, revisio
 			if p.Status != "approved" && p.Status != "draft" {
 				return ErrConflict
 			}
-			_, err = tx.Exec(ctx, `UPDATE plume.endpoint_channel_policies SET status='revoked',decision_note=$3,ended_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2`, ws, id, note)
+			_, err = tx.Exec(ctx, `UPDATE plume.endpoint_channel_policies SET status='revoked',decision_note=$3,ended_at=COALESCE(ended_at,clock_timestamp()) WHERE workspace_id=$1 AND id=$2`, ws, id, note)
 		} else {
 			if role != "owner" && role != "reviewer" || p.CreatorID == actor {
 				return ErrForbidden
@@ -397,7 +428,7 @@ func (s *Store) DecideEndpointPolicy(ctx context.Context, ws, actor, id, revisio
 				if newer {
 					return ErrConflict
 				}
-				_, err = tx.Exec(ctx, `UPDATE plume.endpoint_channel_policies SET status='superseded',ended_at=clock_timestamp() WHERE source_id=$1 AND channel=$2 AND scope=$3 AND status='approved'`, p.SourceID, p.Channel, p.Scope)
+				_, err = tx.Exec(ctx, `UPDATE plume.endpoint_channel_policies SET status='superseded',ended_at=COALESCE(ended_at,clock_timestamp()) WHERE source_id=$1 AND channel=$2 AND scope=$3 AND status='approved'`, p.SourceID, p.Channel, p.Scope)
 				if err != nil {
 					return err
 				}

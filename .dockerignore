@@ -59,6 +59,15 @@
 !endpoint/windows-enterprise/Remove-ScarletEndpoint.ps1
 !endpoint/windows-enterprise/Test-ScarletDeployment.ps1
 !endpoint/windows-enterprise/functional-checklist.csv
+!endpoint/windows-enterprise/clipboard-config.example.json
+!endpoint/windows-enterprise/ScarletClipboard.Common.ps1
+!endpoint/windows-enterprise/Install-ScarletClipboardSession.ps1
+!endpoint/windows-enterprise/Start-ScarletClipboardSession.ps1
+!endpoint/windows-enterprise/Remove-ScarletClipboardSession.ps1
+!endpoint/windows-enterprise/Test-ScarletClipboardSession.ps1
+!endpoint/windows-enterprise/Invoke-ScarletClipboardText.ps1
+!endpoint/windows-enterprise/clipboard-functional-checklist.csv
+!docs/windows-clipboard-session.md
 **/.DS_Store
 **/.env
 **/.env.*

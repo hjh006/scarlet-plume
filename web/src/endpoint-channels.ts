@@ -1,6 +1,6 @@
 export type EndpointChannel = 'usb' | 'print' | 'clipboard'
-export type EndpointMode = 'monitor' | 'block_sensitive' | 'block_all'
-export type EndpointEnforcementScope = 'controlled_operations' | 'native_control'
+export type EndpointMode = 'monitor' | 'block_sensitive' | 'block_all' | 'clear_sensitive' | 'clear_all'
+export type EndpointEnforcementScope = 'controlled_operations' | 'native_control' | 'session_response'
 export type EndpointCapabilityScope = 'observation' | EndpointEnforcementScope
 
 export const endpointChannelLabels: Record<EndpointChannel, string> = {
@@ -8,9 +8,11 @@ export const endpointChannelLabels: Record<EndpointChannel, string> = {
 }
 export const endpointModeLabels: Record<EndpointMode, string> = {
   monitor: '仅观察', block_sensitive: '阻止敏感内容', block_all: '阻止全部动作',
+  clear_sensitive: '指定格式命中后条件清除', clear_all: '变化后条件清除全部当前内容',
 }
 export const endpointScopeLabels: Record<EndpointEnforcementScope, string> = {
   controlled_operations: '指定的受控动作', native_control: '设备原生控制',
+  session_response: '当前登录会话的变化后响应',
 }
 
 export const endpointNativeActionLabels: Record<EndpointChannel, string> = {
@@ -27,6 +29,7 @@ export const endpointNativeTargetScopes: Record<EndpointChannel, string> = {
 export const endpointPrivilegeLabels: Record<string, string> = {
   administrator: '源端报告管理员权限', system: '源端报告 System 服务权限',
   not_elevated: '尚未取得所需提升权限', unknown: '权限状态未知',
+  interactive_user: '源端报告当前交互用户会话',
 }
 export const endpointNativePhaseLabels: Record<string, string> = {
   prepared: '来源报告已准备，尚未写入',
@@ -51,6 +54,29 @@ export const endpointChannelCoverage: Record<EndpointChannel, string> = {
   print: '打印队列观察不含打印正文，不能据此确认内容已检查或已阻止。',
   clipboard: '剪贴板变化后的观察不等于对所有应用的预先阻断。',
 }
+export const endpointSessionDeploymentLabels: Record<string, string> = {
+  pending: '尚无监听加载回执', loaded: '来源报告监听已加载（不代表已经清除）',
+  listening: '来源报告监听已加载（不代表已经清除）', stopped: '来源报告监听已停止（不恢复内容）',
+  awaiting_stop: '不再批准后续响应，等待来源停止状态',
+  failed: '来源报告监听加载失败', unsupported: '来源报告不支持会话响应',
+  expired: '有效期已结束，后续响应须停止', unavailable: '当前来源、登录会话或配置不可用',
+}
+export const endpointSessionCurrentReasons: Record<string, string> = {
+  session_changed: '登录会话已变化，旧版本不能再次采用', configuration_changed: '会话配置已变化，须重新申请审批',
+  ended: '此版本已结束，不能重新采用', stopped: '来源报告监听已停止（不恢复内容）',
+  source_unavailable: '来源当前不可用', capability_changed: '会话响应能力已变化',
+}
+export const endpointSessionCodeLabels: Record<string, string> = {
+  session_clear_intent: '仅登记了清除意图，最终结果仍未知', session_clear_failed: '源端清除调用失败，不能认定已清除',
+  session_capture_unknown: '捕获不完整或未知，未形成确定结论', session_sequence_unknown: '无法核对内容序列，未形成清除结论',
+  session_policy_inactive: '策略已不可采用，不能继续响应', session_changed: '登录会话已变化，未继续清除',
+}
+export const endpointSessionResultLabels: Record<string, string> = {
+  observed: '仅观察，未清除', cleared_after_change: '来源报告变化后已清除（未证明阻断）',
+  stale: '内容已变化，本次未清除', busy: '剪贴板占用，未完成响应',
+  unavailable: '会话或剪贴板当前不可用', unsupported: '格式不支持或覆盖不足',
+  unknown: '结果未知，不能认定安全', not_required: '未触发本次清除条件（不代表安全）',
+}
 
 export interface EndpointEventScope {
   sourceId: number
@@ -68,7 +94,7 @@ export interface EndpointCapability {
   targetScope?: string
   targetRefs?: string[]
   configDigest?: string
-  privilege?: 'administrator' | 'system' | 'not_elevated' | 'unknown'
+  privilege?: 'administrator' | 'system' | 'not_elevated' | 'unknown' | 'interactive_user'
 }
 
 export interface EndpointDevice {
@@ -95,7 +121,7 @@ export interface EndpointReceipt {
   channel: EndpointChannel
   scope: EndpointEnforcementScope
   executor: string
-  status: 'applied' | 'failed' | 'unsupported'
+  status: 'applied' | 'loaded' | 'stopped' | 'failed' | 'unsupported'
   code: string
   observedAt: string
   receivedAt?: string
@@ -127,6 +153,37 @@ export interface EndpointNativeLease {
   updatedAt: string
 }
 
+export interface EndpointSessionEvent {
+  id: number
+  sourceId: number
+  eventRef: string
+  operationRef: string
+  deviceRef: string
+  sessionRef: string
+  policyId: number
+  policyRevision: number
+  policyDigest: string
+  scope: string
+  executor: string
+  configDigest: string
+  status: string
+  code: string
+  observedAt: string
+  responseAt: string
+  capture: string
+  categories: string[]
+  sequenceRef?: string
+  currentSequenceRef?: string
+  contentRef?: string
+  clearAttempted: boolean
+  sequenceMatched: boolean
+  clipboardEmpty: boolean
+  receivedAt: string
+  snapshotDigest: string
+  historical: boolean
+  currentResponse: boolean
+}
+
 export interface EndpointPolicy {
   id: number
   sourceId: number
@@ -148,6 +205,9 @@ export interface EndpointPolicy {
   approver?: string
   approvedAt?: string
   decisionNote?: string
+  endedAt?: string
+  sessionCurrent?: boolean
+  currentReason?: string
   status: string
   digest: string
   capabilityDigest: string
@@ -161,6 +221,10 @@ export interface EndpointPolicy {
   targetRefs?: string[]
   configDigest?: string
   nativeLease?: EndpointNativeLease
+  sessionEvents?: EndpointSessionEvent[]
+  sessionEventsTotal?: number
+  sessionEventsTruncated?: boolean
+  sessionCoverageMissing?: string[]
 }
 
 export interface EndpointPolicyExport {

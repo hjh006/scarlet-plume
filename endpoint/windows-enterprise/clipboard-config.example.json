@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "platformOrigin": "https://your-authorized-platform.example",
+  "scope": "authorized-clipboard-session",
+  "deviceId": "",
+  "allowUnicodeInspection": true
+}

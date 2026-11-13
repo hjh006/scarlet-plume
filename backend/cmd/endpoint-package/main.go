@@ -52,13 +52,14 @@ func build(source, binaries, out string) error {
 			return err
 		}
 	}
-	assets := []string{"README.md", "config.example.json", "Install-ScarletEndpoint.ps1", "Remove-ScarletEndpoint.ps1", "Test-ScarletDeployment.ps1", "functional-checklist.csv"}
+	assets := []string{"README.md", "config.example.json", "Install-ScarletEndpoint.ps1", "Remove-ScarletEndpoint.ps1", "Test-ScarletDeployment.ps1", "functional-checklist.csv", "clipboard-config.example.json", "ScarletClipboard.Common.ps1", "Install-ScarletClipboardSession.ps1", "Start-ScarletClipboardSession.ps1", "Remove-ScarletClipboardSession.ps1", "Test-ScarletClipboardSession.ps1", "Invoke-ScarletClipboardText.ps1", "clipboard-functional-checklist.csv"}
 	content := map[string][]byte{}
 	manifest := struct {
-		Version                 string  `json:"version"`
-		NativeRuntimeAcceptance string  `json:"nativeRuntimeAcceptance"`
-		Files                   []entry `json:"files"`
-	}{Version: "windows-enterprise-v1", NativeRuntimeAcceptance: "pending"}
+		Version                           string  `json:"version"`
+		NativeRuntimeAcceptance           string  `json:"nativeRuntimeAcceptance"`
+		ClipboardSessionRuntimeAcceptance string  `json:"clipboardSessionRuntimeAcceptance"`
+		Files                             []entry `json:"files"`
+	}{Version: "windows-enterprise-v2", NativeRuntimeAcceptance: "pending", ClipboardSessionRuntimeAcceptance: "pending"}
 	add := func(base, name string, limit int64) error {
 		path := filepath.Join(base, name)
 		info, err := os.Lstat(path)
