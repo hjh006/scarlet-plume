@@ -31,6 +31,7 @@ type PostgreSQLTable struct {
 	Constraints         []PostgreSQLConstraint     `json:"constraints"`
 	ContentAnalysis     *PostgreSQLContentAnalysis `json:"contentAnalysis,omitempty"`
 	Warnings            []string                   `json:"warnings"`
+	Transport           *PostgreSQLTransport       `json:"transport,omitempty"`
 }
 
 type PostgreSQLColumn struct {
@@ -147,6 +148,10 @@ func inspectPostgreSQL(ctx context.Context, dsn string, schemas []string, allowI
 			return err
 		}
 		postgresInspectProfiles(ctx, tx, ids, positions, tables)
+		transport := observePostgreSQLTransport(tx)
+		for i := range tables {
+			tables[i].Transport = transport
+		}
 		return nil
 	})
 	if err != nil {

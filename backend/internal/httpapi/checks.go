@@ -65,6 +65,10 @@ func (s *server) listChecks(w http.ResponseWriter, r *http.Request, _ store.User
 	if !ok {
 		return
 	}
+	assetID, ok := optionalQueryID(w, r, "assetId")
+	if !ok {
+		return
+	}
 	status := r.URL.Query().Get("status")
 	switch status {
 	case "", "draft", "in_review", "needs_work", "verified":
@@ -75,7 +79,9 @@ func (s *server) listChecks(w http.ResponseWriter, r *http.Request, _ store.User
 	const limit = 50
 	var items []store.Check
 	var err error
-	if activityID != 0 {
+	if assetID != 0 {
+		items, err = s.store.ListScopedChecks(r.Context(), workspace.ID, assetID, activityID, status, before, limit+1)
+	} else if activityID != 0 {
 		items, err = s.store.ListActivityChecks(r.Context(), workspace.ID, activityID, status, before, limit+1)
 	} else {
 		items, err = s.store.ListChecks(r.Context(), workspace.ID, status, before, limit+1)
@@ -142,6 +148,9 @@ func (s *server) exportCheck(w http.ResponseWriter, r *http.Request, user store.
 	}
 	if detail.RuntimeFinding != nil {
 		payload["runtimeFinding"] = detail.RuntimeFinding
+	}
+	if detail.RuntimeRetest != nil {
+		payload["runtimeRetest"] = detail.RuntimeRetest
 	}
 	if detail.Activity != nil {
 		activity, err := s.store.Activity(r.Context(), workspace.ID, detail.Activity.ID)

@@ -117,12 +117,16 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 
 	findings, err = repo.ListRuntimeFindings(ctx, workspace.ID)
 	must(err)
-	if len(findings) != 2 {
-		t.Fatalf("expected two distinct runtime findings, got %+v", findings)
+	if len(findings) != 4 {
+		t.Fatalf("expected two findings for each independently authorized source, got %+v", findings)
 	}
 	byRule := make(map[string]store.RuntimeFinding)
+	bySource := map[int64]map[string]store.RuntimeFinding{gateway.ID: {}, otlp.ID: {}}
 	for _, finding := range findings {
-		byRule[finding.Rule] = finding
+		bySource[finding.SourceID][finding.Rule] = finding
+		if finding.SourceID == gateway.ID {
+			byRule[finding.Rule] = finding
+		}
 		sources := map[int64]string{gateway.ID: gateway.Name, otlp.ID: otlp.Name}
 		if finding.Source == "" || sources[finding.SourceID] != finding.Source || finding.BaselineScanID != baseline.ID ||
 			finding.CheckStatus != "draft" || !finding.FirstSeen.Equal(now) || !finding.LastSeen.Equal(now) ||
@@ -140,6 +144,9 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 			t.Fatalf("unexpected runtime asset: %+v", asset)
 		}
 	}
+	if len(bySource[gateway.ID]) != 2 || len(bySource[otlp.ID]) != 2 {
+		t.Fatal("one source borrowed the other source findings")
+	}
 	if byRule["unregistered_success"].Route != "/shadow" ||
 		runtimesecurity.RouteKey(byRule["deprecated_success"].Route) != "/old/{}" {
 		t.Fatalf("unexpected rule assignment: %+v", findings)
@@ -151,12 +158,15 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 	})
 	findings, err = repo.ListRuntimeFindings(ctx, workspace.ID)
 	must(err)
-	if len(findings) != 2 {
+	if len(findings) != 4 {
 		t.Fatal("an existing finding created a duplicate")
 	}
 	for _, finding := range findings {
-		if finding.Rule == "deprecated_success" && (!finding.LastSeen.Equal(newer) ||
-			finding.CheckID != byRule[finding.Rule].CheckID || finding.SourceID != byRule[finding.Rule].SourceID) {
+		expectedAt := now
+		if finding.SourceID == gateway.ID && finding.Rule == "deprecated_success" {
+			expectedAt = newer
+		}
+		if !finding.LastSeen.Equal(expectedAt) || finding.CheckID != bySource[finding.SourceID][finding.Rule].CheckID {
 			t.Fatalf("new positive did not preserve original finding provenance: %+v", finding)
 		}
 	}
@@ -168,7 +178,7 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 
 	// Seed an independently closed cycle to exercise recurrence boundaries
 	// separately from the retest workflow that establishes the markers.
-	closed := byRule["deprecated_success"]
+	closed := bySource[otlp.ID]["deprecated_success"]
 	retestAt, verifiedAt := now.Add(2*time.Second), now.Add(3*time.Second)
 	var retestID int64
 	err = pool.QueryRow(ctx, `
@@ -191,7 +201,7 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 	})
 	findings, err = repo.ListRuntimeFindings(ctx, workspace.ID)
 	must(err)
-	if len(findings) != 2 {
+	if len(findings) != 4 {
 		t.Fatal("a delayed observation from before verification reopened the finding")
 	}
 	deliver("otlp", otlpToken, "fresh recurrence", runtimesecurity.Observation{
@@ -199,7 +209,7 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 	})
 	findings, err = repo.ListRuntimeFindings(ctx, workspace.ID)
 	must(err)
-	if len(findings) != 3 || findings[0].CheckID == closed.CheckID || findings[0].CheckStatus != "draft" ||
+	if len(findings) != 5 || findings[0].CheckID == closed.CheckID || findings[0].CheckStatus != "draft" ||
 		findings[0].PreviousCheckID == nil || *findings[0].PreviousCheckID != closed.CheckID {
 		t.Fatalf("recurrence did not open a new linked draft: %+v", findings)
 	}
@@ -247,7 +257,7 @@ func TestRuntimeFindingsAutomaticEvidence(t *testing.T) {
 	`, gateway.ID).Scan(&requests))
 	findings, err = repo.ListRuntimeFindings(ctx, workspace.ID)
 	must(err)
-	if requests != len(oversized) || len(findings) <= 3 || len(findings) >= 3+len(oversized) {
+	if requests != len(oversized) || len(findings) <= 5 || len(findings) >= 5+len(oversized) {
 		t.Fatal("finding scope cap did not preserve all aggregates while limiting workflow writes")
 	}
 	sources, err = repo.ListRuntimeSources(ctx, workspace.ID)

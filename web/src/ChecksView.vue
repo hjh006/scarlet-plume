@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
 import { canManageChecks, checkStatusLabels, type Check, type CheckPage } from './workflow'
 import Icon from './Icon.vue'
+import { useScenarioContext } from './scenario-context'
 
 const props = defineProps<{ workspace: Workspace; activityId?: number }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
-const pageUrl = `#/${encodeURIComponent(props.workspace.slug)}/checks`
+const { context, href } = useScenarioContext(props.workspace.slug)
+const pageUrl = computed(() => href('checks'))
+const scopeActivity = computed(() => props.activityId ? String(props.activityId) : context.value.activityId)
 const apiUrl = workspacePath(props.workspace.slug) + '/checks'
 const items = ref<Check[]>([])
 const cursor = ref<number | null>(null)
@@ -31,7 +34,8 @@ async function load(append = false) {
     cursor.value = null
   }
   const params = new URLSearchParams()
-  if (props.activityId) params.set('activityId', String(props.activityId))
+  if (scopeActivity.value) params.set('activityId', scopeActivity.value)
+  if (context.value.assetId) params.set('assetId', context.value.assetId)
   if (status.value) params.set('status', status.value)
   if (append && cursor.value !== null) params.set('before', String(cursor.value))
   try {
@@ -48,6 +52,7 @@ async function load(append = false) {
   }
 }
 
+watch(() => [context.value.assetId, context.value.activityId], () => { void load() })
 onMounted(() => { void load() })
 onBeforeUnmount(() => active?.abort())
 </script>
@@ -59,11 +64,12 @@ onBeforeUnmount(() => active?.abort())
       <h1>监管检查</h1>
       <p>关联监管要求和数据资产，记录取证、整改与独立复核。</p>
     </div>
-    <a v-if="canManageChecks(workspace.role)" class="button button-primary" :href="pageUrl + '/new'">
+    <a v-if="canManageChecks(workspace.role)" class="button button-primary" :href="href(scopeActivity ? 'checks/new/' + scopeActivity : 'checks/new')">
       <Icon name="plus" />新建检查
     </a>
   </header>
 
+  <p v-if="!activityId && (context.assetId || scopeActivity)" class="message">本次检查范围：资产 #{{ context.assetId || '按活动确定' }}<template v-if="scopeActivity"> · 活动 #{{ scopeActivity }}</template>。下列记录按服务端范围读取。</p>
   <div v-if="!activityId" class="check-status-strip" aria-label="本次载入检查状态">
     <div v-for="entry in statusCounts" :key="entry.value"><span>{{ entry.label }}</span><strong>{{ entry.count }}</strong></div>
     <p>本次载入 {{ items.length }} 项<span v-if="cursor !== null"> · 仍有更多记录</span></p>
@@ -92,7 +98,7 @@ onBeforeUnmount(() => active?.abort())
         <tbody>
           <tr v-for="check in visibleItems" :key="check.id" :class="{ selected: selected?.id === check.id }">
             <th scope="row">
-              <a class="table-link" :href="pageUrl + '/' + check.id">{{ check.template?.item.title || check.requirement.title }}</a>
+              <a class="table-link" :href="href('checks/' + check.id)">{{ check.template?.item.title || check.requirement.title }}</a>
               <span class="table-secondary">{{ check.requirement.code }} · {{ check.assetName }}</span>
               <span v-if="!activityId && check.activity" class="table-secondary">{{ check.activity.name }}</span>
               <time class="table-secondary compact-date" :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time>
@@ -122,7 +128,7 @@ onBeforeUnmount(() => active?.abort())
       <h3>{{ selected.template?.item.title || selected.requirement.title }}</h3>
       <dl><div><dt>监管要求</dt><dd>{{ selected.requirement.code }}</dd></div><div><dt>关联资产</dt><dd>{{ selected.assetName }}</dd></div><div><dt>责任团队</dt><dd>{{ selected.ownerTeam }}</dd></div><div><dt>更新记录</dt><dd>{{ formatDate(selected.updatedAt) }}</dd></div></dl>
       <p class="field-hint">证据新鲜度、来源覆盖与下一步操作以检查详情中的实际取证为准。</p>
-      <a class="button button-primary" :href="pageUrl + '/' + selected.id">查看证据与复核</a>
+      <a class="button button-primary" :href="href('checks/' + selected.id)">查看证据与复核</a>
     </div><p v-else class="empty-state">选择检查后查看采用范围。</p></section>
     <section class="panel"><div class="panel-heading"><h2>核验顺序</h2></div><ol class="checks-process"><li>核对适用要求与来源</li><li>登记观察和整改</li><li>取得同范围新复测</li><li>交由独立人员复核</li></ol></section>
   </aside>
@@ -130,5 +136,5 @@ onBeforeUnmount(() => active?.abort())
 </template>
 
 <style scoped>
-.check-status-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;align-items:center;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:0 0 18px;padding:18px 20px;gap:20px}.check-status-strip>div{display:grid;gap:4px;border-right:1px solid var(--line)}.check-status-strip span{font-size:12px;color:var(--secondary)}.check-status-strip strong{font-size:27px;font-variant-numeric:tabular-nums;line-height:1.3}.check-status-strip p{font-size:11px;color:var(--secondary)}.checks-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.checks-embedded{display:block}.checks-search{margin-left:auto;display:flex;align-items:center;gap:8px}.checks-search input{min-width:185px;max-width:240px}.check-select{display:block;margin-top:5px;padding:0;background:none;border:0;color:var(--accent);font-size:11px}.check-table tr.selected{background:#edf9fc}.check-table tr.selected>th{box-shadow:inset 3px 0 #00889d}.checks-context{display:grid;gap:16px}.checks-context-body{padding:18px;display:grid;gap:14px}.checks-context-body h3{line-height:1.6}.checks-context-body dl{margin:0;font-size:12px}.checks-context-body dl>div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}.checks-context-body dt{color:var(--secondary)}.checks-context-body dd{margin:0;overflow-wrap:anywhere}.checks-process{list-style:none;margin:0;padding:18px 22px;display:grid;gap:15px;counter-reset:step}.checks-process li{counter-increment:step;font-size:12px}.checks-process li::before{content:counter(step);display:inline-grid;place-items:center;width:21px;height:21px;border:1px solid #a6d8e0;border-radius:50%;color:var(--teal);margin-right:9px}.checks-workbench .panel{min-width:0}@media(max-width:1320px){.checks-workbench{grid-template-columns:minmax(0,1fr) 270px}.checks-search{margin-left:0}.check-status-strip{gap:12px;padding:15px}.check-status-strip p{max-width:90px}}
+.check-status-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;align-items:center;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:0 0 18px;padding:18px 20px;gap:20px}.check-status-strip>div{display:grid;gap:4px;border-right:1px solid var(--line)}.check-status-strip span{font-size:12px;color:var(--secondary)}.check-status-strip strong{font-size:27px;font-variant-numeric:tabular-nums;line-height:1.3}.check-status-strip p{font-size:12px;color:var(--secondary)}.checks-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.checks-embedded{display:block}.checks-search{margin-left:auto;display:flex;align-items:center;gap:8px}.checks-search input{min-width:185px;max-width:240px}.check-select{display:block;margin-top:5px;padding:0;background:none;border:0;color:var(--accent);font-size:12px}.check-table tr.selected{background:var(--accent-soft)}.check-table tr.selected>th{box-shadow:inset 2px 0 var(--accent)}.checks-context{display:grid;gap:16px}.checks-context-body{padding:18px;display:grid;gap:14px}.checks-context-body h3{line-height:1.6}.checks-context-body dl{margin:0;font-size:12px}.checks-context-body dl>div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}.checks-context-body dt{color:var(--secondary)}.checks-context-body dd{margin:0;overflow-wrap:anywhere}.checks-process{list-style:none;margin:0;padding:18px 22px;display:grid;gap:15px;counter-reset:step}.checks-process li{counter-increment:step;font-size:12px}.checks-process li::before{content:counter(step);display:inline-grid;place-items:center;width:21px;height:21px;border:1px solid var(--line);border-radius:50%;color:var(--teal);margin-right:9px}.checks-workbench .panel{min-width:0}@media(max-width:1320px){.checks-workbench{grid-template-columns:minmax(0,1fr) 270px}.checks-search{margin-left:0}.check-status-strip{gap:12px;padding:15px}.check-status-strip p{max-width:90px}}
 </style>

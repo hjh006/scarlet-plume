@@ -209,6 +209,9 @@ func validPostgresTables(tables []collector.PostgreSQLTable, assets []CollectedA
 	}
 	columnCount, grantCount := 0, 0
 	for _, table := range tables {
+		if !collector.ValidPostgreSQLTransport(table.Transport) {
+			return false
+		}
 		name, ok := refs[table.SourceRef]
 		if !ok || name != table.Name || !validCheckText(table.Schema, 128) || !validCheckText(table.SourceRef, 500) {
 			return false
@@ -232,8 +235,8 @@ func persistPostgresInspections(ctx context.Context, tx pgx.Tx, job AutomationJo
 	}
 	rows, err := tx.Query(ctx, `
 		INSERT INTO plume.postgres_asset_inspections
-		    (asset_id, job_id, automation_run_id, source_host, source_port, source_database, inspection)
-		SELECT a.id, $1, $2, $3, $4, $5, data.inspection
+		    (asset_id, job_id, automation_run_id, source_host, source_port, source_database, inspection, source_revision)
+		SELECT a.id, $1, $2, $3, $4, $5, data.inspection, $10
 		FROM unnest($6::text[], $7::jsonb[]) AS data(source_ref, inspection)
 		JOIN plume.assets a ON a.workspace_id = $8 AND a.source_provider = 'postgresql'
 		                    AND a.source = $9 AND a.source_ref = data.source_ref
@@ -241,9 +244,9 @@ func persistPostgresInspections(ctx context.Context, tx pgx.Tx, job AutomationJo
 		ON CONFLICT (asset_id) DO UPDATE SET
 		    job_id = excluded.job_id, automation_run_id = excluded.automation_run_id,
 		    source_host = excluded.source_host, source_port = excluded.source_port,
-		    source_database = excluded.source_database, inspection = excluded.inspection
+		    source_database = excluded.source_database, inspection = excluded.inspection, source_revision = excluded.source_revision
 		RETURNING asset_id, inspection->>'sourceRef'
-	`, job.ID, run.ID, cfg.Host, cfg.Port, cfg.Database, refs, tables, job.workspaceID, job.Source)
+	`, job.ID, run.ID, cfg.Host, cfg.Port, cfg.Database, refs, tables, job.workspaceID, job.Source, cfg.Revision)
 	if err != nil {
 		return err
 	}

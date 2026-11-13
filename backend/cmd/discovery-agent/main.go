@@ -26,6 +26,8 @@ func main() {
 	localDocker := flag.Bool("local-docker", false, "仅连接固定本地Docker平台与样例数据库")
 	insecure := flag.Bool("allow-insecure-loopback", false, "仅允许回环明文开发连接")
 	once := flag.Bool("once", false, "只领取一次任务")
+	pdf := flag.Bool("file-pdf", false, "本地文件显式启用Poppler文本提取")
+	ocr := flag.Bool("file-ocr", false, "本地文件显式启用Tesseract图片OCR")
 	flag.Parse()
 	minimum := 5 * time.Second
 	if *localDocker {
@@ -83,7 +85,13 @@ func main() {
 			if claim.Config.Provider == "openmetadata" {
 				dsn = os.Getenv("SCARLET_OPENMETADATA_URL")
 			}
-			result, collectErr := collector.DiscoverWithConnection(ctx, claim.Config, collector.DiscoveryConnection{DSN: dsn, Token: os.Getenv("SCARLET_OPENMETADATA_TOKEN"), AllowInsecureLoopback: *insecure, LocalDocker: *localDocker})
+			var result collector.DiscoveryResult
+			var collectErr error
+			if claim.Config.Provider == "local_files" {
+				result, collectErr = collector.DiscoverLocalFiles(ctx, claim.Config, os.Getenv("SCARLET_FILE_ROOT"), collector.FileScanOptions{FingerprintKey: os.Getenv("SCARLET_VALUE_KEY_HEX"), FingerprintKeyID: os.Getenv("SCARLET_VALUE_KEY_ID"), FingerprintScope: os.Getenv("SCARLET_VALUE_SCOPE"), DigestKey: []byte(token), PDF: *pdf, OCR: *ocr, OCRLanguages: os.Getenv("SCARLET_FILE_OCR_LANGUAGES")})
+			} else {
+				result, collectErr = collector.DiscoverWithConnection(ctx, claim.Config, collector.DiscoveryConnection{DSN: dsn, Token: os.Getenv("SCARLET_OPENMETADATA_TOKEN"), AllowInsecureLoopback: *insecure, LocalDocker: *localDocker})
+			}
 			submission := store.DiscoverySubmission{SourceID: claim.SourceID, Revision: claim.Revision, RunRef: claim.RunRef, Status: "success", ObservedAt: time.Now().UTC(), Result: result}
 			if collectErr != nil {
 				submission.Status = "error"

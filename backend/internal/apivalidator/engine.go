@@ -29,14 +29,15 @@ type Account struct {
 	ExpectedOwner  string `json:"expectedOwner"`
 }
 type Binding struct {
-	Ref          string   `json:"ref"`
-	TargetOrigin string   `json:"targetOrigin"`
-	Route        string   `json:"route"`
-	Rules        []string `json:"rules"`
-	AccountA     Account  `json:"accountA"`
-	AccountB     Account  `json:"accountB"`
-	ObjectField  string   `json:"objectField"`
-	OwnerField   string   `json:"ownerField"`
+	ProbePolicy  store.APIValidationProbePolicy `json:"probePolicy,omitempty"`
+	Ref          string                         `json:"ref"`
+	TargetOrigin string                         `json:"targetOrigin"`
+	Route        string                         `json:"route"`
+	Rules        []string                       `json:"rules"`
+	AccountA     Account                        `json:"accountA"`
+	AccountB     Account                        `json:"accountB"`
+	ObjectField  string                         `json:"objectField"`
+	OwnerField   string                         `json:"ownerField"`
 }
 type Manifest struct {
 	SourceID int64     `json:"sourceId"`
@@ -65,6 +66,7 @@ func PrivateClient(caFile string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.MaxConnsPerHost = 2
+	transport.MaxResponseHeaderBytes = 16 << 10
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	if caFile != "" {
 		pem, err := os.ReadFile(caFile)
@@ -141,7 +143,7 @@ func bindingFor(m Manifest, claim store.APIValidationClaim) (Binding, bool) {
 		for _, rule := range claim.Plan.Rules {
 			allowed = allowed && slices.Contains(b.Rules, rule)
 		}
-		if !allowed || b.ObjectField == "" || b.OwnerField == "" || b.AccountA.ExpectedObject == "" || b.AccountA.ExpectedOwner == "" || b.AccountB.ExpectedObject == "" || b.AccountB.ExpectedOwner == "" || b.AccountA.ExpectedObject == b.AccountB.ExpectedObject || b.AccountA.ExpectedOwner == b.AccountB.ExpectedOwner || !MatchesRoute(b.Route, b.AccountA.ObjectPath) || !MatchesRoute(b.Route, b.AccountB.ObjectPath) {
+		if !allowed || b.ObjectField == "" || b.OwnerField == "" || b.AccountA.ExpectedObject == "" || b.AccountA.ExpectedOwner == "" || !MatchesRoute(b.Route, b.AccountA.ObjectPath) || slices.Contains(claim.Plan.Rules, "bola") && (b.AccountB.ExpectedObject == "" || b.AccountB.ExpectedOwner == "" || b.AccountA.ExpectedObject == b.AccountB.ExpectedObject || b.AccountA.ExpectedOwner == b.AccountB.ExpectedOwner || !MatchesRoute(b.Route, b.AccountB.ObjectPath)) || !store.NormalizeAPIProbePolicy(&b.ProbePolicy, claim.Plan.Rules, b.TargetOrigin) || policyDigest(b.ProbePolicy) != policyDigest(claim.Plan.ProbePolicy) {
 			continue
 		}
 		return b, true
@@ -153,6 +155,8 @@ type response struct {
 	status    int
 	id, owner string
 	gap       string
+	body      map[string]any
+	headers   map[string]string
 }
 
 func field(value map[string]any, key string) string {
@@ -171,16 +175,19 @@ func field(value map[string]any, key string) string {
 	text, _ := current.(string)
 	return text
 }
-func request(ctx context.Context, client *http.Client, b Binding, account Account, objectPath string) response {
+func request(ctx context.Context, client *http.Client, b Binding, account Account, objectPath string, anonymous ...bool) response {
 	username, password := os.Getenv(account.UsernameEnv), os.Getenv(account.PasswordEnv)
-	if username == "" || password == "" {
+	unauthenticated := len(anonymous) > 0 && anonymous[0]
+	if !unauthenticated && (username == "" || password == "") {
 		return response{gap: "credential_missing"}
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", b.TargetOrigin+objectPath, nil)
 	if err != nil {
 		return response{gap: "manifest_mismatch"}
 	}
-	req.SetBasicAuth(username, password)
+	if !unauthenticated {
+		req.SetBasicAuth(username, password)
+	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -190,8 +197,11 @@ func request(ctx context.Context, client *http.Client, b Binding, account Accoun
 		return response{gap: "network_error"}
 	}
 	defer resp.Body.Close()
-	r := response{status: resp.StatusCode}
-	if resp.StatusCode == 403 || resp.StatusCode == 404 {
+	r := response{status: resp.StatusCode, headers: map[string]string{}}
+	for _, h := range b.ProbePolicy.ResponseHeaders {
+		r.headers[h.Name] = strings.Join(resp.Header.Values(h.Name), ", ")
+	}
+	if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 404 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return r
 	}
@@ -206,6 +216,7 @@ func request(ctx context.Context, client *http.Client, b Binding, account Accoun
 	if json.Unmarshal(raw, &body) != nil {
 		return response{status: r.status, gap: "invalid_json"}
 	}
+	r.body = body
 	r.id, r.owner = field(body, b.ObjectField), field(body, b.OwnerField)
 	return r
 }
@@ -221,7 +232,7 @@ func weakProvidedPassword(password string) bool {
 func Execute(ctx context.Context, client *http.Client, m Manifest, claim store.APIValidationClaim) store.APIValidationResult {
 	result := store.APIValidationResult{PlanID: claim.Plan.ID, Revision: claim.Plan.Revision, RunRef: claim.RunRef, Mode: claim.Mode, Results: []store.APIValidationRuleResult{}}
 	b, allowed := bindingFor(m, claim)
-	if allowed && os.Getenv(b.AccountA.UsernameEnv) == os.Getenv(b.AccountB.UsernameEnv) {
+	if allowed && slices.Contains(claim.Plan.Rules, "bola") && os.Getenv(b.AccountA.UsernameEnv) == os.Getenv(b.AccountB.UsernameEnv) {
 		allowed = false
 	}
 	if !allowed {
@@ -237,6 +248,10 @@ func Execute(ctx context.Context, client *http.Client, m Manifest, claim store.A
 		r.Requests = 1
 		r.OwnerStatus = owner.status
 		r.OwnerConfirmed = confirmed(owner, b.AccountA)
+		if extended, handled := extendedProbe(ctx, client, b, claim, rule, owner); handled {
+			result.Results = append(result.Results, extended)
+			continue
+		}
 		if !r.OwnerConfirmed {
 			gap := owner.gap
 			if gap == "" {

@@ -21,7 +21,7 @@ import (
 
 func main() {
 	origin := flag.String("url", "", "fixed Scarlet Plume HTTPS origin")
-	format := flag.String("format", "normalized", "normalized or wazuh")
+	format := flag.String("format", "normalized", "normalized, wazuh, wazuh_context or pgaudit")
 	file := flag.String("file", "", "read a single alert file instead of stdin")
 	local := flag.Bool("local", false, "allow local Docker app or loopback HTTP")
 	flag.Parse()
@@ -92,6 +92,9 @@ func main() {
 func stop(message string) { fmt.Fprintln(os.Stderr, message); os.Exit(1) }
 
 func projectEvent(format string, raw []byte) (store.SecurityEventInput, error) {
+	if format == "wazuh_context" || format == "pgaudit" {
+		return projectDataEvent(format, raw)
+	}
 	if format == "normalized" {
 		var event store.SecurityEventInput
 		decoder := json.NewDecoder(bytes.NewReader(raw))

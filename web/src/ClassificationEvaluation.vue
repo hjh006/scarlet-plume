@@ -126,19 +126,19 @@ function describeFact(fact: ClassificationFact) {
 </template>
 
 <style scoped>
-.classification-evaluation { min-width:0;container-type:inline-size; }.classification-evidence-tabs{display:flex;gap:18px;overflow-x:auto;border-bottom:1px solid var(--line);margin-top:16px}.classification-evidence-tabs>button{display:flex;gap:6px;align-items:center;flex-shrink:0;background:none;border:0;border-bottom:2px solid transparent;padding:11px 0;font:inherit;font-size:12px;color:var(--secondary);cursor:pointer}.classification-evidence-tabs>button.active{color:var(--accent);border-color:var(--accent);font-weight:650}.classification-evidence-tabs>button>span{padding:1px 5px;border-radius:4px;background:var(--surface-subtle);font-size:10px}.classification-no-missing{padding:16px 0}
-.classification-evaluation-mark{display:grid;place-items:center;width:28px;height:28px;background:var(--accent-soft);border-radius:7px;color:var(--accent);font-size:18px}.classification-adopted-standard{grid-column:1/-1}.classification-evaluation-summary>div{min-width:0;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.classification-evaluation-summary>div.classification-adopted-standard{border-left:3px solid var(--accent);background:var(--surface-subtle)}
+.classification-evaluation { min-width:0;container-type:inline-size; }.classification-evidence-tabs{display:flex;gap:18px;overflow-x:auto;border-bottom:1px solid var(--line);margin-top:16px}.classification-evidence-tabs>button{display:flex;gap:6px;align-items:center;flex-shrink:0;background:none;border:0;border-bottom:2px solid transparent;padding:11px 0;font:inherit;font-size:12px;color:var(--secondary);cursor:pointer}.classification-evidence-tabs>button.active{color:var(--accent);border-color:var(--accent);font-weight:650}.classification-evidence-tabs>button>span{padding:1px 5px;border-radius:4px;background:var(--surface-subtle);font-size:12px}.classification-no-missing{padding:16px 0}
+.classification-evaluation-mark{display:grid;place-items:center;width:28px;height:28px;background:var(--accent-soft);border-radius:7px;color:var(--accent);font-size:18px}.classification-adopted-standard{grid-column:1/-1}.classification-evaluation-summary>div{min-width:0;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.classification-evaluation-summary>div.classification-adopted-standard{border-left:1px solid var(--accent);background:var(--surface-subtle)}
 .classification-evaluation-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .65rem; }
 .classification-evaluation-summary { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0; }
-.classification-evaluation-summary dt { color: var(--secondary); font-size: .77rem; font-weight: 700; }
+.classification-evaluation-summary dt { color: var(--secondary); font-size: 12px; font-weight: 700; }
 .classification-evaluation-summary dd { margin-top: .15rem; overflow-wrap: anywhere; }
-.classification-evaluation-scope { color: var(--secondary); font-size:12px;padding:10px 14px;background:var(--surface-subtle);border-left:3px solid var(--violet);border-radius:0 6px 6px 0; }.classification-evaluation-scope.applicable{border-left-color:var(--success)}
+.classification-evaluation-scope { color: var(--secondary); font-size:12px;padding:10px 14px;background:var(--surface-subtle);border-left:1px solid var(--violet);border-radius:0 6px 6px 0; }.classification-evaluation-scope.applicable{border-left-color:var(--success)}
 .classification-evaluation-reasons { margin: .5rem 0; padding-left: 1.15rem; color: var(--warning); font-size: .85rem; }
 .classification-evaluation-details { margin-top:12px;padding-top:6px;border-top:1px solid var(--line); }
 .classification-evaluation-details > summary { min-height: 2.5rem; padding-block: .5rem; color: var(--accent); font-weight: 700; cursor: pointer; }
 .classification-facts-table { min-width: 32rem; }
 .classification-evaluation-rules { margin: 0; padding: 0; list-style: none; }
-.classification-evaluation-rules > li { padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface); }
+.classification-evaluation-rules > li { padding:16px 0;border-bottom:1px solid var(--line);background:var(--surface); }.classification-evaluation-rules > li:last-child{border-bottom:0}
 .classification-evaluation-rules > li + li { margin-top: .55rem; }
 .classification-evaluation-rules p { margin-top: .35rem; }
 .classification-evaluation-rules ul { margin: .4rem 0 0; padding-left: 1.15rem; font-size: .83rem; }
@@ -149,5 +149,5 @@ function describeFact(fact: ClassificationFact) {
 @media (max-width: 43.99rem) {
   .classification-evaluation-summary { grid-template-columns: minmax(0, 1fr); }
 }
-.classification-evaluation-version{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 8px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;font-size:11px;color:var(--secondary);background:var(--surface-subtle)}.classification-snapshot-meta{margin-bottom:12px}.classification-snapshot-meta>summary{font-size:12px;color:var(--accent);cursor:pointer;padding:8px 0}.classification-evaluation.compact .classification-evaluation-version{font-size:10px}
+.classification-evaluation-version{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 8px;padding:10px 12px;border:1px solid var(--line);border-left:1px solid var(--accent);border-radius:6px;font-size:12px;color:var(--secondary);background:var(--surface-subtle)}.classification-snapshot-meta{margin-bottom:12px}.classification-snapshot-meta>summary{font-size:12px;color:var(--accent);cursor:pointer;padding:8px 0}.classification-evaluation.compact .classification-evaluation-version{font-size:12px}
 </style>

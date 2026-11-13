@@ -75,7 +75,7 @@ func TestRuntimeDetectionPoliciesSignalsAndIndependentRetests(t *testing.T) {
 	}
 	policies, err := repo.RuntimeDetectionPolicies(ctx, ws.ID, owner.ID)
 	must(err)
-	if len(policies) != 9 {
+	if len(policies) != 18 {
 		t.Fatal("missing built-in policies")
 	}
 	_, err = repo.RuntimeDetectionPolicies(ctx, ws.ID, foreign.ID)
@@ -85,6 +85,7 @@ func TestRuntimeDetectionPoliciesSignalsAndIndependentRetests(t *testing.T) {
 	_, err = repo.SaveRuntimeDetectionPolicy(ctx, ws.ID, reviewer.ID, policies[0])
 	want(err, ErrForbidden)
 	now := time.Now().UTC().Truncate(time.Microsecond)
+	policies = policies[:9]
 	for i := range policies {
 		p := policies[i]
 		p.Enabled = true

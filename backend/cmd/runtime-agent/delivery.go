@@ -23,15 +23,20 @@ const (
 )
 
 type observationEvent struct {
-	Method             string                           `json:"method"`
-	Route              string                           `json:"route"`
-	Status             int                              `json:"status"`
-	ObservedAt         time.Time                        `json:"observedAt"`
-	EventID            string                           `json:"eventId"`
-	DataFields         []runtimesecurity.DataField      `json:"dataFields,omitempty"`
-	CaptureWarnings    []string                         `json:"captureWarnings,omitempty"`
-	SecuritySignals    []runtimesecurity.SecuritySignal `json:"securitySignals,omitempty"`
-	InspectedLocations []string                         `json:"inspectedLocations,omitempty"`
+	ClientIP           string                             `json:"clientIp,omitempty"`
+	Transport          string                             `json:"transport,omitempty"`
+	TransportHop       string                             `json:"transportHop,omitempty"`
+	Context            *runtimesecurity.RuntimeContext    `json:"context,omitempty"`
+	ValueFingerprints  []runtimesecurity.ValueFingerprint `json:"valueFingerprints,omitempty"`
+	Method             string                             `json:"method"`
+	Route              string                             `json:"route"`
+	Status             int                                `json:"status"`
+	ObservedAt         time.Time                          `json:"observedAt"`
+	EventID            string                             `json:"eventId"`
+	DataFields         []runtimesecurity.DataField        `json:"dataFields,omitempty"`
+	CaptureWarnings    []string                           `json:"captureWarnings,omitempty"`
+	SecuritySignals    []runtimesecurity.SecuritySignal   `json:"securitySignals,omitempty"`
+	InspectedLocations []string                           `json:"inspectedLocations,omitempty"`
 }
 
 type observer struct {

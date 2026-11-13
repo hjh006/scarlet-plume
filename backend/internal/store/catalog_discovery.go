@@ -76,6 +76,10 @@ func validDiscoverySource(i DiscoverySourceInput) bool {
 		}
 	}
 	switch i.Provider {
+	case "local_files":
+		if i.System != "local_files" || !collector.ValidFileScopes(i.Scopes) {
+			return false
+		}
 	case "postgresql":
 		if i.System != "postgresql" || len(i.Scopes) == 0 {
 			return false

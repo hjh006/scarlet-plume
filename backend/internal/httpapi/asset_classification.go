@@ -10,6 +10,7 @@ import (
 )
 
 func (s *server) classificationRoutes(mux *http.ServeMux) {
+	s.classificationWorkbenchRoutes(mux)
 	const base = "/api/v1/workspaces/{slug}/classification/assets"
 	mux.HandleFunc("GET "+base, s.workspace(false, s.listAssetClassifications))
 	mux.HandleFunc("GET "+base+"/{asset}", s.workspace(false, s.getAssetClassification))
@@ -86,6 +87,7 @@ func (s *server) updateAssetClassification(w http.ResponseWriter, r *http.Reques
 		StandardID        string `json:"standardId"`
 		LevelCode         string `json:"levelCode"`
 		RuleID            string `json:"ruleId"`
+		TaxonomyID        *int64 `json:"taxonomyId"`
 	}
 	if !readJSONLimit(w, r, &payload, 8<<10) {
 		return
@@ -98,6 +100,7 @@ func (s *server) updateAssetClassification(w http.ResponseWriter, r *http.Reques
 		Revision: *payload.Revision, Category: payload.Category, BusinessLevel: payload.BusinessLevel,
 		StatutoryCategory: payload.StatutoryCategory, Basis: payload.Basis,
 		StandardID: payload.StandardID, LevelCode: payload.LevelCode, RuleID: payload.RuleID,
+		TaxonomyID: payload.TaxonomyID,
 	})
 	if err != nil {
 		classificationFailure(w, err)

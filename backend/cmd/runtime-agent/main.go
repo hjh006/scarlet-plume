@@ -28,6 +28,8 @@ func main() {
 	platformOrigin := flag.String("url", "", "Scarlet Plume origin, defaults to SCARLET_RUNTIME_URL")
 	local := flag.Bool("local", false, "allow plaintext telemetry to the local Docker app or loopback")
 	inspectJSON := flag.Bool("inspect-json", false, "inspect bounded authorized JSON bodies at the proxy; emit field statistics only")
+	aiEgressEnabled := flag.Bool("ai-egress", false, "enforce explicit source-side policy before configured AI POST JSON requests")
+	dataPolicyPath := flag.String("data-policy", "", "local JSON data policy; required together with -ai-egress")
 	controlsEnabled := flag.Bool("controls", false, "apply explicitly approved, time-limited runtime controls from the platform")
 	certPath := flag.String("tls-cert", "", "PEM certificate chain for the HTTPS listener")
 	keyPath := flag.String("tls-key", "", "PEM private key for the HTTPS listener")
@@ -72,6 +74,21 @@ func main() {
 		exit(err)
 	}
 	handler := proxyHandlerWithInspection(upstream, upstreamTransport, templates, telemetry, *inspectJSON)
+	if *aiEgressEnabled != (*dataPolicyPath != "") {
+		exit(errors.New("-ai-egress and -data-policy are required together"))
+	}
+	if *aiEgressEnabled {
+		policy, err := loadDataPolicy(*dataPolicyPath)
+		if err != nil {
+			exit(err)
+		}
+		egress, err := newAIEgress(upstream, platform, os.Getenv("SCARLET_OPERATIONS_TOKEN"), *local, policy, templates)
+		if err != nil {
+			exit(err)
+		}
+		defer egress.client.CloseIdleConnections()
+		handler = egress.wrap(proxyHandlerWithResponsePolicy(upstream, upstreamTransport, templates, telemetry, *inspectJSON, rejectAIEgressRedirect))
+	}
 	var controls *runtimeControls
 	if *controlsEnabled {
 		controls, err = newRuntimeControls(platform, token, *local, templates, telemetry)
@@ -160,6 +177,7 @@ func directTransport() *http.Transport {
 type observationKey struct{}
 
 type requestObservation struct {
+	valueFingerprints  []runtimesecurity.ValueFingerprint
 	method             string
 	route              string
 	status             int
@@ -170,6 +188,7 @@ type requestObservation struct {
 	securitySignals    []runtimesecurity.SecuritySignal
 	inspectedLocations []string
 	queryInspected     bool
+	queryFields        []runtimesecurity.DataField
 }
 
 func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []routeTemplate, telemetry *observer) http.Handler {
@@ -177,6 +196,10 @@ func proxyHandler(upstream *url.URL, transport http.RoundTripper, routes []route
 }
 
 func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, routes []routeTemplate, telemetry *observer, inspectJSON bool) http.Handler {
+	return proxyHandlerWithResponsePolicy(upstream, transport, routes, telemetry, inspectJSON, nil)
+}
+
+func proxyHandlerWithResponsePolicy(upstream *url.URL, transport http.RoundTripper, routes []routeTemplate, telemetry *observer, inspectJSON bool, responsePolicy func(*http.Response) error) http.Handler {
 	record := func(request *http.Request, status int) {
 		if request == nil {
 			return
@@ -196,6 +219,11 @@ func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, 
 		Transport: transport,
 		ErrorLog:  log.New(io.Discard, "", 0),
 		ModifyResponse: func(response *http.Response) error {
+			if responsePolicy != nil {
+				if err := responsePolicy(response); err != nil {
+					return err
+				}
+			}
 			record(response.Request, response.StatusCode)
 			if inspectJSON && response.StatusCode != http.StatusSwitchingProtocols && response.Request != nil {
 				if observation, _ := response.Request.Context().Value(observationKey{}).(*requestObservation); observation != nil {
@@ -217,7 +245,7 @@ func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, 
 				metadata := &requestObservation{method: r.Method, route: route}
 				if inspectJSON {
 					if len(r.URL.RawQuery) <= runtimesecurity.MaxJSONCaptureBytes {
-						metadata.queryInspected = true
+						captureQueryStatistics(metadata, r.URL.RawQuery)
 						metadata.securitySignals = runtimesecurity.InspectSecurity([]byte(r.URL.RawQuery))
 						if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
 							metadata.inspectedLocations = append(metadata.inspectedLocations, "request")
@@ -231,7 +259,7 @@ func proxyHandlerWithInspection(upstream *url.URL, transport http.RoundTripper, 
 						return
 					}
 					fields, warnings := captureBodyStatistics(metadata)
-					telemetry.enqueue(observationEvent{Method: metadata.method, Route: metadata.route, Status: metadata.status, ObservedAt: time.Now().UTC(), DataFields: fields, CaptureWarnings: warnings, SecuritySignals: metadata.securitySignals, InspectedLocations: metadata.inspectedLocations})
+					telemetry.enqueue(observationEvent{ValueFingerprints: metadata.valueFingerprints, ClientIP: observedClientIP(r.RemoteAddr), Transport: upstream.Scheme, TransportHop: "proxy_upstream", Method: metadata.method, Route: metadata.route, Status: metadata.status, ObservedAt: time.Now().UTC(), DataFields: fields, CaptureWarnings: warnings, SecuritySignals: metadata.securitySignals, InspectedLocations: metadata.inspectedLocations})
 				}()
 			}
 		}

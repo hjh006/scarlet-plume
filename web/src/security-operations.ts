@@ -14,12 +14,12 @@ export interface OperationsOverview {
 export const securityEventCategoryLabels: Record<string, string> = {
   api: 'API 安全', data_leak: '数据泄露信号', access: '访问控制', config: '配置风险', malware: '恶意活动信号', backup: '备份安全', key: '密钥安全', custom: '自定义信号',
 }
-export const securityEventOutcomeLabels: Record<string, string> = { observed: '来源报告发现', cleared: '来源报告消除' }
+export const securityEventOutcomeLabels: Record<string, string> = { observed: '来源报告发现', cleared: '来源报告消除', activity: '来源活动审计' }
 export const operationsSeverityLabels: Record<string, string> = { low: '低', medium: '中', high: '高', critical: '严重' }
 export interface OperationsSecurityEvent {
   id: number; sourceId: number; source: string; eventId: string; observedAt: string
   category: string; rule: string; severity: string; outcome: string
-  assetId?: number; checkId: number; checkStatus: Check['status']
+  assetId?: number; checkId: number; checkStatus: Check['status'] | ''
   service?: string; method?: string; route?: string; count: number; windowSeconds: number
 }
 export const controlKindLabels = { block_api: '临时阻断 API', revoke_select: '撤销表级 SELECT' }

@@ -56,6 +56,15 @@ func (s *Store) OverviewSources(ctx context.Context, workspaceID int64) ([]Overv
           CASE WHEN last_seen IS NULL THEN 'never_run' ELSE 'observing' END,
           last_seen,NULL::timestamptz,COALESCE(last_seen,created_at)
    FROM plume.operations_sources WHERE workspace_id=$1 AND revoked_at IS NULL
+   UNION ALL
+   SELECT s.id,s.name,'application_api','application_api',
+          CASE WHEN NOT EXISTS(SELECT 1 FROM plume.memberships m WHERE m.workspace_id=s.workspace_id AND m.user_id=s.actor_id AND m.role='owner') THEN 'revoked'
+               WHEN b.id IS NULL THEN 'never_run' WHEN b.status<>'success' THEN 'failed'
+               WHEN b.observed_at+make_interval(mins=>s.max_age_minutes)<statement_timestamp() THEN 'stale' ELSE 'current' END,
+          b.observed_at,b.created_at,COALESCE(b.created_at,s.created_at)
+   FROM plume.application_sources s
+   LEFT JOIN plume.application_batches b ON b.source_id=s.id AND b.id=s.latest_batch_id AND b.workspace_id=s.workspace_id
+   WHERE s.workspace_id=$1 AND s.revoked_at IS NULL
 
 		)
 		SELECT id, name, provider, kind, state, last_observed_at, last_run_at

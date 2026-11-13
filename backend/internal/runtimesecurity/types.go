@@ -20,23 +20,28 @@ var (
 )
 
 type Observation struct {
-	Method             string           `json:"method"`
-	Route              string           `json:"route"`
-	Status             int              `json:"status"`
-	ObservedAt         time.Time        `json:"observedAt"`
-	DatabaseSystems    []string         `json:"databaseSystems,omitempty"`
-	TraceRef           string           `json:"traceRef,omitempty"`
-	SpanRef            string           `json:"spanRef,omitempty"`
-	ParentSpanRef      string           `json:"parentSpanRef,omitempty"`
-	ServiceCalls       []ServiceCall    `json:"serviceCalls,omitempty"`
-	SubjectRef         string           `json:"subjectRef,omitempty"`
-	DatabaseTargets    []DatabaseTarget `json:"databaseTargets,omitempty"`
-	DataFields         []DataField      `json:"dataFields,omitempty"`
-	CaptureWarnings    []string         `json:"captureWarnings,omitempty"`
-	AuthState          string           `json:"authState,omitempty"`
-	AuthRequired       *bool            `json:"authRequired,omitempty"`
-	SecuritySignals    []SecuritySignal `json:"securitySignals,omitempty"`
-	InspectedLocations []string         `json:"inspectedLocations,omitempty"`
+	TransportHop       string             `json:"transportHop,omitempty"`
+	ClientIP           string             `json:"clientIp,omitempty"`
+	Transport          string             `json:"transport,omitempty"`
+	Context            *RuntimeContext    `json:"context,omitempty"`
+	ValueFingerprints  []ValueFingerprint `json:"valueFingerprints,omitempty"`
+	Method             string             `json:"method"`
+	Route              string             `json:"route"`
+	Status             int                `json:"status"`
+	ObservedAt         time.Time          `json:"observedAt"`
+	DatabaseSystems    []string           `json:"databaseSystems,omitempty"`
+	TraceRef           string             `json:"traceRef,omitempty"`
+	SpanRef            string             `json:"spanRef,omitempty"`
+	ParentSpanRef      string             `json:"parentSpanRef,omitempty"`
+	ServiceCalls       []ServiceCall      `json:"serviceCalls,omitempty"`
+	SubjectRef         string             `json:"subjectRef,omitempty"`
+	DatabaseTargets    []DatabaseTarget   `json:"databaseTargets,omitempty"`
+	DataFields         []DataField        `json:"dataFields,omitempty"`
+	CaptureWarnings    []string           `json:"captureWarnings,omitempty"`
+	AuthState          string             `json:"authState,omitempty"`
+	AuthRequired       *bool              `json:"authRequired,omitempty"`
+	SecuritySignals    []SecuritySignal   `json:"securitySignals,omitempty"`
+	InspectedLocations []string           `json:"inspectedLocations,omitempty"`
 }
 
 // SecuritySignal is a bounded source-side pattern observation, not proof of a vulnerability.

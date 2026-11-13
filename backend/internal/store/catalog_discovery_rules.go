@@ -27,7 +27,7 @@ func readPublishedDiscoveryRules(ctx context.Context, tx pgx.Tx, workspaceID int
 		}
 		rules = append(rules, r)
 	}
-	if len(rules) > 103 {
+	if len(rules) > 100+len(collector.BuiltinDiscoveryRules()) {
 		return nil, ErrInvalid
 	}
 	return rules, rows.Err()

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "platformOrigin": "https://platform.example",
+  "scope": "corporate-endpoint-native-v1",
+  "deviceId": "",
+  "usbWriteProtect": false,
+  "printQueues": [],
+  "rdpClipboardRedirection": false
+}

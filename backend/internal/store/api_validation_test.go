@@ -38,6 +38,15 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 		}
 	}
 	must(repo.Migrate(ctx))
+	// Use the database clock for causally ordered source observations. Evidence
+	// created_at and workflow timestamps are also assigned by PostgreSQL.
+	dbNow := func() time.Time {
+		t.Helper()
+		var at time.Time
+		must(pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at))
+		return at
+	}
+
 	slug := fmt.Sprintf("api-validation-%d", time.Now().UnixNano())
 	must(repo.Bootstrap(ctx, slug, "unused", slug, "API validation"))
 	must(repo.ProvisionReviewer(ctx, slug, slug+"-reviewer", "unused"))
@@ -93,7 +102,7 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 		t.Fatal("active lease duplicated")
 	}
 	// A 200 alone cannot establish BOLA or a cleared condition.
-	bad := APIValidationResult{PlanID: plan.ID, Revision: plan.Revision, RunRef: claim.RunRef, Mode: "validation", ObservedAt: time.Now(), Results: []APIValidationRuleResult{{Rule: "bola", Outcome: "vulnerable", OwnerStatus: 200, OtherStatus: 200, Requests: 3}}}
+	bad := APIValidationResult{PlanID: plan.ID, Revision: plan.Revision, RunRef: claim.RunRef, Mode: "validation", ObservedAt: dbNow(), Results: []APIValidationRuleResult{{Rule: "bola", Outcome: "vulnerable", OwnerStatus: 200, OtherStatus: 200, Requests: 3}}}
 	_, _, err = repo.SubmitAPIValidationResult(ctx, digest, bad)
 	want(err, ErrInvalid)
 	bad.Results[0].Outcome = "inconclusive"
@@ -115,7 +124,7 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 		return c
 	}
 	claim = request("validation")
-	positive := APIValidationResult{PlanID: plan.ID, Revision: plan.Revision, RunRef: claim.RunRef, Mode: "validation", ObservedAt: time.Now(), Results: []APIValidationRuleResult{{Rule: "bola", Outcome: "vulnerable", OwnerStatus: 200, OtherOwnedStatus: 200, OtherStatus: 200, OwnerConfirmed: true, OtherAccountConfirmed: true, SameObject: true, ComparisonComplete: true, Requests: 3, Gaps: []string{}}}}
+	positive := APIValidationResult{PlanID: plan.ID, Revision: plan.Revision, RunRef: claim.RunRef, Mode: "validation", ObservedAt: dbNow(), Results: []APIValidationRuleResult{{Rule: "bola", Outcome: "vulnerable", OwnerStatus: 200, OtherOwnedStatus: 200, OtherStatus: 200, OwnerConfirmed: true, OtherAccountConfirmed: true, SameObject: true, ComparisonComplete: true, Requests: 3, Gaps: []string{}}}}
 	found, replayed, err := repo.SubmitAPIValidationResult(ctx, digest, positive)
 	must(err)
 	if replayed || len(found.CheckIDs) != 1 || found.ProjectionState != "complete" {
@@ -131,12 +140,12 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 	mutated.ObservedAt = positive.ObservedAt.Add(time.Microsecond)
 	_, _, err = repo.SubmitAPIValidationResult(ctx, digest, mutated)
 	want(err, ErrConflict)
-	must(repo.AddEvidence(ctx, ws.ID, owner.ID, checkID, EvidenceInput{Kind: "remediation", SourceSystem: "Synthetic fix", SourceRecord: "fixture:fixed", Summary: "Object authorization now validates synthetic ownership", ObservedAt: time.Now()}))
+	must(repo.AddEvidence(ctx, ws.ID, owner.ID, checkID, EvidenceInput{Kind: "remediation", SourceSystem: "Synthetic fix", SourceRecord: "fixture:fixed", Summary: "Object authorization now validates synthetic ownership", ObservedAt: dbNow()}))
 	claim = request("connection")
 	connection := positive
 	connection.RunRef = claim.RunRef
 	connection.Mode = "connection"
-	connection.ObservedAt = time.Now()
+	connection.ObservedAt = dbNow()
 	connection.Results = []APIValidationRuleResult{{Rule: "bola", Outcome: "inconclusive", OwnerStatus: 200, OtherOwnedStatus: 200, OwnerConfirmed: true, OtherAccountConfirmed: true, Requests: 2, Gaps: []string{"connection_only"}}}
 	run, _, err := repo.SubmitAPIValidationResult(ctx, digest, connection)
 	must(err)
@@ -146,7 +155,7 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 	claim = request("validation")
 	negative := positive
 	negative.RunRef = claim.RunRef
-	negative.ObservedAt = time.Now()
+	negative.ObservedAt = dbNow()
 	negative.Results = []APIValidationRuleResult{{Rule: "bola", Outcome: "not_observed", OwnerStatus: 200, OtherOwnedStatus: 200, OtherStatus: 403, OwnerConfirmed: true, OtherAccountConfirmed: true, ComparisonComplete: true, Requests: 3, Gaps: []string{}}}
 	cleared, _, err := repo.SubmitAPIValidationResult(ctx, digest, negative)
 	must(err)
@@ -162,7 +171,7 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 	detail, err = repo.CheckDetail(ctx, ws.ID, reviewer.ID, checkID)
 	must(err)
 	if !detail.CanVerify {
-		t.Fatal("native clear evidence unavailable to independent reviewer")
+		t.Fatalf("native clear evidence unavailable to independent reviewer: %s", checkFixtureTimeline(ctx, pool, checkID))
 	}
 	must(repo.ReviewCheck(ctx, ws.ID, reviewer.ID, checkID, detail.ReviewRevision, "verified", "Reviewed bounded live probe and remediation"))
 	// Changing target scope resets approval and invalidates outstanding work.
@@ -176,7 +185,7 @@ func TestAPIValidationApprovalLeaseProjectionAndFreshClear(t *testing.T) {
 	}
 	old := positive
 	old.RunRef = claim.RunRef
-	old.ObservedAt = time.Now()
+	old.ObservedAt = dbNow()
 	_, _, err = repo.SubmitAPIValidationResult(ctx, digest, old)
 	want(err, ErrConflict)
 	_, err = pool.Exec(ctx, `UPDATE plume.memberships SET role='operator' WHERE workspace_id=$1 AND user_id=$2`, ws.ID, owner.ID)

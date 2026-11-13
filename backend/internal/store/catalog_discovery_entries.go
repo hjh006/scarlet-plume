@@ -63,6 +63,9 @@ type CatalogDiscoverySummary struct {
 
 func catalogRef(parts ...string) string { b, _ := json.Marshal(parts); return string(b) }
 func saveDiscoveryCatalog(ctx context.Context, tx pgx.Tx, ws int64, source DiscoverySource, runID int64, in DiscoverySubmission) error {
+	if source.Provider == "local_files" {
+		return saveFileDiscoveryCatalog(ctx, tx, ws, source, runID, in)
+	}
 	dbref := catalogRef(source.System, source.Database)
 	if _, e := upsertDiscoveryEntry(ctx, tx, ws, source, runID, in, "database", dbref, "", source.Database, "", "", "", map[string]any{"discoveryProvider": source.Provider, "coverage": in.Result.Coverage}); e != nil {
 		return e
@@ -125,7 +128,7 @@ func upsertDiscoveryEntry(ctx context.Context, tx pgx.Tx, ws int64, source Disco
 		return 0, e
 	}
 	meta, _ := json.Marshal(metadata)
-	e = tx.QueryRow(ctx, `INSERT INTO plume.catalog_entries(workspace_id,asset_id,kind,parent_ref,source,source_ref,source_id,run_id,source_revision,system,database_name,schema_name,table_name,field_name,metadata,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(workspace_id,source,source_ref) DO UPDATE SET run_id=EXCLUDED.run_id,source_id=EXCLUDED.source_id,source_revision=EXCLUDED.source_revision,metadata=(catalog_entries.metadata-'classification')||EXCLUDED.metadata,revision=catalog_entries.revision+1,observed_at=EXCLUDED.observed_at RETURNING id,revision`, ws, assetID, kind, parent, source.Source, ref, source.ID, runID, source.Revision, source.System, source.Database, schema, table, field, meta, in.ObservedAt).Scan(&entryID, &revision)
+	e = tx.QueryRow(ctx, `INSERT INTO plume.catalog_entries(workspace_id,asset_id,kind,parent_ref,source,source_ref,source_id,run_id,source_revision,system,database_name,schema_name,table_name,field_name,metadata,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(workspace_id,source,source_ref) DO UPDATE SET run_id=EXCLUDED.run_id,source_id=EXCLUDED.source_id,source_revision=EXCLUDED.source_revision,metadata=(catalog_entries.metadata-'classification'-'classificationRevision')||EXCLUDED.metadata,revision=catalog_entries.revision+1,observed_at=EXCLUDED.observed_at RETURNING id,revision`, ws, assetID, kind, parent, source.Source, ref, source.ID, runID, source.Revision, source.System, source.Database, schema, table, field, meta, in.ObservedAt).Scan(&entryID, &revision)
 	if e != nil {
 		return 0, e
 	}

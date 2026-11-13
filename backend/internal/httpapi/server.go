@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/classificationai"
 	"github.com/hjh006/scarlet-plume/backend/internal/managed"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
 )
@@ -23,12 +24,13 @@ const (
 )
 
 type server struct {
-	managed      *managed.Manager
-	store        *store.Store
-	origin       string
-	secure       bool
-	loginSlots   chan struct{}
-	runtimeSlots chan struct{}
+	managed          *managed.Manager
+	classificationAI *classificationai.Manager
+	store            *store.Store
+	origin           string
+	secure           bool
+	loginSlots       chan struct{}
+	runtimeSlots     chan struct{}
 }
 
 func New(st *store.Store, origin string, secure bool) http.Handler {
@@ -36,7 +38,11 @@ func New(st *store.Store, origin string, secure bool) http.Handler {
 }
 
 func NewWithManaged(st *store.Store, origin string, secure bool, manager *managed.Manager) http.Handler {
-	s := &server{store: st, managed: manager, origin: origin, secure: secure, loginSlots: make(chan struct{}, 4), runtimeSlots: make(chan struct{}, 8)}
+	return NewWithClassificationAI(st, origin, secure, manager, nil)
+}
+
+func NewWithClassificationAI(st *store.Store, origin string, secure bool, manager *managed.Manager, ai *classificationai.Manager) http.Handler {
+	s := &server{store: st, managed: manager, classificationAI: ai, origin: origin, secure: secure, loginSlots: make(chan struct{}, 4), runtimeSlots: make(chan struct{}, 8)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/session", s.getSession)
 	mux.HandleFunc("POST /api/v1/session", s.signIn)
@@ -59,10 +65,15 @@ func NewWithManaged(st *store.Store, origin string, secure bool, manager *manage
 	s.runtimeDetectionRoutes(mux)
 	s.catalogDiscoveryRoutes(mux)
 	s.securityOperationsRoutes(mux)
+	s.operationsReportRoutes(mux)
+	s.dataSecurityRoutes(mux)
+	s.endpointChannelRoutes(mux)
 	s.assessmentRoutes(mux)
+	s.scenarioDataRoutes(mux)
 	s.apiValidationRoutes(mux)
 	s.actionAuditRoutes(mux)
 	s.classificationRoutes(mux)
+	s.browserAnnotationRoutes(mux)
 	s.dataFlowRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
@@ -72,7 +83,7 @@ func NewWithManaged(st *store.Store, origin string, secure bool, manager *manage
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("Origin") != s.origin && !(r.Method == http.MethodPost && (r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath)) {
+			r.Header.Get("Origin") != s.origin && !(r.Method == http.MethodPost && (r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath)) {
 			fail(w, http.StatusForbidden, "请求来源不受信任。")
 			return
 		}

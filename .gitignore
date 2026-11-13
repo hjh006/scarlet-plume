@@ -18,3 +18,7 @@ __pycache__/
 
 /.scarlet-validation/
 /.scarlet-openmetadata/
+
+/backend/.tmp-*/
+
+/governance/static/extensions/*.zip

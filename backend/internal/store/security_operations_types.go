@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"github.com/hjh006/scarlet-plume/backend/pkg/datasafety"
+	"time"
+)
 
 type OperationsScope struct {
 	JobID    int64    `json:"jobId,omitempty"`
@@ -27,18 +30,19 @@ type OperationsSourceInput struct {
 	JobID     int64  `json:"jobId,omitempty"`
 }
 type SecurityEventInput struct {
-	Outcome       string    `json:"outcome"`
-	EventID       string    `json:"eventId"`
-	ObservedAt    time.Time `json:"observedAt"`
-	Category      string    `json:"category"`
-	Rule          string    `json:"rule"`
-	Severity      string    `json:"severity"`
-	AssetID       int64     `json:"assetId,omitempty"`
-	Service       string    `json:"service,omitempty"`
-	Method        string    `json:"method,omitempty"`
-	Route         string    `json:"route,omitempty"`
-	Count         int64     `json:"count"`
-	WindowSeconds int       `json:"windowSeconds"`
+	DataContext   *datasafety.Context `json:"dataContext,omitempty"`
+	Outcome       string              `json:"outcome"`
+	EventID       string              `json:"eventId"`
+	ObservedAt    time.Time           `json:"observedAt"`
+	Category      string              `json:"category"`
+	Rule          string              `json:"rule"`
+	Severity      string              `json:"severity"`
+	AssetID       int64               `json:"assetId,omitempty"`
+	Service       string              `json:"service,omitempty"`
+	Method        string              `json:"method,omitempty"`
+	Route         string              `json:"route,omitempty"`
+	Count         int64               `json:"count"`
+	WindowSeconds int                 `json:"windowSeconds"`
 }
 type OperationsSecurityEvent struct {
 	SecurityEventInput

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"flag"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/classificationai"
 	"github.com/hjh006/scarlet-plume/backend/internal/httpapi"
 	"github.com/hjh006/scarlet-plume/backend/internal/managed"
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
@@ -183,7 +186,37 @@ func validateOrigin(origin, addr string, localDocker bool) (bool, error) {
 }
 
 func serve(st *store.Store, addr, web, origin string, secure bool, manager *managed.Manager) error {
-	handler, err := newHandler(httpapi.NewWithManaged(st, origin, secure, manager), web)
+	aiKey := os.Getenv("SCARLET_CLASSIFICATION_AI_KEY")
+	if aiKey == "" {
+		aiKey = os.Getenv("SCARLET_MANAGED_PG_KEY")
+	}
+	var ai *classificationai.Manager
+	var err error
+	if path := os.Getenv("SCARLET_CLASSIFICATION_AI_CA_FILE"); path != "" {
+		certificate, readErr := os.Open(path)
+		if readErr != nil {
+			return errors.New("could not read configured classification AI CA certificate")
+		}
+		pem, readErr := io.ReadAll(io.LimitReader(certificate, (1<<20)+1))
+		_ = certificate.Close()
+		if readErr != nil || len(pem) > 1<<20 {
+			return errors.New("invalid classification AI CA certificate file")
+		}
+		roots, rootErr := x509.SystemCertPool()
+		if rootErr != nil {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM(pem) {
+			return errors.New("invalid classification AI CA certificates")
+		}
+		ai, err = classificationai.NewWithRootCAs(aiKey, os.Getenv("SCARLET_CLASSIFICATION_AI_HOSTS"), roots)
+	} else {
+		ai, err = classificationai.New(aiKey, os.Getenv("SCARLET_CLASSIFICATION_AI_HOSTS"))
+	}
+	if err != nil {
+		return errors.New("could not configure classification AI; check its encryption key and allowed hosts")
+	}
+	handler, err := newHandler(httpapi.NewWithClassificationAI(st, origin, secure, manager, ai), web)
 	if err != nil {
 		return err
 	}
@@ -197,6 +230,7 @@ func serve(st *store.Store, addr, web, origin string, secure bool, manager *mana
 		go manager.Run(shutdown)
 	}
 	go runAssessmentWorker(shutdown, st)
+	go runOperationsReportWorker(shutdown, st)
 	go func() {
 		<-shutdown.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)

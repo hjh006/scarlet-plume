@@ -1,0 +1,6 @@
+import type { RuntimeEvidenceScope } from './runtime-evidence-scope'
+import type { ScenarioCheckEvidence, ScenarioCheckFinding } from './scenario-checks'
+import type { RuntimeFinding } from './runtime-findings'
+import type { ControlAction } from './security-operations'
+export interface OperationsReport {id:number;title:string;createdBy:number;actor:string;createdAt:string;scope:RuntimeEvidenceScope;window:{scope:RuntimeEvidenceScope;items:{id:number;sourceId:number;source:string;service:string;kind:string;sourceCurrent:boolean;observation:{observedAt:string;method:string;route:string;status:number;subjectRef?:string;clientIp?:string;dataFields?:{name:string;location:string;category:string;count:number;observed:number}[];context?:unknown;captureWarnings?:string[]}}[];total:number;limit:number;truncated:boolean;retentionDays:number;retentionLimitPerSource:number;warnings:string[]};analysis?:ScenarioCheckFinding[];findings:RuntimeFinding[];actions:ControlAction[];evidence:ScenarioCheckEvidence[];coverage:string[];missingConditions:string[];snapshotDigest:string}
+export interface OperationsReportSchedule {id:number;title:string;period:'daily'|'weekly'|'monthly';timezone:string;scope:Omit<RuntimeEvidenceScope,'from'|'to'>;enabled:boolean;revision:number;nextRunAt:string;lastReportId?:number}

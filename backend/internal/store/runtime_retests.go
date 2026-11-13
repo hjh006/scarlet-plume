@@ -81,6 +81,18 @@ func runtimeRetestAllowed(ctx context.Context, tx pgx.Tx, finding *runtimeCheckF
 }
 
 func runtimeRemediationAt(ctx context.Context, tx pgx.Tx, checkID int64) (time.Time, error) {
+	var extended bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM plume.runtime_findings WHERE check_id=$1 AND rule=ANY($2))`, checkID, extendedRuntimeRules).Scan(&extended); err != nil {
+		return time.Time{}, err
+	}
+	if extended {
+		var at *time.Time
+		err := tx.QueryRow(ctx, `SELECT max(GREATEST(e.created_at,e.observed_at)) FROM plume.check_evidence e JOIN plume.checks c ON c.id=e.check_id WHERE e.check_id=$1 AND e.kind='remediation' AND e.created_at>GREATEST(c.created_at,COALESCE((SELECT max(created_at) FROM plume.check_events WHERE check_id=$1 AND action='changes'),c.created_at)) AND e.observed_at>GREATEST(c.created_at,COALESCE((SELECT max(created_at) FROM plume.check_events WHERE check_id=$1 AND action='changes'),c.created_at))`, checkID).Scan(&at)
+		if at == nil {
+			return time.Time{}, err
+		}
+		return *at, err
+	}
 	change, err := latestCheckEvent(ctx, tx, checkID, "changes")
 	if err != nil {
 		return time.Time{}, err
@@ -153,9 +165,9 @@ func persistRuntimeRetests(ctx context.Context, tx pgx.Tx, batch runtimeFindingB
 		JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
 		JOIN unnest($3::text[], $4::text[]) AS target(method, route_key)
 		  ON target.method = f.method AND target.route_key = f.route_key
-		WHERE f.workspace_id = $1 AND f.service = $2 AND c.status <> 'verified' AND f.rule IN ('unregistered_success','deprecated_success')
+		WHERE f.workspace_id = $1 AND f.service = $2 AND f.source_id=$5 AND c.status <> 'verified' AND f.rule IN ('unregistered_success','deprecated_success')
 		ORDER BY c.id FOR NO KEY UPDATE OF c
-	`, batch.workspaceID, batch.service, methods, routes)
+	`, batch.workspaceID, batch.service, methods, routes, batch.sourceID)
 	if err != nil {
 		return err
 	}

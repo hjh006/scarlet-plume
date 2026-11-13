@@ -3,8 +3,8 @@ export interface DiscoveryCoverage { metadata: string; content: string; permissi
 export interface DiscoveryRun { id: number; sourceId: number; revision: number; runRef: string; mode: string; status: string; errorCode: string; observedAt: string; coverage: DiscoveryCoverage }
 export interface DiscoverySource { id: number; source: string; provider: string; system: string; database: string; scopes: string[]; service: string; intervalMinutes: number; enabled: boolean; revision: number; nextRunAt: string; queued: boolean; running: boolean; latestRun?: DiscoveryRun }
 export interface CatalogEntry { id: number; assetId: number; name: string; kind: string; parentRef: string; source: string; sourceRef: string; system: string; database: string; schema: string; table: string; field: string; metadata: Record<string,unknown>; confirmedMetadata: Record<string,unknown>; conflicts: Record<string,unknown>; revision: number; observedAt: string; current: boolean; category: string; businessLevel: string; statutoryCategory: string }
-export const discoveryProviders: Record<string,string> = { postgresql:'PostgreSQL',mysql:'MySQL',mariadb:'MariaDB',mongodb:'MongoDB',openmetadata:'OpenMetadata 深目录' }
-export const catalogKinds: Record<string,string> = {business:'业务',application:'应用',database:'数据库',table:'表 / 集合',field:'字段 / 文档路径'}
+export const discoveryProviders: Record<string,string> = { local_files:'受控文件目录',postgresql:'PostgreSQL',mysql:'MySQL',mariadb:'MariaDB',mongodb:'MongoDB',openmetadata:'OpenMetadata 深目录' }
+export const catalogKinds: Record<string,string> = {file:'文件',business:'业务',application:'应用',database:'数据库',table:'表 / 集合',field:'字段 / 文档路径'}
 export const catalogMetadataFields: Record<string,string> = { business:'所属业务',application:'所属应用',ownerTeam:'责任团队',businessOrganization:'业务组织',region:'所在地域',sharingRecipients:'共享对象',retention:'保留期限',description:'业务说明',cmdbId:'CMDB 标识' }
 
 export interface CatalogClassificationAssessment {

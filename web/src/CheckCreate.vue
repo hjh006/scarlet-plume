@@ -6,13 +6,18 @@ import type { CheckTemplate } from './template'
 import TemplateCriteria from './TemplateCriteria.vue'
 import { canManageChecks, type Check, type Requirement } from './workflow'
 import Icon from './Icon.vue'
+import ScenarioDataPanel from './ScenarioDataPanel.vue'
+import { useScenarioContext } from './scenario-context'
 
 const props = defineProps<{ workspace: Workspace; activityContext?: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const apiUrl = workspacePath(props.workspace.slug)
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
-const pageUrl = home + '/checks'
-const cancelUrl = props.activityContext ? home + '/activities/' + encodeURIComponent(props.activityContext) : pageUrl
+const { context, href, setScope } = useScenarioContext(props.workspace.slug)
+const incomingActivityId = props.activityContext || context.value.activityId
+const pageUrl = computed(() => href('checks'))
+const cancelUrl = computed(() => incomingActivityId ? href('activities/' + encodeURIComponent(incomingActivityId)) : pageUrl.value)
+const materialsScene = computed(() => ['personal', 'domestic', 'crossborder'].includes(context.value.scene))
 const assets = ref<Asset[]>([])
 const assetCursor = ref<number | null>(null)
 const requirements = ref<Requirement[]>([])
@@ -27,7 +32,7 @@ const loading = ref(true)
 const saving = ref(false)
 const loadError = ref('')
 const formError = ref('')
-const assetId = ref('')
+const assetId = ref(context.value.assetId)
 const requirementCode = ref('')
 const ownerTeam = ref('')
 const note = ref('')
@@ -65,10 +70,10 @@ async function load(append = false) {
   const options = { signal: active.signal }
   try {
     const [page, rules, activity] = await Promise.all([
-      props.activityContext ? undefined : request<AssetPage>(apiUrl + '/assets' + query, options),
+      incomingActivityId ? undefined : request<AssetPage>(apiUrl + '/assets' + query, options),
       append ? undefined : request<{ items: Requirement[] }>(apiUrl + '/requirements', options),
-      props.activityContext
-        ? request<Activity>(apiUrl + '/activities/' + encodeURIComponent(props.activityContext), options)
+      incomingActivityId
+        ? request<Activity>(apiUrl + '/activities/' + encodeURIComponent(incomingActivityId), options)
         : undefined,
     ])
     if (active.signal.aborted) return
@@ -77,7 +82,16 @@ async function load(append = false) {
       assetCursor.value = page.nextCursor
     }
     if (rules) requirements.value = rules.items
-    if (activity) linkedActivity.value = activity
+    if (activity) {
+      if (context.value.assetId && Number(context.value.assetId) !== activity.assetId) throw new Error('链接中的处理活动与资产不一致，请返回场景重新选择。')
+      linkedActivity.value = activity
+      setScope({ assetId: String(activity.assetId), activityId: String(activity.id) })
+    }
+    if (!incomingActivityId && assetId.value && !assets.value.some(item => String(item.id) === assetId.value)) {
+      const selected = await request<{ asset: Asset }>(apiUrl + '/classification/assets/' + encodeURIComponent(assetId.value), options)
+      assets.value.push(selected.asset)
+    }
+    if (!ownerTeam.value) ownerTeam.value = assets.value.find(item => String(item.id) === assetId.value)?.ownerTeam ?? ''
   } catch (error) {
     loadError.value = errorText(error)
   } finally {
@@ -93,7 +107,7 @@ async function loadActivities(append = false) {
     activityOptions.value = []
     activityCursor.value = null
   }
-  if (!assetId.value || props.activityContext) {
+  if (!assetId.value || incomingActivityId) {
     activityLoading.value = false
     return
   }
@@ -142,8 +156,9 @@ async function loadTemplates() {
 
 async function createCheck() {
   if (saving.value || loading.value || !canManageChecks(props.workspace.role) ||
-      (props.activityContext && !linkedActivity.value) ||
+      (incomingActivityId && !linkedActivity.value) ||
       (templateRevisionId.value && !selectedTemplateItem.value)) return
+  if (!linkedActivity.value && !assets.value.some(item => String(item.id) === assetId.value)) { formError.value = '请核对本工作区已读取的关联资产。'; return }
   saving.value = true
   formError.value = ''
   try {
@@ -158,7 +173,7 @@ async function createCheck() {
         feishuTargetDigest: effectiveRequirementCode.value === 'G03' ? feishuTargetDigest.value.trim() || undefined : undefined,
       }),
     })
-    if (!active.signal.aborted) window.location.hash = pageUrl + '/' + check.id
+    if (!active.signal.aborted) window.location.hash = href('checks/' + check.id, { assetId: String(linkedActivity.value?.assetId ?? assetId.value), activityId: selectedActivity.value ? String(selectedActivity.value.id) : '' })
   } catch (error) {
     formError.value = errorText(error)
   } finally {
@@ -166,8 +181,8 @@ async function createCheck() {
   }
 }
 
-watch(assetId, () => { void loadActivities() })
-watch(selectedActivity, () => { void loadTemplates() })
+watch(assetId, () => { setScope({ assetId: assetId.value, activityId: '' }); void loadActivities() })
+watch(selectedActivity, value => { if (value) setScope({ assetId: String(value.assetId), activityId: String(value.id) }); void loadTemplates() })
 watch(templateRevisionId, () => { templateItemKey.value = '' })
 watch(activityHint, (hint, previous) => {
   if (hint && (!requirementCode.value || requirementCode.value === previous?.code) &&
@@ -176,7 +191,7 @@ watch(activityHint, (hint, previous) => {
   }
 })
 
-onMounted(() => { void load() })
+onMounted(async () => { await load(); if (!incomingActivityId && assetId.value) await loadActivities() })
 onBeforeUnmount(() => {
   active.abort()
   activityOperation?.abort()
@@ -190,6 +205,7 @@ function scrollField(id: string) { document.getElementById(id)?.scrollIntoView({
   <header class="page-header">
     <div><h1>新建监管检查</h1><p>选定监管要求和资产，如涉及特定处理活动，可将审批、证据与整改记录关联到该活动。</p></div>
   </header>
+  <ScenarioDataPanel v-if="materialsScene && (assetId || linkedActivity)" :workspace="workspace" :asset-id="String(linkedActivity?.assetId || assetId)" :activity-id="String(linkedActivity?.id || selectedActivity?.id || '')" compact @session-expired="emit('sessionExpired')" />
   <p v-if="!canManageChecks(workspace.role)" class="message message-warning" role="alert">当前账号无权创建检查。</p>
   <p v-else-if="loading && !linkedActivity && !assets.length" class="message" role="status">正在读取监管要求与关联记录…</p>
   <div v-else-if="loadError && !linkedActivity && !assets.length" class="message message-error page-feedback">
@@ -291,7 +307,7 @@ function scrollField(id: string) { document.getElementById(id)?.scrollIntoView({
   </form><aside class="section-stack check-create-summary"><section class="panel"><div class="panel-heading"><h2>采用范围</h2></div><dl><div><dt>工作区</dt><dd>{{workspace.name}}</dd></div><div><dt>关联资产</dt><dd>{{linkedActivity?.assetName || assets.find(item=>String(item.id)===assetId)?.name || '待选择'}}</dd></div><div><dt>处理活动</dt><dd>{{selectedActivity?.name || '未关联'}}</dd></div><div><dt>监管要求</dt><dd>{{effectiveRequirementCode || '待选择'}}</dd></div><div><dt>采用模板</dt><dd>{{selectedTemplate ? selectedTemplate.title + ' · v' + selectedTemplate.version : '手动选择要求'}}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h2>核验提示</h2></div><p>适用条件、证据和验收标准分别留存。创建检查仅登记采用范围，不表示已取得证据或通过独立复核。</p></section></aside></div>
 </template>
 <style scoped>
-.check-create-workbench{display:grid;grid-template-columns:180px minmax(0,1fr) 280px;gap:16px;align-items:start}.check-create-outline{padding:19px;display:grid;gap:22px;font-size:12px}.check-create-outline h2{font-size:16px}.check-create-workbench .form-panel{width:auto;max-width:none;margin:0;padding:22px}.check-create-summary{display:grid;gap:16px}.check-create-summary dl{margin:0;padding:5px 18px;font-size:11px}.check-create-summary dl>div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.check-create-summary dt{color:var(--secondary)}.check-create-summary dd{margin:0;overflow-wrap:anywhere}.check-create-summary p{padding:18px;font-size:12px;color:var(--secondary)}.check-create-workbench .form-actions{border-top:1px solid var(--line);padding-top:16px;justify-content:flex-end}@media(max-width:1320px){.check-create-workbench{grid-template-columns:150px minmax(0,1fr) 240px}.check-create-workbench .form-panel{padding:18px}}
+.check-create-workbench{display:grid;grid-template-columns:180px minmax(0,1fr) 280px;gap:16px;align-items:start}.check-create-outline{padding:19px;display:grid;gap:22px;font-size:12px}.check-create-outline h2{font-size:16px}.check-create-workbench .form-panel{width:auto;max-width:none;margin:0;padding:22px}.check-create-summary{display:grid;gap:16px}.check-create-summary dl{margin:0;padding:5px 18px;font-size:12px}.check-create-summary dl>div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.check-create-summary dt{color:var(--secondary)}.check-create-summary dd{margin:0;overflow-wrap:anywhere}.check-create-summary p{padding:18px;font-size:12px;color:var(--secondary)}.check-create-workbench .form-actions{border-top:1px solid var(--line);padding-top:16px;justify-content:flex-end}@media(max-width:1320px){.check-create-workbench{grid-template-columns:150px minmax(0,1fr) 240px}.check-create-workbench .form-panel{padding:18px}}
 </style>
 
 <style scoped>nav button { display:block; width:100%; text-align:left; border:0; background:transparent; color:var(--muted); padding:10px 8px; cursor:pointer; font:inherit; border-radius:6px }nav button:hover { color:var(--blue); background:var(--surface-muted) }</style>

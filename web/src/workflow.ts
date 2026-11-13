@@ -94,6 +94,11 @@ export interface CheckDetail extends Check {
   postgresJobId?: number
   availablePostgresJobId?: number
   runtimeFinding?: RuntimeFindingContext
+  runtimeRetest?: {
+    state: 'awaiting_remediation' | 'awaiting_observations' | 'passed' | 'invalidated' | 'verified'
+    reason: string
+    nextEligibleAt?: string
+  }
   classification?: ClassificationRecord
   reviewRevision?: number
 }

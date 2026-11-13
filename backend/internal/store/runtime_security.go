@@ -151,7 +151,10 @@ func (s *Store) RevokeRuntimeSource(ctx context.Context, workspaceID, actorID, s
 			return ErrNotFound
 		}
 		_, err = tx.Exec(ctx, "DELETE FROM plume.runtime_security_batches WHERE source_id = $1", sourceID)
-		return err
+		if err != nil {
+			return err
+		}
+		return invalidateExtendedRuntimeReviews(ctx, tx, workspaceID, actorID, sourceID, "", "", "来源已停用，原自动复测失效，不能继续独立通过。")
 	})
 	return storeError(err)
 }

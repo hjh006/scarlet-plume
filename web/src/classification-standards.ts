@@ -97,6 +97,8 @@ export interface ClassificationRecord {
   origin?: 'manual' | 'automatic'
   standard?: ClassificationStandardSnapshot
   automatic?: AutomaticClassification
+  taxonomy?: { id: number | string; name: string; path: string; revision: number; signature?: string }
+  taxonomyStale?: boolean
 }
 
 export const classificationEvaluationLabels: Record<ClassificationEvaluationStatus, string> = {

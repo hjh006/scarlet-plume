@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -156,6 +157,15 @@ func checkRemediationAt(ctx context.Context, tx pgx.Tx, checkID int64, change Ch
 }
 
 func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error) {
+	finding, err := runtimeFindingForCheck(ctx, tx, check)
+	if err != nil {
+		return false, err
+	}
+	if finding != nil && slices.Contains(extendedRuntimeRules, finding.Rule) {
+		state, e := runtimeExtendedRetestStatus(ctx, tx, check, finding)
+		return state != nil && state.State == "passed", e
+	}
+
 	if handled, allowed, err := catalogClassificationCheckAllowed(ctx, tx, check, check.Status != "draft"); handled || err != nil {
 		return allowed, err
 	}
@@ -195,10 +205,6 @@ func submissionAllowed(ctx context.Context, tx pgx.Tx, check Check) (bool, error
 	}
 	if handled, allowed, err := automaticClassificationCheckAllowed(ctx, tx, check, true); handled || err != nil {
 		return allowed, err
-	}
-	finding, err := runtimeFindingForCheck(ctx, tx, check)
-	if err != nil {
-		return false, err
 	}
 	if finding != nil {
 		return runtimeRetestAllowed(ctx, tx, finding)

@@ -83,7 +83,7 @@ func TestRuntimeRetestAndIndependentReview(t *testing.T) {
 	gateway, other := digest(slug+"-gateway"), digest(slug+"-other")
 	gatewaySource, err := repo.CreateRuntimeSource(ctx, workspace.ID, owner.ID, "Opening observer", service, "gateway", gateway)
 	want(err, nil)
-	_, err = repo.CreateRuntimeSource(ctx, workspace.ID, owner.ID, "Other observer", service, "gateway", other)
+	otherSource, err := repo.CreateRuntimeSource(ctx, workspace.ID, owner.ID, "Other observer", service, "gateway", other)
 	want(err, nil)
 	deliver := func(token, label string, observedAt time.Time, routes []string, statuses ...int) {
 		t.Helper()
@@ -173,9 +173,30 @@ func TestRuntimeRetestAndIndependentReview(t *testing.T) {
 	if !detail(deprecatedID, reviewer.ID).CanVerify {
 		t.Fatal("fresh same-source 410 did not qualify for review")
 	}
-	deliver(other, "later positive", stamp(), old, 200)
+	// A separate authorized observer has its own finding and review scope.
+	// It must not rewrite this gateway's positive time or frozen retest.
+	deliver(other, "later positive other source", stamp(), old, 200)
+	if !detail(deprecatedID, reviewer.ID).CanVerify {
+		t.Fatal("other source rewrote this gateway's retest")
+	}
+	findings, err = repo.ListRuntimeFindings(ctx, workspace.ID)
+	want(err, nil)
+	otherPositive := false
+	for _, finding := range findings {
+		if finding.SourceID == otherSource.ID && finding.Rule == "deprecated_success" {
+			otherPositive = true
+			if finding.CheckID == deprecatedID || finding.CheckStatus != "draft" {
+				t.Fatal("different source did not retain independent open finding")
+			}
+		}
+	}
+	if !otherPositive {
+		t.Fatal("different-source positive was dropped")
+	}
+	// A new positive from the exact bound gateway still invalidates review.
+	deliver(gateway, "later positive bound source", stamp(), old, 200)
 	if detail(deprecatedID, reviewer.ID).CanVerify {
-		t.Fatal("new positive observation did not invalidate the prior retest")
+		t.Fatal("new same-source positive observation did not invalidate the prior retest")
 	}
 	review(deprecatedID, "verified", store.ErrEvidenceRequired)
 	review(deprecatedID, "changes", nil)

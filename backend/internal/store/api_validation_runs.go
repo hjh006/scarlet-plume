@@ -101,6 +101,38 @@ func validationRuleOutcome(r APIValidationRuleResult, mode string) string {
 			return "not_observed"
 		}
 	}
+	if r.PolicyConfirmed && r.PolicyDigest != "" && owner {
+		switch r.Rule {
+		case "auth_required":
+			if r.Requests == 2 {
+				if r.AnonymousStatus >= 200 && r.AnonymousStatus < 300 && r.AnonymousObjectConfirmed {
+					return "vulnerable"
+				}
+				if (r.AnonymousStatus == 401 || r.AnonymousStatus == 403) && !r.AnonymousObjectConfirmed {
+					return "not_observed"
+				}
+			}
+		case "sensitive_exposure":
+			if r.Requests == 2 && r.SensitiveChecked > 0 && r.OwnerSensitiveCount > 0 {
+				if r.AnonymousStatus >= 200 && r.AnonymousStatus < 300 && r.AnonymousObjectConfirmed {
+					if r.AnonymousSensitiveCount > 0 {
+						return "vulnerable"
+					}
+					return "not_observed"
+				}
+				if (r.AnonymousStatus == 401 || r.AnonymousStatus == 403) && !r.AnonymousObjectConfirmed && r.AnonymousSensitiveCount == 0 {
+					return "not_observed"
+				}
+			}
+		case "response_headers":
+			if r.Requests == 1 && r.HeaderChecked > 0 {
+				if len(r.HeaderMismatches) > 0 {
+					return "vulnerable"
+				}
+				return "not_observed"
+			}
+		}
+	}
 	if r.Rule == "weak_credential" && owner && r.CredentialAccepted && r.Requests == 1 {
 		if r.WeakRuleMatched {
 			return "vulnerable"
@@ -126,11 +158,11 @@ func validateAPIValidationResult(p APIValidationPlan, in *APIValidationResult) b
 			}
 		}
 		for _, gap := range r.Gaps {
-			if !slices.Contains([]string{"owner_unconfirmed", "other_account_unconfirmed", "comparison_missing", "cross_response_unexpected", "target_not_private", "manifest_mismatch", "credential_missing", "network_error", "invalid_json", "response_too_large", "connection_only"}, gap) {
+			if !slices.Contains([]string{"owner_unconfirmed", "other_account_unconfirmed", "comparison_missing", "cross_response_unexpected", "target_not_private", "manifest_mismatch", "credential_missing", "network_error", "invalid_json", "response_too_large", "connection_only", "probe_policy_mismatch", "anonymous_response_unexpected", "sensitive_control_missing", "field_shape_unknown"}, gap) {
 				return false
 			}
 		}
-		if r.Outcome != validationRuleOutcome(r, in.Mode) || r.Outcome == "inconclusive" && len(r.Gaps) == 0 {
+		if !validExtendedValidationProof(p.ProbePolicy, r) || r.Outcome != validationRuleOutcome(r, in.Mode) || r.Outcome == "inconclusive" && len(r.Gaps) == 0 {
 			return false
 		}
 	}

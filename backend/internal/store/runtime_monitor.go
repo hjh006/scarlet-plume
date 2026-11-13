@@ -74,11 +74,12 @@ type RuntimeAudit struct {
 }
 
 type runtimeAuditWrite struct {
-	ObservedAt time.Time `json:"observed_at"`
-	Method     string    `json:"method"`
-	Route      string    `json:"route"`
-	RouteKey   string    `json:"route_key"`
-	Status     int       `json:"status"`
+	Observation runtimesecurity.Observation `json:"observation"`
+	ObservedAt  time.Time                   `json:"observed_at"`
+	Method      string                      `json:"method"`
+	Route       string                      `json:"route"`
+	RouteKey    string                      `json:"route_key"`
+	Status      int                         `json:"status"`
 }
 
 func persistRuntimeMonitor(ctx context.Context, tx pgx.Tx, sourceID int64, retained int, observations []runtimesecurity.Observation) (int, error) {
@@ -87,17 +88,17 @@ func persistRuntimeMonitor(ctx context.Context, tx pgx.Tx, sourceID int64, retai
 	events := make([]runtimeAuditWrite, len(observations))
 	for i, event := range observations {
 		events[i] = runtimeAuditWrite{
-			ObservedAt: event.ObservedAt, Method: strings.ToUpper(event.Method), Route: event.Route,
+			Observation: event, ObservedAt: event.ObservedAt, Method: strings.ToUpper(event.Method), Route: event.Route,
 			RouteKey: runtimesecurity.RouteKey(event.Route), Status: event.Status,
 		}
 	}
 	if _, err := tx.Exec(ctx, `
 		WITH incoming AS (
 			SELECT * FROM jsonb_to_recordset($2)
-			AS event(observed_at timestamptz, method text, route text, route_key text, status integer)
+			AS event(observed_at timestamptz, method text, route text, route_key text, status integer, observation jsonb)
 		), audit AS (
-			INSERT INTO plume.runtime_request_audit (source_id, observed_at, method, route, route_key, status)
-			SELECT $1, observed_at, method, route, route_key, status FROM incoming
+			INSERT INTO plume.runtime_request_audit (source_id, observed_at, method, route, route_key, status, observation)
+			SELECT $1, observed_at, method, route, route_key, status, observation FROM incoming
 		)
 		INSERT INTO plume.runtime_monitor_minutes AS current (source_id, minute_at, requests, responses_4xx, responses_5xx)
 		SELECT $1, date_trunc('minute', observed_at, 'UTC'), count(*),
