@@ -17,13 +17,20 @@ const (
 )
 
 type ClassificationCandidate struct {
-	Name       string    `json:"name"`
-	Category   string    `json:"category"`
-	Source     string    `json:"source"`
-	Location   string    `json:"location,omitempty"`
-	ObservedAt time.Time `json:"observedAt"`
-	RunID      string    `json:"runId,omitempty"`
-	ScanID     *int64    `json:"scanId,omitempty"`
+	Name         string    `json:"name"`
+	Category     string    `json:"category"`
+	Source       string    `json:"source"`
+	Location     string    `json:"location,omitempty"`
+	ObservedAt   time.Time `json:"observedAt"`
+	RunID        string    `json:"runId,omitempty"`
+	ScanID       *int64    `json:"scanId,omitempty"`
+	SourceID     *int64    `json:"sourceId,omitempty"`
+	RuleKey      string    `json:"ruleKey,omitempty"`
+	RuleVersion  int       `json:"ruleVersion,omitempty"`
+	Current      *bool     `json:"current,omitempty"`
+	Method       string    `json:"method,omitempty"`
+	MatchCount   *int64    `json:"matchCount,omitempty"`
+	ScannedCount *int64    `json:"scannedCount,omitempty"`
 }
 
 type AssetClassificationItem struct {
@@ -36,6 +43,8 @@ type AssetClassificationItem struct {
 	Standard               *classificationstandards.Reference `json:"standard,omitempty"`
 	Origin                 string                             `json:"origin"`
 	Automatic              *AutomaticClassification           `json:"automatic,omitempty"`
+	Taxonomy               *ClassificationTaxonomyReference   `json:"taxonomy,omitempty"`
+	TaxonomyStale          bool                               `json:"taxonomyStale,omitempty"`
 }
 
 type AssetClassificationHistory struct {
@@ -53,6 +62,7 @@ type AssetClassificationHistory struct {
 	PreviousBasis             string                             `json:"previousBasis"`
 	Standard                  *classificationstandards.Reference `json:"standard,omitempty"`
 	Origin                    string                             `json:"origin"`
+	Taxonomy                  *ClassificationTaxonomyReference   `json:"taxonomy,omitempty"`
 }
 
 type AssetClassificationDetail struct {
@@ -90,6 +100,7 @@ type AssetClassificationInput struct {
 	StandardID        string
 	LevelCode         string
 	RuleID            string
+	TaxonomyID        *int64
 }
 
 func validStatutoryCategory(category string) bool {
@@ -186,71 +197,83 @@ func (s *Store) GetAssetClassification(ctx context.Context, workspaceID, actorID
 }
 
 func (s *Store) UpdateAssetClassification(ctx context.Context, workspaceID, actorID, assetID int64, input AssetClassificationInput) (AssetClassificationDetail, error) {
-	input.Basis = strings.TrimSpace(input.Basis)
-	if assetID < 1 || !validClassification(input) {
-		return AssetClassificationDetail{}, ErrInvalid
-	}
-	var selected *classificationstandards.Reference
-	if input.StandardID != "" {
-		var err error
-		selected, err = classificationstandards.Select(input.StandardID, input.LevelCode, input.RuleID, input.StatutoryCategory)
-		if err != nil {
-			return AssetClassificationDetail{}, err
-		}
-	} else if input.LevelCode != "" || input.RuleID != "" {
-		return AssetClassificationDetail{}, classificationstandards.ErrSelection
-	}
 	var detail AssetClassificationDetail
-	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		role, err := checkRole(ctx, tx, workspaceID, actorID, true)
-		if err != nil {
-			return err
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		role, e := checkRole(ctx, tx, workspaceID, actorID, true)
+		if e != nil {
+			return e
 		}
 		if !checkEditor(role) {
 			return ErrForbidden
 		}
-		previous, err := scanClassificationAsset(tx.QueryRow(ctx, "SELECT "+assetColumns+`, classification_revision, classification_standard, classification_origin
-			FROM plume.assets WHERE workspace_id = $1 AND id = $2 FOR NO KEY UPDATE`, workspaceID, assetID))
-		if err != nil {
-			return err
+		item, e := updateAssetClassificationTx(ctx, tx, workspaceID, actorID, assetID, input)
+		if e != nil {
+			return e
 		}
-		if previous.Revision != input.Revision {
-			return ErrConflict
-		}
-		reference := selected
-		if reference == nil {
-			reference = previous.Standard
-			if reference != nil && reference.StatutoryCategory != "" && reference.StatutoryCategory != input.StatutoryCategory {
-				return classificationstandards.ErrSelection
-			}
-		}
-		item, err := scanClassificationAsset(tx.QueryRow(ctx, `
-			UPDATE plume.assets
-			SET category = $3, business_level = $4, statutory_category = $5, classification_basis = $6,
-			    classification_revision = classification_revision + 1, classification_standard = $7, classification_origin = 'manual'
-			WHERE workspace_id = $1 AND id = $2
-			RETURNING `+assetColumns+", classification_revision, classification_standard, classification_origin",
-			workspaceID, assetID, input.Category, input.BusinessLevel, input.StatutoryCategory, input.Basis, reference))
-		if err != nil {
-			return err
-		}
-		old := previous.Asset
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO plume.asset_classification_history
-			    (workspace_id, asset_id, revision, actor_id, category, business_level, statutory_category, basis,
-			     previous_category, previous_business_level, previous_statutory_category, previous_basis, standard_reference)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		`, workspaceID, assetID, item.Revision, actorID, input.Category, input.BusinessLevel, input.StatutoryCategory, input.Basis,
-			old.Category, old.BusinessLevel, old.StatutoryCategory, old.ClassificationBasis, reference); err != nil {
-			return err
-		}
-		detail, err = classificationDetail(ctx, tx, workspaceID, item)
-		if err != nil {
-			return err
+		detail, e = classificationDetail(ctx, tx, workspaceID, item)
+		if e != nil {
+			return e
 		}
 		return captureDataFlowSnapshot(ctx, tx, workspaceID, actorID, "classification")
 	})
 	return detail, storeError(err)
+}
+
+func updateAssetClassificationTx(ctx context.Context, tx pgx.Tx, workspaceID, actorID, assetID int64, input AssetClassificationInput) (AssetClassificationItem, error) {
+	input.Basis = strings.TrimSpace(input.Basis)
+	if assetID < 1 || !validClassification(input) || input.TaxonomyID != nil && *input.TaxonomyID < 0 {
+		return AssetClassificationItem{}, ErrInvalid
+	}
+	var selected *classificationstandards.Reference
+	if input.StandardID != "" {
+		var e error
+		selected, e = classificationstandards.Select(input.StandardID, input.LevelCode, input.RuleID, input.StatutoryCategory)
+		if e != nil {
+			return AssetClassificationItem{}, e
+		}
+	} else if input.LevelCode != "" || input.RuleID != "" {
+		return AssetClassificationItem{}, classificationstandards.ErrSelection
+	}
+	previous, e := scanClassificationAsset(tx.QueryRow(ctx, "SELECT "+assetColumns+`,classification_revision,classification_standard,classification_origin FROM plume.assets WHERE workspace_id=$1 AND id=$2 FOR NO KEY UPDATE`, workspaceID, assetID))
+	if e != nil {
+		return AssetClassificationItem{}, e
+	}
+	if previous.Revision != input.Revision {
+		return AssetClassificationItem{}, ErrConflict
+	}
+	reference := selected
+	if reference == nil {
+		reference = previous.Standard
+		if reference != nil && reference.StatutoryCategory != "" && reference.StatutoryCategory != input.StatutoryCategory {
+			return AssetClassificationItem{}, classificationstandards.ErrSelection
+		}
+	}
+	var taxonomy *ClassificationTaxonomyReference
+	if e = tx.QueryRow(ctx, `SELECT classification_taxonomy FROM plume.assets WHERE workspace_id=$1 AND id=$2`, workspaceID, assetID).Scan(&taxonomy); e != nil {
+		return AssetClassificationItem{}, e
+	}
+	if input.TaxonomyID != nil {
+		taxonomy = nil
+		if *input.TaxonomyID > 0 {
+			nodes, e := readClassificationTaxonomy(ctx, tx, workspaceID)
+			if e != nil {
+				return AssetClassificationItem{}, e
+			}
+			var enabled bool
+			taxonomy, enabled, e = classificationTaxonomyReference(nodes, *input.TaxonomyID)
+			if e != nil || !enabled {
+				return AssetClassificationItem{}, ErrInvalid
+			}
+		}
+	}
+	item, e := scanClassificationAsset(tx.QueryRow(ctx, `UPDATE plume.assets SET category=$3,business_level=$4,statutory_category=$5,classification_basis=$6,classification_revision=classification_revision+1,classification_standard=$7,classification_origin='manual',classification_taxonomy=$8 WHERE workspace_id=$1 AND id=$2 RETURNING `+assetColumns+`,classification_revision,classification_standard,classification_origin`, workspaceID, assetID, input.Category, input.BusinessLevel, input.StatutoryCategory, input.Basis, reference, taxonomy))
+	if e != nil {
+		return AssetClassificationItem{}, e
+	}
+	item.Taxonomy = taxonomy
+	old := previous.Asset
+	_, e = tx.Exec(ctx, `INSERT INTO plume.asset_classification_history(workspace_id,asset_id,revision,actor_id,category,business_level,statutory_category,basis,previous_category,previous_business_level,previous_statutory_category,previous_basis,standard_reference,taxonomy_reference) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, workspaceID, assetID, item.Revision, actorID, input.Category, input.BusinessLevel, input.StatutoryCategory, input.Basis, old.Category, old.BusinessLevel, old.StatutoryCategory, old.ClassificationBasis, reference, taxonomy)
+	return item, e
 }
 
 func classificationDetail(ctx context.Context, tx pgx.Tx, workspaceID int64, item AssetClassificationItem) (AssetClassificationDetail, error) {
@@ -260,7 +283,7 @@ func classificationDetail(ctx context.Context, tx pgx.Tx, workspaceID int64, ite
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT h.id, h.revision, u.username, h.created_at, h.category, h.business_level, h.statutory_category, h.basis,
-			       h.previous_category, h.previous_business_level, h.previous_statutory_category, h.previous_basis, h.standard_reference, h.origin
+			       h.previous_category, h.previous_business_level, h.previous_statutory_category, h.previous_basis, h.standard_reference, h.origin, h.taxonomy_reference
 		FROM plume.asset_classification_history h JOIN plume.users u ON u.id = h.actor_id
 		WHERE h.workspace_id = $1 AND h.asset_id = $2 ORDER BY h.revision DESC LIMIT $3
 	`, workspaceID, item.Asset.ID, classificationHistoryLimit+1)
@@ -271,7 +294,7 @@ func classificationDetail(ctx context.Context, tx pgx.Tx, workspaceID int64, ite
 		var record AssetClassificationHistory
 		err := row.Scan(&record.ID, &record.Revision, &record.Actor, &record.CreatedAt,
 			&record.Category, &record.BusinessLevel, &record.StatutoryCategory, &record.Basis,
-			&record.PreviousCategory, &record.PreviousBusinessLevel, &record.PreviousStatutoryCategory, &record.PreviousBasis, &record.Standard, &record.Origin)
+			&record.PreviousCategory, &record.PreviousBusinessLevel, &record.PreviousStatutoryCategory, &record.PreviousBasis, &record.Standard, &record.Origin, &record.Taxonomy)
 		return record, err
 	})
 	if err != nil {
@@ -285,6 +308,12 @@ func classificationDetail(ctx context.Context, tx pgx.Tx, workspaceID int64, ite
 }
 
 func loadClassificationCandidates(ctx context.Context, tx pgx.Tx, workspaceID int64, items []AssetClassificationItem) error {
+	if err := loadClassificationTaxonomy(ctx, tx, workspaceID, items); err != nil {
+		return err
+	}
+	if err := loadCatalogClassificationCandidates(ctx, tx, workspaceID, items); err != nil {
+		return err
+	}
 	ids := make([]int64, 0, len(items))
 	positions := make(map[int64]int, len(items))
 	for i, item := range items {

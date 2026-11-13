@@ -1,33 +1,41 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
+import ScenarioDataPanel from './ScenarioDataPanel.vue'
+import { useScenarioContext } from './scenario-context'
+import type { Activity, ActivityPage } from './activity'
 import { checkStatusLabels } from './workflow'
-import { assessmentFactLabels, assessmentKinds, assessmentOptions, assessmentStatuses, type Assessment, type AssessmentAnswer, type AssessmentDetail, type AssessmentQuestion, type AssessmentTemplate } from './assessments'
+import { assessmentFactLabels, assessmentFactDisplayValue, assessmentFactSourceLabel, assessmentFactStateLabel, structuredAssessmentFact, assessmentKinds, assessmentOptions, assessmentStatuses, type Assessment, type AssessmentAnswer, type AssessmentDetail, type AssessmentQuestion, type AssessmentTemplate } from './assessments'
 
 const props = defineProps<{ workspace: Workspace; assessmentId?: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
+const { context, href, setScope } = useScenarioContext(props.workspace.slug)
+const scopeError = ref('')
+const materialsScene = computed(() => ['personal', 'domestic', 'crossborder'].includes(context.value.scene))
 const base = workspacePath(props.workspace.slug) + '/assessments'
 const active = new AbortController()
 const items = ref<Assessment[]>([])
 const templates = ref<AssessmentTemplate[]>([])
-const activities = ref<{ id: number; name: string; kind: string }[]>([])
+const activities = ref<Activity[]>([])
+const activityCursor = ref<number | null>(null)
+const activityLoading = ref(false)
 const detail = ref<AssessmentDetail>()
 const answers = reactive<Record<string, AssessmentAnswer>>({})
 const error = ref('')
 const notice = ref('')
 const busy = ref(false)
 const loading = ref(false)
-const showCreate = ref(false)
+const showCreate = ref(new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('create') === '1')
 const showTemplates = ref(false)
-const kindFilter = ref('')
+const kindFilter = ref(new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('kind') || '')
 const statusFilter = ref('')
 const reviewNote = ref('')
 const checkIds = ref('')
 const canCreate = computed(() => ['owner', 'operator'].includes(props.workspace.role))
 const published = computed(() => templates.value.filter(t => t.state === 'published' && t.revisionId))
 const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
-const create = reactive({ title: '', activityId: '', templateRevisionId: '', dueAt: due, refreshMinutes: 1440 })
+const create = reactive({ title: '', activityId: context.value.activityId, templateRevisionId: '', dueAt: due, refreshMinutes: 1440 })
 const templateDraft = ref<AssessmentTemplate>()
 const templateForm = reactive({ key: '', title: '', kind: 'pia', baseRevisionId: undefined as number | undefined, questions: [] as AssessmentQuestion[] })
 const editingTemplate = ref(false)
@@ -50,28 +58,72 @@ function applyDetail(value: AssessmentDetail) {
   checkIds.value = value.checks.map(c => c.id).join(', ')
   reviewNote.value = ''
 }
-async function load() {
-  loading.value = true
-  error.value = ''
+async function loadActivities(append = false) {
+  activityLoading.value = true
+  const query = new URLSearchParams()
+  if (context.value.assetId) query.set('assetId', context.value.assetId)
+  if (append && activityCursor.value !== null) query.set('before', String(activityCursor.value))
   try {
-    if (props.assessmentId) applyDetail(await request<AssessmentDetail>(base + '/' + encodeURIComponent(props.assessmentId), { signal: active.signal }))
-    else {
+    const result = await request<ActivityPage>(workspacePath(props.workspace.slug) + '/activities?' + query, { signal: active.signal })
+    activities.value = append ? [...activities.value, ...result.items] : result.items
+    activityCursor.value = result.nextCursor ?? null
+    if (context.value.activityId && !activities.value.some(item => String(item.id) === context.value.activityId)) activities.value.push(await request<Activity>(workspacePath(props.workspace.slug) + '/activities/' + encodeURIComponent(context.value.activityId), { signal: active.signal }))
+    const selected = activities.value.find(item => String(item.id) === (context.value.activityId || create.activityId))
+    if (selected && context.value.assetId && selected.assetId !== Number(context.value.assetId)) throw new Error('所选活动与链接中的资产不一致，请返回场景重新选择。')
+    if (selected && !context.value.assetId) setScope({ assetId: String(selected.assetId), activityId: String(selected.id) })
+  } finally { activityLoading.value = false }
+}
+async function load() {
+  loading.value = true; error.value = ''; scopeError.value = ''
+  try {
+    if (props.assessmentId) {
+      const value = await request<AssessmentDetail>(base + '/' + encodeURIComponent(props.assessmentId), { signal: active.signal })
+      applyDetail(value)
+      if (context.value.assetId && Number(context.value.assetId) !== value.activity.assetId || context.value.activityId && Number(context.value.activityId) !== value.activity.id) scopeError.value = '链接中的资产或活动范围与本评估不一致，请返回场景重新选择。'
+      else setScope({ assetId: String(value.activity.assetId), activityId: String(value.activity.id) })
+    } else {
       const query = new URLSearchParams({ kind: kindFilter.value, status: statusFilter.value })
-      items.value = (await request<{ items: Assessment[] }>(base + '?' + query, { signal: active.signal })).items
-      templates.value = (await request<{ items: AssessmentTemplate[] }>(base + '/templates', { signal: active.signal })).items
-      activities.value = (await request<{ items: { id: number; name: string; kind: string }[] }>(workspacePath(props.workspace.slug) + '/activities', { signal: active.signal })).items
+      if (context.value.assetId) query.set('assetId', context.value.assetId)
+      if (context.value.activityId) query.set('activityId', context.value.activityId)
+      const [records, catalog] = await Promise.all([
+        request<{ items: Assessment[] }>(base + '?' + query, { signal: active.signal }),
+        request<{ items: AssessmentTemplate[] }>(base + '/templates', { signal: active.signal }),
+        loadActivities(),
+      ])
+      items.value = records.items; templates.value = catalog.items
+      if (context.value.activityId) create.activityId = context.value.activityId
+      const requestedKind = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('kind')
+      if (!create.templateRevisionId && requestedKind && assessmentKinds[requestedKind]) create.templateRevisionId = String(published.value.find(item => item.kind === requestedKind)?.revisionId ?? '')
     }
   } catch (e) { showError(e) } finally { loading.value = false }
 }
+function selectCreateActivity() {
+  const activity = activities.value.find(item => String(item.id) === create.activityId)
+  if (activity) setScope({ assetId: String(activity.assetId), activityId: String(activity.id) })
+}
+watch(context, () => {
+  if (props.assessmentId || loading.value) return
+  const query = new URLSearchParams(window.location.hash.split('?')[1] ?? '')
+  if (query.get('kind') && assessmentKinds[query.get('kind')!]) {
+    if (kindFilter.value !== query.get('kind')) create.templateRevisionId = ''
+    kindFilter.value = query.get('kind')!
+  }
+  create.activityId = context.value.activityId
+  if (query.get('create') === '1') showCreate.value = true
+  void load()
+})
+
 async function perform(action: () => Promise<void>) {
-  if (busy.value) return
+  if (busy.value || scopeError.value) return
   busy.value = true; error.value = ''; notice.value = ''
   try { await action() } catch (e) { showError(e) } finally { busy.value = false }
 }
 async function createAssessment() {
+  const selected = activities.value.find(item => String(item.id) === create.activityId)
+  if (!selected || context.value.assetId && selected.assetId !== Number(context.value.assetId)) { error.value = '请核对所选活动及其关联资产范围。'; return }
   await perform(async () => {
     const value = await request<AssessmentDetail>(base, { method: 'POST', body: JSON.stringify({ ...create, activityId: Number(create.activityId), templateRevisionId: Number(create.templateRevisionId), dueAt: new Date(create.dueAt + 'T23:59:00').toISOString() }) })
-    window.location.hash = `${home}/assessments/${value.id}`
+    window.location.hash = href('assessments/' + value.id, { activityId: String(value.activity.id), assetId: String(value.activity.assetId) })
   })
 }
 function answerInput() {
@@ -106,7 +158,8 @@ function setNumber(key: string, event: Event) {
   answers[key]!.number = value === '' ? undefined : Number(value)
 }
 function optionLabel(value: string) { return assessmentOptions[value] ?? value }
-function factFor(question: AssessmentQuestion) { return detail.value?.facts.find(f => f.key === question.factKey) }
+function factsFor(question: AssessmentQuestion) { return detail.value?.facts.filter(f => f.key === question.factKey) ?? [] }
+function factFor(question: AssessmentQuestion) { const facts = factsFor(question); return facts.length === 1 ? facts[0] : undefined }
 function editTemplate(value?: AssessmentTemplate, newVersion = false) {
   templateDraft.value = value?.state === 'draft' ? value : undefined
   Object.assign(templateForm, { key: value && (value.state === 'draft' || newVersion) ? value.key : '', title: value ? value.title + (value.state === 'draft' || newVersion ? '' : '副本') : '', kind: value?.kind ?? 'pia', baseRevisionId: value?.revisionId, questions: value ? structuredClone(value.questions) : [] })
@@ -137,13 +190,16 @@ onBeforeUnmount(() => active.abort())
 <template>
   <div class="assessments-page">
     <header class="page-header">
-      <div><a v-if="assessmentId" :href="home + '/assessments'">返回专项评估</a><h1>{{ detail?.title ?? '专项评估' }}</h1><p>围绕实际处理活动核验条件、留存依据并完成独立复核。</p></div>
+      <div><a v-if="assessmentId" :href="href('assessments')">返回专项评估</a><h1>{{ detail?.title ?? '专项评估' }}</h1><p>围绕实际处理活动核验条件、留存依据并完成独立复核。</p></div>
       <div class="actions">
         <button type="button" class="button secondary" :disabled="loading || busy" @click="load">刷新</button>
         <template v-if="!assessmentId"><button type="button" class="button secondary" @click="showTemplates = !showTemplates">{{ showTemplates ? '评估记录' : '模板管理' }}</button><button v-if="canCreate" type="button" class="button primary" @click="showCreate = !showCreate">新建评估</button></template>
         <template v-if="detail"><a class="button secondary" :href="base + '/' + detail.id + '/export?format=json'">导出 JSON</a><a class="button secondary" :href="base + '/' + detail.id + '/export?format=html'">导出报告</a></template>
       </div>
     </header>
+    <p v-if="scopeError" class="message message-error" role="alert">{{ scopeError }}</p>
+    <p v-if="context.assetId || context.activityId" class="assessment-scope-caption">本次办理范围：资产 #{{ context.assetId || '待选' }}<template v-if="context.activityId"> · 活动 #{{ context.activityId }}</template>；评估列表按此范围读取。<a :href="href('activities/new', { assetId: context.assetId, activityId: '' })">为所选资产登记活动</a></p>
+    <ScenarioDataPanel v-if="materialsScene && !scopeError && (detail?.activity.assetId || context.assetId || context.activityId)" :workspace="workspace" :asset-id="detail ? String(detail.activity.assetId) : context.assetId" :activity-id="detail ? String(detail.activity.id) : create.activityId || context.activityId" compact @session-expired="emit('sessionExpired')" />
     <p v-if="error" class="error-message" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">正在读取评估与采用的来源事实…</p>
@@ -152,17 +208,18 @@ onBeforeUnmount(() => active.abort())
 
     <template v-if="!assessmentId && !showTemplates"><nav class="assessment-scenarios" aria-label="评估类型"><button :class="{active: !kindFilter}" @click="kindFilter = ''; load()">全部评估</button><button v-for="(label,key) in assessmentKinds" :key="key" :class="{active:kindFilter === key}" @click="kindFilter = String(key); load()">{{ label }}</button></nav>
       <form class="filter-bar" @submit.prevent="load"><label class="field">评估类型<select v-model="kindFilter"><option value="">全部类型</option><option v-for="(label, key) in assessmentKinds" :key="key" :value="key">{{ label }}</option></select></label><label class="field">状态<select v-model="statusFilter"><option value="">全部状态</option><option v-for="(label, key) in assessmentStatuses" :key="key" :value="key">{{ label }}</option></select></label><button class="button secondary" :disabled="loading">查询</button></form>
-<div class="assessment-list-workbench">      <section class="panel"><h2>评估记录</h2><p v-if="!loading && !items.length">当前范围内尚无评估。</p><div v-else class="table-scroll"><table class="data-table"><thead><tr><th>评估</th><th>类型</th><th>当前状态</th><th>期限</th><th>更新时间</th></tr></thead><tbody><tr v-for="item in items" :key="item.id"><td><a :href="home + '/assessments/' + item.id">{{ item.title }}</a></td><td>{{ assessmentKinds[item.kind] }}</td><td>{{ assessmentStatuses[item.status] }}<span v-if="item.stale" class="badge">待重新评估</span></td><td>{{ formatDate(item.dueAt) }}</td><td>{{ formatDate(item.updatedAt) }}</td></tr></tbody></table></div><p class="muted">展示最近100条评估，业务条件缺失会保留为待核验。</p></section><aside class="assessment-list-rail">    <section v-if="showCreate && canCreate" class="panel assessment-create-panel">
+<div class="assessment-list-workbench">      <section class="panel"><h2>评估记录</h2><p v-if="!loading && !items.length">当前范围内尚无评估。</p><div v-else class="table-scroll"><table class="data-table"><thead><tr><th>评估</th><th>类型</th><th>当前状态</th><th>期限</th><th>更新时间</th></tr></thead><tbody><tr v-for="item in items" :key="item.id"><td><a :href="href('assessments/' + item.id, { activityId: String(item.activityId) })">{{ item.title }}</a></td><td>{{ assessmentKinds[item.kind] }}</td><td>{{ assessmentStatuses[item.status] }}<span v-if="item.stale" class="badge">待重新评估</span></td><td>{{ formatDate(item.dueAt) }}</td><td>{{ formatDate(item.updatedAt) }}</td></tr></tbody></table></div><p class="muted">展示最近100条评估，业务条件缺失会保留为待核验。</p></section><aside class="assessment-list-rail">    <section v-if="showCreate && canCreate" class="panel assessment-create-panel">
       <h2>创建专项评估</h2>
       <form class="assessment-form" @submit.prevent="createAssessment">
         <label class="field">评估名称<input v-model="create.title" required maxlength="100"></label>
-        <label class="field">处理活动<select v-model="create.activityId" required><option value="">选择已登记活动</option><option v-for="a in activities" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <label class="field">处理活动<select v-model="create.activityId" required @change="selectCreateActivity"><option value="">选择已登记活动</option><option v-for="a in activities" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <button v-if="activityCursor !== null" class="button secondary" type="button" :disabled="activityLoading" @click="loadActivities(true).catch(showError)">加载更多范围内活动</button>
         <label class="field">已发布模板<select v-model="create.templateRevisionId" required><option value="">选择模板版本</option><option v-for="t in published" :key="t.revisionId" :value="String(t.revisionId)">{{ assessmentKinds[t.kind] }} · {{ t.title }} · v{{ t.revision }}</option></select></label>
         <label class="field">评估期限<input v-model="create.dueAt" type="date" required></label>
         <label class="field">机器事实刷新间隔（分钟）<input v-model.number="create.refreshMinutes" type="number" min="5" max="43200" required></label>
         <button class="button primary" :disabled="busy || !activities.length || !published.length">创建并采集事实</button>
       </form>
-      <p v-if="!activities.length">请先在<a :href="home + '/activities'">处理活动</a>登记评估范围。</p>
+      <p v-if="!activities.length">请先在<a :href="href('activities/new', { assetId: context.assetId, activityId: '' })">处理活动</a>登记评估范围。</p>
     </section><section v-if="!showCreate || !canCreate" class="panel"><p class="eyebrow">评估采用范围</p><h2>从实际处理活动开始</h2><p>按已发布模板采集来源事实，逐项核实适用条件；未知信息保留为待取证。</p><dl><div><dt>本次记录</dt><dd>{{ items.length }} 项</dd></div><div><dt>已发布模板</dt><dd>{{ published.length }} 个版本</dd></div><div><dt>可关联活动</dt><dd>{{ activities.length }} 项</dd></div></dl><button v-if="canCreate" class="button primary" @click="showCreate=true">创建专项评估</button></section><section class="panel"><h2>独立复核要求</h2><p>答复完成并不代表合规通过。缺失业务条件、过期来源和未完成整改会阻止通过。</p><p>完成后的历史评估保留已采用的事实与版本，后续变化单独标记。</p></section></aside></div>
     </template>
 
@@ -177,11 +234,11 @@ onBeforeUnmount(() => active.abort())
     </section>
 
     <template v-if="detail">
-      <div class="assessment-workflow"><div><span>01</span><strong>评估范围</strong><small>{{ detail.activity.name }}</small></div><div><span>02</span><strong>来源事实</strong><small>{{ detail.facts.filter(f => f.state === 'known').length }} / {{ detail.facts.length }} 项已核实</small></div><div><span>03</span><strong>答复与整改</strong><small>{{ detail.gaps.length }} 项取证缺口 · {{ detail.checks.length }} 项关联检查</small></div><div><span>04</span><strong>独立复核</strong><small>{{ assessmentStatuses[detail.status] }}</small></div></div>
+      <div class="assessment-workflow"><div><span>01</span><strong>评估范围</strong><small>{{ detail.activity.name }}</small></div><div><span>02</span><strong>来源事实</strong><small>{{ detail.facts.filter(f => f.state === 'known').length }} / {{ detail.facts.length }} 项已有来源记录</small></div><div><span>03</span><strong>答复与整改</strong><small>{{ detail.gaps.length }} 项取证缺口 · {{ detail.checks.length }} 项关联检查</small></div><div><span>04</span><strong>独立复核</strong><small>{{ assessmentStatuses[detail.status] }}</small></div></div>
       <p v-if="detail.stale" class="error-message" role="status">活动或来源事实已变化。{{ detail.canEdit ? '请刷新并核对当前范围，业务范围变化后需要重新答题。' : '当前采用快照已过期，请建立新评估并补齐取证。' }}</p>
-      <div class="assessment-detail-workbench"><nav class="panel assessment-directory" aria-label="评估答题目录"><h2>评估目录</h2><button @click="scrollTo('assessment-facts')">来源事实</button><button v-for="(q,index) in detail.template.questions" :key="q.key" @click="scrollTo('answer-' + q.key)"><span>{{ String(index+1).padStart(2,'0') }}</span>{{ q.title }}</button><button @click="scrollTo('assessment-history')">评估历史</button></nav><main class="assessment-main">      <section id="assessment-facts" class="panel assessment-facts"><div class="panel-heading"><h2>来源事实</h2><button v-if="detail.canEdit" class="button secondary" :disabled="busy" @click="refreshFacts">刷新并采用当前事实</button></div><p>登记信息与自动采集分别保留来源，尚未核实的业务条件继续取证。</p><p v-if="detail.automaticApplicability" class="assessment-auto-fact">范围自动判定 · {{ detail.automaticApplicability.state === 'applicable' ? '登记活动符合评估范围' : '待核实触发条件' }} · {{ detail.automaticApplicability.reason }}</p><div class="table-scroll"><table class="data-table"><thead><tr><th>事实</th><th>观察结果</th><th>来源与记录</th></tr></thead><tbody><tr v-for="fact in detail.facts" :key="fact.key"><td>{{ assessmentFactLabels[fact.key] ?? fact.key }}</td><td>{{ fact.state === 'known' ? fact.value : '待核实' }}</td><td>{{ fact.source }}<small>{{ fact.record }}<template v-if="fact.observedAt"> · {{ formatDate(fact.observedAt) }}</template></small></td></tr></tbody></table></div></section>      <form class="panel assessment-answers" @submit.prevent="saveAnswers">
+      <div class="assessment-detail-workbench"><nav class="panel assessment-directory" aria-label="评估答题目录"><h2>评估目录</h2><button @click="scrollTo('assessment-facts')">来源事实</button><button v-for="(q,index) in detail.template.questions" :key="q.key" @click="scrollTo('answer-' + q.key)"><span>{{ String(index+1).padStart(2,'0') }}</span>{{ q.title }}</button><button @click="scrollTo('assessment-history')">评估历史</button></nav><main class="assessment-main">      <section id="assessment-facts" class="panel assessment-facts"><div class="panel-heading"><h2>来源事实</h2><button v-if="detail.canEdit" class="button secondary" :disabled="busy" @click="refreshFacts">刷新并采用当前事实</button></div><p>登记信息与自动采集分别保留来源，尚未核实的业务条件继续取证。</p><p v-if="detail.automaticApplicability" class="assessment-auto-fact">范围自动判定 · {{ detail.automaticApplicability.state === 'applicable' ? '登记活动符合评估范围' : '待核实触发条件' }} · {{ detail.automaticApplicability.reason }}</p><div class="table-scroll"><table class="data-table"><thead><tr><th>事实</th><th>观察结果</th><th>来源与记录</th></tr></thead><tbody><tr v-for="fact in detail.facts" :key="fact.key + ':' + fact.source + ':' + (fact.record || '')"><td>{{ assessmentFactLabels[fact.key] ?? fact.key }}</td><td><span class="assessment-fact-state">{{ assessmentFactStateLabel(fact) }}</span><details v-if="structuredAssessmentFact(fact.value)" class="assessment-fact-detail"><summary>查看来源明细与范围</summary><pre>{{ structuredAssessmentFact(fact.value) }}</pre></details><span v-else>{{ fact.state === 'known' ? assessmentFactDisplayValue(fact) || '来源未返回结果内容' : fact.value ? '待核实 · ' + fact.value : '待核实' }}</span></td><td>{{ assessmentFactSourceLabel(fact.source) }}<small>{{ fact.record }}<template v-if="fact.observedAt"> · {{ formatDate(fact.observedAt) }}</template></small></td></tr></tbody></table></div></section>      <form class="panel assessment-answers" @submit.prevent="saveAnswers">
         <h2>评估答复</h2><p>{{ detail.basis }}</p>
-        <fieldset v-for="q in detail.template.questions" :key="q.key" :id="'answer-' + q.key" class="assessment-question" :disabled="!detail.canEdit || detail.stale || busy"><legend>{{ q.title }} <small v-if="q.required">须完成</small></legend><p><span class="badge">{{ q.obligation === 'recommended' ? '组织治理建议' : '依条件适用' }}</span> {{ q.applicability }}</p><p><a :href="q.basisUrl" target="_blank" rel="noopener noreferrer">{{ q.basis }}</a></p><p v-if="factFor(q)" class="assessment-auto-fact">自动事实 · {{ factFor(q)?.state === 'known' ? factFor(q)?.value : '待核实' }}<button v-if="q.kind === 'text' && factFor(q)?.state === 'known' && detail.canEdit && !detail.stale" class="button secondary" type="button" @click="answers[q.key]!.value = factFor(q)?.value">采用此事实</button></p>
+        <fieldset v-for="q in detail.template.questions" :key="q.key" :id="'answer-' + q.key" class="assessment-question" :disabled="!detail.canEdit || detail.stale || busy"><legend>{{ q.title }} <small v-if="q.required">须完成</small></legend><p><span class="badge">{{ q.obligation === 'recommended' ? '组织治理建议' : '依条件适用' }}</span> {{ q.applicability }}</p><p><a :href="q.basisUrl" target="_blank" rel="noopener noreferrer">{{ q.basis }}</a></p><p v-if="factsFor(q).length > 1" class="assessment-auto-fact">同一事实有多份来源记录。请在来源事实中逐一核对范围、时点与差异后填写答复。</p><p v-else-if="factFor(q)" class="assessment-auto-fact">来源事实 · {{ assessmentFactSourceLabel(factFor(q)!.source) }} · {{ structuredAssessmentFact(factFor(q)?.value) ? '结构化来源记录，请在来源事实中展开核对。' : factFor(q)?.state === 'known' ? factFor(q)?.value : '待核实' }}<button v-if="q.kind === 'text' && factFor(q)?.state === 'known' && !structuredAssessmentFact(factFor(q)?.value) && detail.canEdit && !detail.stale" class="button secondary" type="button" @click="answers[q.key]!.value = factFor(q)?.value">采用此事实</button></p>
           <label v-if="q.kind === 'single'" class="field">核验结论<select v-model="answers[q.key]!.value"><option value="">请选择</option><option v-for="option in q.options" :key="option" :value="option">{{ optionLabel(option) }}</option></select></label>
           <div v-else-if="q.kind === 'multi'" class="assessment-options"><label v-for="option in q.options" :key="option"><input v-model="answers[q.key]!.values" type="checkbox" :value="option">{{ optionLabel(option) }}</label></div>
           <label v-else-if="q.kind === 'text'" class="field">答复<textarea v-model="answers[q.key]!.value" maxlength="2000" rows="4"></textarea></label>
@@ -198,6 +255,9 @@ onBeforeUnmount(() => active.abort())
 </template>
 
 <style scoped>
+.assessments-page > .filter-bar { align-items: flex-end; }
+.assessments-page > .filter-bar > .field { display: grid; gap: 7px; margin: 0; }
+.assessments-page > .filter-bar > .button { align-self: flex-end; }
 .assessments-page { display: grid; gap: 24px; }
 .assessment-summary, form.panel { padding: 18px; }
 .assessments-page > section.panel > h2,
@@ -225,9 +285,15 @@ small { display: block; margin-top: 5px; color: var(--muted, #53667d); overflow-
 </style>
 
 <style scoped>
-.assessments-page{gap:16px}.assessment-workflow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}.assessment-workflow>div{padding:0 16px;border-right:1px solid var(--line)}.assessment-workflow>div:last-child{border:0}.assessment-workflow span{color:var(--blue);font-size:11px;margin-right:8px}.assessment-workflow strong{font-size:13px}.assessment-detail-workbench{display:grid;grid-template-columns:170px minmax(0,1fr) 300px;gap:16px;align-items:start}.assessment-directory{position:sticky;top:84px;padding:18px 10px}.assessment-directory h2{font-size:13px;margin:0 8px 12px}.assessment-directory button{display:flex;gap:8px;align-items:start;width:100%;text-align:left;background:none;border:0;padding:11px 8px;color:var(--muted);line-height:1.6;cursor:pointer;font:inherit;font-size:12px}.assessment-directory button:hover{background:#eff7fc;color:var(--blue)}.assessment-directory button span{color:var(--blue);font-size:10px;margin-top:2px}.assessment-main,.assessment-review-rail{display:grid;gap:16px;min-width:0}.assessment-main>.panel,.assessment-review-rail>.panel{padding:20px}.assessment-summary{display:grid;gap:4px}.assessment-review-rail h2{font-size:14px;margin:0 0 14px}.assessment-review-rail p,.assessment-review-rail li{font-size:12px;line-height:1.8;overflow-wrap:anywhere}.assessment-review-rail ul{padding-left:17px}.assessment-review-rail .actions{display:grid;grid-template-columns:1fr 1fr}.assessment-review-rail .button{padding:7px 9px}.assessment-question{padding:18px;margin:18px 0;scroll-margin-top:90px;background:#fcfdff}.assessment-question legend{color:#174c75}.assessment-facts{scroll-margin-top:90px}.assessment-scenarios,.template-question-tabs{display:flex;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.assessment-scenarios button,.template-question-tabs button{font:inherit;padding:12px 3px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);cursor:pointer}.assessment-scenarios button.active{color:var(--blue);border-color:var(--blue)}.template-editor-heading{padding-bottom:12px}.template-editor-heading h3{font-size:18px}.template-editor-heading p{color:var(--muted);font-size:12px}.assessment-template-editor{padding-top:22px;border-top:1px solid var(--line)}@media(max-width:1400px){.assessment-detail-workbench{grid-template-columns:145px minmax(0,1fr) 270px;gap:12px}.assessment-main>.panel,.assessment-review-rail>.panel{padding:16px}.assessment-workflow>div{padding:0 10px}}
+.assessments-page{gap:16px}.assessment-workflow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}.assessment-workflow>div{padding:0 16px;border-right:1px solid var(--line)}.assessment-workflow>div:last-child{border:0}.assessment-workflow span{color:var(--blue);font-size:12px;margin-right:8px}.assessment-workflow strong{font-size:13px}.assessment-detail-workbench{display:grid;grid-template-columns:170px minmax(0,1fr) 300px;gap:16px;align-items:start}.assessment-directory{position:sticky;top:84px;padding:18px 10px}.assessment-directory h2{font-size:13px;margin:0 8px 12px}.assessment-directory button{display:flex;gap:8px;align-items:start;width:100%;text-align:left;background:none;border:0;padding:11px 8px;color:var(--muted);line-height:1.6;cursor:pointer;font:inherit;font-size:12px}.assessment-directory button:hover{background:var(--accent-soft);color:var(--blue)}.assessment-directory button span{color:var(--blue);font-size:12px;margin-top:2px}.assessment-main,.assessment-review-rail{display:grid;gap:16px;min-width:0}.assessment-main>.panel,.assessment-review-rail>.panel{padding:20px}.assessment-summary{display:grid;gap:4px}.assessment-review-rail h2{font-size:14px;margin:0 0 14px}.assessment-review-rail p,.assessment-review-rail li{font-size:12px;line-height:1.8;overflow-wrap:anywhere}.assessment-review-rail ul{padding-left:17px}.assessment-review-rail .actions{display:grid;grid-template-columns:1fr 1fr}.assessment-review-rail .button{padding:7px 9px}.assessment-question{padding:18px;margin:18px 0;scroll-margin-top:90px;background:var(--surface-subtle)}.assessment-question legend{color:var(--ink)}.assessment-facts{scroll-margin-top:90px}.assessment-scenarios,.template-question-tabs{display:flex;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.assessment-scenarios button,.template-question-tabs button{font:inherit;padding:12px 3px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);cursor:pointer}.assessment-scenarios button.active{color:var(--blue);border-color:var(--blue)}.template-editor-heading{padding-bottom:12px}.template-editor-heading h3{font-size:18px}.template-editor-heading p{color:var(--muted);font-size:12px}.assessment-template-editor{padding-top:22px;border-top:1px solid var(--line)}@media(max-width:1400px){.assessment-detail-workbench{grid-template-columns:145px minmax(0,1fr) 270px;gap:12px}.assessment-main>.panel,.assessment-review-rail>.panel{padding:16px}.assessment-workflow>div{padding:0 10px}}
 </style>
 
-<style scoped>.assessment-list-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.assessment-list-rail{display:grid;gap:16px}.assessment-list-rail>.panel{padding:20px}.assessment-list-rail h2{font-size:14px;margin:0 0 16px}.assessment-list-rail p{font-size:12px;line-height:1.9;color:var(--muted)}.assessment-list-rail dl{display:grid;gap:15px;margin:20px 0}.assessment-list-rail dl>div{font-size:12px;display:grid;grid-template-columns:90px 1fr}.assessment-list-rail dd{margin:0}.assessment-list-rail dt{color:var(--muted)}.assessment-create-panel .assessment-form{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.assessment-create-panel .field{font-size:12px}.assessment-template-workbench{display:grid;grid-template-columns:160px minmax(0,1fr) 260px;gap:16px;padding:20px;border-top:1px solid var(--line);align-items:start}.assessment-template-editor{margin:0!important;padding:0;border:0;min-width:0}.assessment-template-editor .assessment-form{grid-template-columns:1fr 1fr;gap:12px}.assessment-template-editor .assessment-question{padding:16px}.assessment-template-outline{padding:18px 10px;position:sticky;top:84px}.assessment-template-outline h3{font-size:13px;padding:0 8px}.assessment-template-outline button{display:block;text-align:left;background:none;border:0;padding:12px 8px;width:100%;font:inherit;font-size:12px;line-height:1.8;color:var(--muted);cursor:pointer}.assessment-template-outline button.active{background:#edf7fd;color:var(--blue);border-radius:6px}.assessment-template-outline p{font-size:12px;color:var(--muted);padding:0 8px}.assessment-template-preview{padding:20px;position:sticky;top:84px}.assessment-template-preview h3{font-size:14px;margin-bottom:16px}.assessment-template-preview dl{display:grid;gap:18px}.assessment-template-preview dt{font-size:11px;color:var(--blue);margin-bottom:7px}.assessment-template-preview dd{margin:0;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}.assessment-template-preview p{font-size:12px;line-height:1.9;color:var(--muted)}.template-question-tabs{display:none}@media(max-width:1400px){.assessment-list-workbench{grid-template-columns:minmax(0,1fr) 270px}.assessment-template-workbench{grid-template-columns:140px minmax(0,1fr) 240px;gap:12px;padding:16px}.assessment-template-editor .assessment-form{grid-template-columns:1fr}}</style>
+<style scoped>.assessment-list-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.assessment-list-rail{display:grid;gap:16px}.assessment-list-rail>.panel{padding:20px}.assessment-list-rail h2{font-size:14px;margin:0 0 16px}.assessment-list-rail p{font-size:12px;line-height:1.9;color:var(--muted)}.assessment-list-rail dl{display:grid;gap:15px;margin:20px 0}.assessment-list-rail dl>div{font-size:12px;display:grid;grid-template-columns:90px 1fr}.assessment-list-rail dd{margin:0}.assessment-list-rail dt{color:var(--muted)}.assessment-create-panel .assessment-form{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.assessment-create-panel .field{font-size:12px}.assessment-template-workbench{display:grid;grid-template-columns:160px minmax(0,1fr) 260px;gap:16px;padding:20px;border-top:1px solid var(--line);align-items:start}.assessment-template-editor{margin:0!important;padding:0;border:0;min-width:0}.assessment-template-editor .assessment-form{grid-template-columns:1fr 1fr;gap:12px}.assessment-template-editor .assessment-question{padding:16px}.assessment-template-outline{padding:18px 10px;position:sticky;top:84px}.assessment-template-outline h3{font-size:13px;padding:0 8px}.assessment-template-outline button{display:block;text-align:left;background:none;border:0;padding:12px 8px;width:100%;font:inherit;font-size:12px;line-height:1.8;color:var(--muted);cursor:pointer}.assessment-template-outline button.active{background:var(--accent-soft);color:var(--blue);border-radius:6px}.assessment-template-outline p{font-size:12px;color:var(--muted);padding:0 8px}.assessment-template-preview{padding:20px;position:sticky;top:84px}.assessment-template-preview h3{font-size:14px;margin-bottom:16px}.assessment-template-preview dl{display:grid;gap:18px}.assessment-template-preview dt{font-size:12px;color:var(--blue);margin-bottom:7px}.assessment-template-preview dd{margin:0;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}.assessment-template-preview p{font-size:12px;line-height:1.9;color:var(--muted)}.template-question-tabs{display:none}@media(max-width:1400px){.assessment-list-workbench{grid-template-columns:minmax(0,1fr) 270px}.assessment-template-workbench{grid-template-columns:140px minmax(0,1fr) 240px;gap:12px;padding:16px}.assessment-template-editor .assessment-form{grid-template-columns:1fr}}</style>
 
 <style scoped>.assessment-list-workbench>section.panel>h2{padding:18px 20px;margin:0;font-size:15px}.assessment-list-workbench>section.panel>p{margin:16px 20px;color:var(--muted);font-size:12px}.assessment-template-workbench .field{margin:0}.assessment-template-workbench .assessment-question>.field{margin-top:14px}.assessment-create-panel .field{margin:0}</style>
+
+<style scoped>
+.assessment-fact-state{display:block;margin-bottom:6px;color:var(--secondary);font-size:12px}.assessment-fact-detail summary{min-height:32px;color:var(--accent);cursor:pointer}.assessment-fact-detail pre{max-height:260px;max-width:100%;overflow:auto;margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--surface-subtle);font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+
+<style scoped>.assessment-scope-caption{padding:12px 16px;margin:0 0 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface-subtle);font-size:12px;line-height:1.8}.assessment-scope-caption a{margin-left:12px;color:var(--accent)}.assessments-page>.scenario-data{margin-bottom:18px}</style>

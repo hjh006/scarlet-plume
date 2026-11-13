@@ -15,11 +15,11 @@ import (
 
 var validationRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$`)
 
-const apiValidationPlanSelect = `SELECT id,source_id,name,service,method,route,target_origin,manifest_ref,rules,interval_minutes,revision,state,created_by,approved_by,approved_at,next_run_at,lease_expires_at,updated_at FROM plume.api_validation_plans`
+const apiValidationPlanSelect = `SELECT id,source_id,name,service,method,route,target_origin,manifest_ref,rules,interval_minutes,revision,state,created_by,approved_by,approved_at,next_run_at,lease_expires_at,updated_at,probe_policy FROM plume.api_validation_plans`
 
 func scanAPIValidationPlan(row pgx.Row) (APIValidationPlan, error) {
 	var p APIValidationPlan
-	err := row.Scan(&p.ID, &p.SourceID, &p.Name, &p.Service, &p.Method, &p.Route, &p.TargetOrigin, &p.ManifestRef, &p.Rules, &p.IntervalMinutes, &p.Revision, &p.State, &p.CreatedBy, &p.ApprovedBy, &p.ApprovedAt, &p.NextRunAt, &p.LeaseExpiresAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.SourceID, &p.Name, &p.Service, &p.Method, &p.Route, &p.TargetOrigin, &p.ManifestRef, &p.Rules, &p.IntervalMinutes, &p.Revision, &p.State, &p.CreatedBy, &p.ApprovedBy, &p.ApprovedAt, &p.NextRunAt, &p.LeaseExpiresAt, &p.UpdatedAt, &p.ProbePolicy)
 	return p, storeError(err)
 }
 func validAPIValidationInput(in *APIValidationPlanInput) bool {
@@ -28,7 +28,7 @@ func validAPIValidationInput(in *APIValidationPlanInput) bool {
 	if in.IntervalMinutes == 0 {
 		in.IntervalMinutes = 60
 	}
-	if len(in.TargetOrigin) > 300 || in.SourceID < 1 || !validCheckText(in.Name, 100) || !collector.ValidSource(in.Service) || in.Method != "GET" || !validationRef.MatchString(in.ManifestRef) || in.IntervalMinutes < 5 || in.IntervalMinutes > 43200 || len(in.Rules) < 1 || len(in.Rules) > 2 {
+	if len(in.TargetOrigin) > 300 || in.SourceID < 1 || !validCheckText(in.Name, 100) || !collector.ValidSource(in.Service) || in.Method != "GET" || !validationRef.MatchString(in.ManifestRef) || in.IntervalMinutes < 5 || in.IntervalMinutes > 43200 || len(in.Rules) < 1 || len(in.Rules) > 5 {
 		return false
 	}
 	probe, err := runtimesecurity.NormalizeObservation(runtimesecurity.Observation{Method: in.Method, Route: in.Route, Status: 200, ObservedAt: time.Now()})
@@ -42,14 +42,14 @@ func validAPIValidationInput(in *APIValidationPlanInput) bool {
 	in.TargetOrigin = strings.ToLower(parsed.Scheme + "://" + parsed.Host)
 	seen := map[string]bool{}
 	for _, rule := range in.Rules {
-		if !slices.Contains([]string{"bola", "weak_credential"}, rule) || seen[rule] {
+		if !slices.Contains([]string{"bola", "weak_credential", "auth_required", "sensitive_exposure", "response_headers"}, rule) || seen[rule] {
 			return false
 		}
 		seen[rule] = true
 	}
 	in.Rules = slices.Clone(in.Rules)
 	slices.Sort(in.Rules)
-	return true
+	return NormalizeAPIProbePolicy(&in.ProbePolicy, in.Rules, in.TargetOrigin)
 }
 func validationSourceVisible(ctx context.Context, tx pgx.Tx, workspaceID, sourceID int64) error {
 	var id int64
@@ -109,7 +109,7 @@ func (s *Store) SaveAPIValidationPlan(ctx context.Context, workspaceID, actorID,
 			if count >= 100 {
 				return ErrInvalid
 			}
-			err = tx.QueryRow(ctx, `INSERT INTO plume.api_validation_plans(workspace_id,source_id,created_by,editor_ids,name,service,method,route,target_origin,manifest_ref,rules,interval_minutes)VALUES($1,$2,$3,ARRAY[$3::bigint],$4,$5,$6,$7,$8,$9,$10,$11)RETURNING id`, workspaceID, in.SourceID, actorID, in.Name, in.Service, in.Method, in.Route, in.TargetOrigin, in.ManifestRef, in.Rules, in.IntervalMinutes).Scan(&id)
+			err = tx.QueryRow(ctx, `INSERT INTO plume.api_validation_plans(workspace_id,source_id,created_by,editor_ids,name,service,method,route,target_origin,manifest_ref,rules,interval_minutes,probe_policy)VALUES($1,$2,$3,ARRAY[$3::bigint],$4,$5,$6,$7,$8,$9,$10,$11,$12)RETURNING id`, workspaceID, in.SourceID, actorID, in.Name, in.Service, in.Method, in.Route, in.TargetOrigin, in.ManifestRef, in.Rules, in.IntervalMinutes, in.ProbePolicy).Scan(&id)
 			if err != nil {
 				return err
 			}
@@ -127,7 +127,7 @@ func (s *Store) SaveAPIValidationPlan(ctx context.Context, workspaceID, actorID,
 				result = old
 				return nil
 			}
-			_, err = tx.Exec(ctx, `UPDATE plume.api_validation_plans SET source_id=$3,name=$4,service=$5,route=$6,target_origin=$7,manifest_ref=$8,rules=$9,interval_minutes=$10,revision=revision+1,state='draft',approved_by=NULL,approved_at=NULL,lease_ref=NULL,lease_expires_at=NULL,lease_revision=NULL,run_requested=false,editor_ids=CASE WHEN $11::bigint=ANY(editor_ids) THEN editor_ids ELSE array_append(editor_ids,$11::bigint) END,updated_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2`, workspaceID, id, in.SourceID, in.Name, in.Service, in.Route, in.TargetOrigin, in.ManifestRef, in.Rules, in.IntervalMinutes, actorID)
+			_, err = tx.Exec(ctx, `UPDATE plume.api_validation_plans SET source_id=$3,name=$4,service=$5,route=$6,target_origin=$7,manifest_ref=$8,rules=$9,interval_minutes=$10,probe_policy=$12,revision=revision+1,state='draft',approved_by=NULL,approved_at=NULL,lease_ref=NULL,lease_expires_at=NULL,lease_revision=NULL,run_requested=false,editor_ids=CASE WHEN $11::bigint=ANY(editor_ids) THEN editor_ids ELSE array_append(editor_ids,$11::bigint) END,updated_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2`, workspaceID, id, in.SourceID, in.Name, in.Service, in.Route, in.TargetOrigin, in.ManifestRef, in.Rules, in.IntervalMinutes, actorID, in.ProbePolicy)
 			if err != nil {
 				return err
 			}

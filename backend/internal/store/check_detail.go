@@ -38,6 +38,11 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 		if finding != nil {
 			detail.RuntimeFinding = &finding.RuntimeFinding
 		}
+		detail.RuntimeRetest, err = runtimeExtendedRetestStatus(ctx, tx, check, finding)
+		if err != nil {
+			return err
+		}
+
 		detail.Evidence, err = listCheckEvidence(ctx, tx, check)
 		if err != nil {
 			return err
@@ -51,10 +56,17 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 		}
 		detail.CanAddEvidence = checkEditor(role) && evidenceOpen(check)
 		if detail.CanAddEvidence {
+			if detail.RuntimeRetest != nil {
+				detail.CanSubmit = detail.RuntimeRetest.State == "passed"
+				return nil
+			}
 			detail.CanSubmit, err = submissionAllowed(ctx, tx, check)
 			return err
 		}
 		if check.Status != "in_review" {
+			return nil
+		}
+		if detail.RuntimeRetest != nil && detail.RuntimeRetest.State != "passed" {
 			return nil
 		}
 		detail.CanReview, err = independentReviewer(ctx, tx, check, role, actorID)
@@ -68,7 +80,11 @@ func (s *Store) CheckDetail(ctx context.Context, workspaceID, actorID, checkID i
 		detail.ReviewRevision = submission.ID
 		detail.CanReview = submission.ID != 0
 		if detail.CanReview {
-			detail.CanVerify, err = verificationAllowed(ctx, tx, check)
+			if detail.RuntimeRetest != nil {
+				detail.CanVerify = detail.RuntimeRetest.State == "passed"
+			} else {
+				detail.CanVerify, err = verificationAllowed(ctx, tx, check)
+			}
 		}
 		return err
 	})

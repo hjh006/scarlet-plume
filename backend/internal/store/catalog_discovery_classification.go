@@ -54,6 +54,12 @@ func persistCatalogClassification(ctx context.Context, tx pgx.Tx, ws, actor, ass
 	if e = applyAutomaticClassification(ctx, tx, AutomationJob{workspaceID: ws, actorID: actor}, &item, evaluation); e != nil {
 		return nil, e
 	}
+	if _, e = tx.Exec(ctx, `UPDATE plume.catalog_entries SET metadata=metadata||jsonb_build_object('classification',$3::jsonb,'classificationRevision',$4::bigint) WHERE workspace_id=$1 AND asset_id=$2`, ws, assetID, evaluation, item.Revision); e != nil {
+		return nil, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE plume.catalog_history h SET metadata=jsonb_set(h.metadata,'{observed}',(h.metadata->'observed')||jsonb_build_object('classification',$3::jsonb,'classificationRevision',$4::bigint)) FROM plume.catalog_entries ce WHERE ce.workspace_id=$1 AND ce.asset_id=$2 AND h.entry_id=ce.id AND h.revision=ce.revision`, ws, assetID, evaluation, item.Revision); e != nil {
+		return nil, e
+	}
 	if item.Revision != previousRevision {
 		basis := fmt.Sprintf("依据%s对来源%s的受限内容格式统计识别属性；采样与实际主体、用途、法定类别取证范围见目录运行批次。", evaluation.Standard.Code, source)
 		if _, e = tx.Exec(ctx, `UPDATE plume.assets SET classification_basis=$2 WHERE id=$1 AND workspace_id=$3`, assetID, basis, ws); e != nil {

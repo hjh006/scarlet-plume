@@ -58,6 +58,7 @@ type Check struct {
 }
 
 type CheckDetail struct {
+	RuntimeRetest *RuntimeRetestState `json:"runtimeRetest,omitempty"`
 	Check
 	Evidence               []Evidence               `json:"evidence"`
 	Events                 []CheckEvent             `json:"events"`
@@ -170,7 +171,7 @@ func (s *Store) ListRequirements(ctx context.Context) ([]Requirement, error) {
 }
 
 func (s *Store) ListChecks(ctx context.Context, workspaceID int64, status string, before int64, limit int) ([]Check, error) {
-	return s.listChecks(ctx, workspaceID, status, 0, before, limit)
+	return s.listChecks(ctx, workspaceID, status, 0, 0, before, limit)
 }
 
 func (s *Store) ListActivityChecks(ctx context.Context, workspaceID, activityID int64, status string, before int64, limit int) ([]Check, error) {
@@ -183,14 +184,35 @@ func (s *Store) ListActivityChecks(ctx context.Context, workspaceID, activityID 
 	if !exists {
 		return nil, ErrNotFound
 	}
-	return s.listChecks(ctx, workspaceID, status, activityID, before, limit)
+	return s.listChecks(ctx, workspaceID, status, 0, activityID, before, limit)
 }
 
-func (s *Store) listChecks(ctx context.Context, workspaceID int64, status string, activityID, before int64, limit int) ([]Check, error) {
+// ListScopedChecks keeps a scenario's selected asset and activity explicit.
+// A foreign or mismatched scope must not fall back to the workspace list.
+func (s *Store) ListScopedChecks(ctx context.Context, workspaceID, assetID, activityID int64, status string, before int64, limit int) ([]Check, error) {
+	if assetID < 0 || activityID < 0 {
+		return nil, ErrInvalid
+	}
+	var assetExists bool
+	var activityAssetID int64
+	if err := s.pool.QueryRow(ctx, `SELECT ($2=0::bigint OR EXISTS(SELECT 1 FROM plume.assets WHERE workspace_id=$1 AND id=$2)), COALESCE((SELECT asset_id FROM plume.activities WHERE workspace_id=$1 AND id=$3),0)`, workspaceID, assetID, activityID).Scan(&assetExists, &activityAssetID); err != nil {
+		return nil, err
+	}
+	if !assetExists || activityID > 0 && activityAssetID == 0 {
+		return nil, ErrNotFound
+	}
+	if assetID > 0 && activityID > 0 && activityAssetID != assetID {
+		return nil, ErrInvalid
+	}
+	return s.listChecks(ctx, workspaceID, status, assetID, activityID, before, limit)
+}
+
+func (s *Store) listChecks(ctx context.Context, workspaceID int64, status string, assetID, activityID, before int64, limit int) ([]Check, error) {
 	rows, err := s.pool.Query(ctx, checkSelect+`
 		WHERE c.workspace_id = $1 AND ($2 = '' OR c.status = $2)
 		  AND ($3 = 0::bigint OR c.activity_id = $3) AND ($4 = 0::bigint OR c.id < $4)
-		ORDER BY c.id DESC LIMIT $5`, workspaceID, status, activityID, before, limit)
+		  AND ($6 = 0::bigint OR c.asset_id = $6)
+		ORDER BY c.id DESC LIMIT $5`, workspaceID, status, activityID, before, limit, assetID)
 	if err != nil {
 		return nil, err
 	}

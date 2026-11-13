@@ -94,7 +94,7 @@ func TestRuntimeDetectionHTTPVersionAndWorkspaceBoundaries(t *testing.T) {
 		Items []store.RuntimeDetectionPolicy `json:"items"`
 	}
 	must(json.Unmarshal(call("GET", base, readerToken, "", "", 200).Body.Bytes(), &page))
-	if len(page.Items) != 9 {
+	if len(page.Items) != 18 {
 		t.Fatal("default policies missing")
 	}
 	p := page.Items[0]

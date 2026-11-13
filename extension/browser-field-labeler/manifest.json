@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "赤翎 · 当前页字段标注",
+  "version": "1.0.0",
+  "description": "用户授权后读取当前页可见字段标识，预览并人工关联平台资产。",
+  "permissions": ["activeTab", "scripting"],
+  "action": {"default_popup": "popup.html", "default_title": "标注已授权当前页字段"}
+}

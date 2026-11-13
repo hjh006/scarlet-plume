@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -63,7 +66,7 @@ func wrapCaptureBody(body io.ReadCloser, header http.Header, length int64, warni
 }
 
 func captureBodyStatistics(observation *requestObservation) ([]runtimesecurity.DataField, []string) {
-	fields := []runtimesecurity.DataField{}
+	fields := slices.Clone(observation.queryFields)
 	warnings := slices.Clone(observation.warnings)
 	for _, body := range []struct {
 		capture  *bodyCapture
@@ -84,6 +87,7 @@ func captureBodyStatistics(observation *requestObservation) ([]runtimesecurity.D
 			warnings = append(warnings, "json_read_error")
 		default:
 			found, gaps := runtimesecurity.InspectJSON(buffer, body.location)
+			observation.valueFingerprints = append(observation.valueFingerprints, runtimesecurity.CaptureValueFingerprints(buffer, body.location, os.Getenv("SCARLET_VALUE_KEY_HEX"), os.Getenv("SCARLET_VALUE_KEY_ID"), os.Getenv("SCARLET_VALUE_SCOPE"))...)
 			if len(gaps) == 0 && (body.location != "request" || observation.queryInspected) {
 				observation.inspectedLocations = append(observation.inspectedLocations, body.location)
 			}
@@ -102,6 +106,19 @@ func captureBodyStatistics(observation *requestObservation) ([]runtimesecurity.D
 		warnings = append(warnings, "json_field_limit")
 		observation.inspectedLocations = nil
 	}
+	kept := []runtimesecurity.ValueFingerprint{}
+	for _, fingerprint := range observation.valueFingerprints {
+		if len(kept) >= 32 {
+			break
+		}
+		for _, field := range fields {
+			if field.Name == fingerprint.Locator && field.Category == fingerprint.Category {
+				kept = append(kept, fingerprint)
+				break
+			}
+		}
+	}
+	observation.valueFingerprints = kept
 	slices.Sort(warnings)
 	warnings = slices.Compact(warnings)
 	return fields, warnings
@@ -118,4 +135,25 @@ func mergeSecuritySignals(a, b []runtimesecurity.SecuritySignal) []runtimesecuri
 		}
 	}
 	return a
+}
+
+func captureQueryStatistics(o *requestObservation, raw string) {
+	values, e := url.ParseQuery(raw)
+	if e != nil {
+		o.warnings = append(o.warnings, "json_invalid")
+		return
+	}
+	data, _ := json.Marshal(values)
+	fields, gaps := runtimesecurity.InspectJSON(data, "request")
+	for i := range fields {
+		fields[i].Name = "query." + fields[i].Name
+	}
+	o.queryFields = fields
+	o.warnings = append(o.warnings, gaps...)
+	o.queryInspected = !slices.ContainsFunc(gaps, func(gap string) bool { return gap != "json_dynamic_keys" })
+	tokens := runtimesecurity.CaptureValueFingerprints(data, "request", os.Getenv("SCARLET_VALUE_KEY_HEX"), os.Getenv("SCARLET_VALUE_KEY_ID"), os.Getenv("SCARLET_VALUE_SCOPE"))
+	for i := range tokens {
+		tokens[i].Locator = "query." + tokens[i].Locator
+	}
+	o.valueFingerprints = append(o.valueFingerprints, tokens...)
 }

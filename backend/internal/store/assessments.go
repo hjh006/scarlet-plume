@@ -220,6 +220,12 @@ func evaluateAssessment(d AssessmentDetail) ([]AssessmentGap, []AssessmentGap, s
 	return gaps, risks, applicable
 }
 func (s *Store) ListAssessments(ctx context.Context, workspaceID, actorID int64, kind, status string) ([]Assessment, error) {
+	return s.ListScopedAssessments(ctx, workspaceID, actorID, kind, status, 0, 0)
+}
+func (s *Store) ListScopedAssessments(ctx context.Context, workspaceID, actorID int64, kind, status string, assetID, activityID int64) ([]Assessment, error) {
+	if assetID < 0 || activityID < 0 {
+		return nil, ErrInvalid
+	}
 	if kind != "" && !validAssessmentKind(kind) {
 		return nil, ErrInvalid
 	}
@@ -231,7 +237,18 @@ func (s *Store) ListAssessments(ctx context.Context, workspaceID, actorID int64,
 		if _, err := checkRole(ctx, tx, workspaceID, actorID, false); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, assessmentSelect+` WHERE a.workspace_id=$1 AND ($2='' OR a.kind=$2) AND ($3='' OR a.status=$3) ORDER BY a.id DESC LIMIT 100`, workspaceID, kind, status)
+		var assetExists bool
+		var activityAssetID int64
+		if err := tx.QueryRow(ctx, `SELECT ($2=0::bigint OR EXISTS(SELECT 1 FROM plume.assets WHERE workspace_id=$1 AND id=$2)), COALESCE((SELECT asset_id FROM plume.activities WHERE workspace_id=$1 AND id=$3),0)`, workspaceID, assetID, activityID).Scan(&assetExists, &activityAssetID); err != nil {
+			return err
+		}
+		if !assetExists || activityID > 0 && activityAssetID == 0 {
+			return ErrNotFound
+		}
+		if assetID > 0 && activityID > 0 && activityAssetID != assetID {
+			return ErrInvalid
+		}
+		rows, err := tx.Query(ctx, assessmentSelect+` WHERE a.workspace_id=$1 AND ($2='' OR a.kind=$2) AND ($3='' OR a.status=$3) AND ($4=0::bigint OR a.activity_id=$4) AND ($5=0::bigint OR EXISTS(SELECT 1 FROM plume.activities p WHERE p.workspace_id=a.workspace_id AND p.id=a.activity_id AND p.asset_id=$5)) ORDER BY a.id DESC LIMIT 100`, workspaceID, kind, status, activityID, assetID)
 		if err != nil {
 			return err
 		}

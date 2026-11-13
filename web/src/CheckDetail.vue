@@ -30,6 +30,10 @@ const reviewNote = ref('')
 const detailTab = ref<'evidence' | 'basis' | 'history'>('evidence')
 const evidenceCount = (kind: string) => record.value?.evidence.filter(entry => entry.kind === kind).length ?? 0
 const active = new AbortController()
+const runtimeRetestLabels = {
+  awaiting_remediation: '等待整改记录', awaiting_observations: '等待来源自动复测',
+  passed: '自动复测通过 · 待独立复核', invalidated: '复测依据已失效', verified: '已完成独立复核',
+}
 
 const changes = computed(() => record.value?.status === 'needs_work'
   ? record.value.events.find(event => event.action === 'changes') : undefined)
@@ -237,6 +241,12 @@ onBeforeUnmount(() => active.abort())
               最近自动复测 <time :datetime="record.runtimeFinding.retestAt">{{ formatDate(record.runtimeFinding.retestAt) }}</time>
             </p>
             <RuntimeDetectionFacts v-if="record.runtimeFinding.detection" :detection="record.runtimeFinding.detection" />
+            <section v-if="record.runtimeRetest" class="evidence-guidance" aria-label="自动复测状态">
+              <strong>{{ runtimeRetestLabels[record.runtimeRetest.state] }}</strong>
+              <p>{{ record.runtimeRetest.reason }}</p>
+              <p v-if="record.runtimeRetest.nextEligibleAt && !['passed', 'verified'].includes(record.runtimeRetest.state)" class="field-hint">完整复测窗口最早可用时间：{{ formatDate(record.runtimeRetest.nextEligibleAt) }}。仍需同范围的完整新观察，等待本身不会产生通过记录。</p>
+              <p class="field-hint">整改记录或受控执行成功回执启动自动复测。通过后系统提交独立复核；新风险、策略变化或来源失效会使原复测依据失效。</p>
+            </section>
             <p class="field-hint">证据用于核对实际响应、发布范围和访问策略。复测须来自正信号绑定的同一来源，新规则还须符合当前已启用策略及明确可观察范围。</p>
           </div>
           <div v-if="record.postgresJobId || record.availablePostgresJobId" class="postgres-binding">
@@ -267,7 +277,7 @@ onBeforeUnmount(() => active.abort())
               </li>
               <li v-else-if="record.runtimeFinding.rule === 'deprecated_success'">在最新契约中保留该接口的弃用标记或移除该接口。通过原观测来源复测，同一批次需观测到该接口的 HTTP 410，且无 HTTP 2xx。</li>
               <li v-else>通过最近正信号的同一来源取得整改后的新鲜观测。敏感响应需明确完成响应检查；认证、请求模式需有明确结果；频次、错误和时段规则需经过完整窗口且有足够请求。缺失或未知数据不能替代复测，修改策略后需按新版本重新采证。</li>
-              <li>刷新证据，核对系统登记的复测后提交独立复核。</li>
+              <li>{{ record.runtimeRetest ? '系统在取得有效的完整新窗口后自动复测，通过后进入独立复核；刷新证据核对具体依据。' : '刷新证据，核对系统登记的复测后提交独立复核。' }}</li>
             </ol>
             <ol v-else-if="record.feishuTargetDigest" class="remediation-steps">
               <li>在飞书移除指定协作者的直接授权。</li>
@@ -429,5 +439,5 @@ onBeforeUnmount(() => active.abort())
 .check-classification-snapshot { margin-block: .65rem; }
 .check-classification-snapshot > summary { min-height: 2.5rem; padding-block: .5rem; cursor: pointer; }
 
-.check-workflow{list-style:none;margin:28px 0 24px;padding:0 20px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.check-workflow li{position:relative;display:grid;justify-items:center;gap:6px;font-size:12px;text-align:center}.check-workflow li::before{content:"";position:absolute;top:14px;height:1px;background:var(--line);left:-50%;right:50%}.check-workflow li:first-child::before{display:none}.check-workflow li>span{z-index:1;display:grid;place-items:center;width:29px;height:29px;border:1px solid #bfcfe2;border-radius:50%;background:white;color:#738aa8}.check-workflow .is-recorded>span{background:var(--teal);border-color:var(--teal);color:white}.check-workflow .is-current>span{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 4px #e4f0fa}.check-workflow small{color:var(--secondary);font-size:11px;max-width:230px}.check-detail-tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}.check-detail-tabs button{border:0;border-bottom:2px solid transparent;background:none;padding:12px 17px;color:var(--secondary);font-size:12px}.check-detail-tabs button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}.check-record .check-evidence-workbench{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}.check-review-rail{display:grid;gap:16px;min-width:0;position:sticky;top:16px}.check-review-rail .review-panel{margin:0}.review-scope-list{list-style:none;padding:18px;margin:0;display:grid;gap:17px;font-size:12px}.review-scope-list li::before{content:"";display:inline-block;width:10px;height:10px;border:1px solid #99abc2;margin-right:10px;vertical-align:middle}.review-callout{font-size:11px;background:#f0f7fc;margin:0 18px 18px;padding:12px;color:#456079;border-radius:6px}.review-readonly{padding:18px;display:grid;gap:12px;font-size:12px}.check-record .evidence{margin:16px;padding:17px;border:1px solid var(--line);border-radius:8px;background:white}.evidence-kind-label{display:inline-block;color:var(--secondary);font-size:11px;margin-right:10px}.evidence-heading h3{font-size:13px}.check-audit-trail{margin-top:16px}.check-audit-trail .timeline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;padding:20px;max-height:400px;overflow:auto}.check-audit-trail .timeline li{margin:0;padding-bottom:0}.check-review-rail .evidence-form{padding:18px}@media(max-width:1320px){.check-record .check-evidence-workbench{grid-template-columns:minmax(0,1fr) 300px}}
+.check-workflow{list-style:none;margin:28px 0 24px;padding:0 20px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.check-workflow li{position:relative;display:grid;justify-items:center;gap:6px;font-size:12px;text-align:center}.check-workflow li::before{content:"";position:absolute;top:14px;height:1px;background:var(--line);left:-50%;right:50%}.check-workflow li:first-child::before{display:none}.check-workflow li>span{z-index:1;display:grid;place-items:center;width:29px;height:29px;border:1px solid var(--input-line);border-radius:50%;background:white;color:var(--secondary)}.check-workflow .is-recorded>span{background:var(--teal);border-color:var(--teal);color:white}.check-workflow .is-current>span{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}.check-workflow small{color:var(--secondary);font-size:12px;max-width:230px}.check-detail-tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}.check-detail-tabs button{min-height:44px;cursor:pointer;border:0;border-bottom:2px solid transparent;background:none;padding:12px 17px;color:var(--secondary);font-size:12px}.check-detail-tabs button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}.check-record .check-evidence-workbench{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}.check-review-rail{display:grid;gap:16px;min-width:0;position:sticky;top:16px}.check-review-rail .review-panel{margin:0}.review-scope-list{list-style:none;padding:18px;margin:0;display:grid;gap:17px;font-size:12px}.review-scope-list li::before{content:"";display:inline-block;width:10px;height:10px;border:1px solid var(--input-line);margin-right:10px;vertical-align:middle}.review-callout{font-size:12px;background:var(--surface-subtle);margin:0 18px 18px;padding:12px;color:var(--secondary);border-radius:6px}.review-readonly{padding:18px;display:grid;gap:12px;font-size:12px}.check-record .evidence{margin:16px;padding:17px;border:1px solid var(--line);border-radius:8px;background:white}.evidence-kind-label{display:inline-block;color:var(--secondary);font-size:12px;margin-right:10px}.evidence-heading h3{font-size:13px}.check-audit-trail{margin-top:16px}.check-audit-trail .timeline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;padding:20px;max-height:400px;overflow:auto}.check-audit-trail .timeline li{margin:0;padding-bottom:0}.check-review-rail .evidence-form{padding:18px}@media(max-width:1320px){.check-record .check-evidence-workbench{grid-template-columns:minmax(0,1fr) 300px}}
 </style>

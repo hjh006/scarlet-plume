@@ -64,6 +64,34 @@ go run ./cmd/runtime-agent \
 - `-upstream` 使用 HTTPS 时校验上游证书和主机名。私有 CA 用 `-upstream-ca` 指定，公开可信证书使用系统信任库。平台上报默认要求 HTTPS。受限本地样例通过 `-local` 允许向回环地址或 Docker 服务 `app` 使用 HTTP。
 - TLS 透传时 HTTP 方法、路由和状态保持加密，应在获授权的终止端或应用侧获取观测。字段级密文的语义取证需要合法的业务解密点。独立 Agent 的上报范围始终是路由级元数据。 [TLS 1.3 规范](https://www.rfc-editor.org/info/rfc9846)
 
+### 显式启用受控AI出口
+
+需要在已授权的AI调用路径实际阻止请求时，可同时配置`-ai-egress`和`-data-policy`。此模式只接受已配置路由的POST、无查询参数、未压缩的UTF-8 `application/json`，固定上游必须是具有有效证书的HTTPS域名；私有CA仍使用`-upstream-ca`。未启用时原网关行为保持不变。
+
+本地策略示例（由服务所有方配置并保存为受限本地文件）：
+
+```json
+{"version":"ai-egress-v1","protectedCategories":["email","phone","national_id","financial_account"],"allowedChannels":[],"approvedAiDomains":["ai.internal.example"],"blockUnapprovedAi":true}
+```
+
+```sh
+go run ./cmd/runtime-agent \
+  -listen 127.0.0.1:8080 \
+  -upstream https://ai.internal.example \
+  -url https://scarlet.example.com \
+  -route '/v1/chat/completions' \
+  -ai-egress \
+  -data-policy /run/scarlet-policy/ai-egress.json
+```
+
+部署端除原有`SCARLET_RUNTIME_GATEWAY_TOKEN`，还须注入一个安全事件来源令牌`SCARLET_OPERATIONS_TOKEN`。检查最多读取1MiB，严格解码JSON转义及有界标量（深度最多16，token/词预算16384，结构标量最多64KiB）；最多8个请求并发占用检查与转发槽位。完整检查后采用固定上游主机名作为实际目的地，与精确域名表和类别/通道策略比较。禁止的请求在转发前返回403；未知格式、压缩、截断、预算超限或未实现的保护类别返回422，不向上游发请求。支持的本地格式类别为上述四种，不检测编码附件、提示词语义、代码秘密或工具权限。
+
+每次范围内的决定同步投递`POST /api/v1/operations/security-events`，只发送类别、目的地域名、路由模板、策略摘要与决策，不发送提示词、正文、文件摘要、凭据或请求头。允许日志使用`outcome=activity`保存正常审计，不产生G03风险待办；阻断和未知仍使用`outcome=observed`进入风险取证链。允许请求必须先取得平台2xx接收；投递失败返回503且不转发。阻断或未知决定即使投递失败也不放行。允许后，原始请求体字节才交给现有反向代理，不重写JSON。`allowed`记录是源端策略允许声明，不证明上游已成功处理，更不代替独立复核。
+
+AI出口拒绝上游全部3xx响应并返回不含`Location`的502，防止调用客户端自动跟随307/308时把已许可正文重放到另一个目的地；不会跟随重定向或放松TLS。允许的非重定向响应保持流式转发。普通未启用AI出口的代理仍保留原重定向行为。
+
+此功能覆盖显式经过该出口的请求，不提供系统级AI客户端、USB、打印、邮件、剪贴板或IDE/MCP拦截，也不检查模型返回内容。策略文件在启动时加载，变更后需重启，事件保留其实际策略摘要。[真实本机HTTP/TLS测试](../backend/cmd/runtime-agent/ai_egress_test.go)验证阻断请求未到达上游、允许请求字节一致、审计失败关闭、跨域307/308不会重放正文、流式响应与正文不进入事件；合成上游不产生真实模型费用，也不证明生产识别精度。
+
 ## 接入已有网关或 OTLP
 
 已有网关日志在源侧转换为每行一个 JSON 对象，只保留下面字段。路由必须来自已匹配的配置模板。观测时间使用 RFC 3339，事件 ID 由每次事件生成的 32 个小写十六进制字符组成。

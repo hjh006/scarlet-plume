@@ -205,7 +205,17 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 		}
 		return detail
 	}
-	baseline := snapshot(target, true, time.Now())
+	// Evidence ordering is authoritative in PostgreSQL; a host clock can be
+	// slightly behind the persisted remediation timestamp under -race.
+	observedNow := func() time.Time {
+		t.Helper()
+		var at time.Time
+		if e := pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&at); e != nil {
+			t.Fatal(e)
+		}
+		return at.UTC()
+	}
+	baseline := snapshot(target, true, observedNow())
 	do("POST", path+"/feishu", snapshot(strings.Repeat("b", 64), true, time.Now()), cookie, 400)
 	do("POST", path+"/feishu", snapshot(target, true, time.Now().Add(time.Second)), cookie, 400)
 	do("POST", path+"/feishu", baseline, cookie, 204)
@@ -224,9 +234,9 @@ func TestPostgreSQLWorkflow(t *testing.T) {
 	do("POST", path+"/review", review(firstRevision, "changes"), reviewerCookie, 204)
 	do("POST", path+"/submit", "{}", cookie, 409)
 	remediation := fmt.Sprintf(`{"kind":"remediation","sourceSystem":"飞书测试夹具","sourceRecord":"remediation-test","summary":"模拟移除指定协作者的直接授权","observedAt":%q}`,
-		time.Now().UTC().Format(time.RFC3339Nano))
+		observedNow().Format(time.RFC3339Nano))
 	do("POST", path+"/evidence", remediation, cookie, 204)
-	do("POST", path+"/feishu", snapshot(target, false, time.Now()), cookie, 204)
+	do("POST", path+"/feishu", snapshot(target, false, observedNow()), cookie, 204)
 	do("POST", path+"/submit", "{}", cookie, 204)
 	detail = readDetail()
 	if !detail.CanReview || !detail.CanVerify || detail.ReviewRevision <= firstRevision {

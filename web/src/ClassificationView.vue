@@ -9,13 +9,12 @@ import { classificationOriginLabels, isReferencePublication, standardKindLabels,
 import { automationRunDetail, type AutomationJob } from './automation'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
 import Icon from './Icon.vue'
+import ClassificationWorkbench from './ClassificationWorkbench.vue'
+import { useScenarioContext } from './scenario-context'
+import { classificationCandidateMethodLabel, taxonomyPath, type ClassificationCandidate } from './classification-workbench'
 
-interface Candidate {
-  name: string; category: string; source: 'postgresql' | 'openapi'; location?: string
-  observedAt: string; runId?: string; scanId?: number
-}
 interface Classification extends ClassificationRecord {
-  candidates: Candidate[]; candidateCount: number
+  candidates: ClassificationCandidate[]; candidateCount: number
   suggestedCategory?: string; suggestedBusinessLevel?: string
   standard?: ClassificationStandardSnapshot
 }
@@ -25,20 +24,21 @@ interface History extends Values {
   previousCategory: string; previousBusinessLevel: string; previousStatutoryCategory: string; previousBasis: string
   standard?: ClassificationStandardSnapshot
   origin?: 'manual' | 'automatic'
+  taxonomy?: ClassificationRecord['taxonomy']
 }
 interface Detail extends Classification { history: History[]; historyTruncated?: boolean }
-interface Counts { total: number; pending: number; reviewed: number; automatic?: number; importantOrCore: number }
-interface Page { items: Classification[]; nextCursor?: number | null; counts: Counts }
 
 const props = defineProps<{ workspace: Workspace; assetId?: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
+const { context: scenarioContext, href: link } = useScenarioContext(props.workspace.slug)
+const connectedScenarios = [{ id: 'personal', label: '个人信息保护' }, { id: 'domestic', label: '国内合规与迎检' }, { id: 'crossborder', label: '数据跨境合规' }]
+
 const classificationPath = workspacePath(props.workspace.slug) + '/classification'
 const apiPath = classificationPath + '/assets'
 const detailPath = props.assetId ? apiPath + '/' + encodeURIComponent(props.assetId) : ''
 const canEdit = computed(() => props.workspace.role === 'owner' || props.workspace.role === 'operator')
 const active = new AbortController()
-const page = ref<Page | null>(null)
 const detail = ref<Detail | null>(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -56,21 +56,11 @@ const standardsError = ref('')
 const standardId = ref('')
 const levelCode = ref('')
 const ruleId = ref('')
-const selectedListId = ref<string>('')
-const selectedListItem = computed(() => page.value?.items.find(item => String(item.asset.id) === selectedListId.value) || page.value?.items[0])
-const status = ref('')
-const statutoryFilter = ref('')
-let appliedFilters = ''
 const draft = reactive<Values>({ category: 'unknown', businessLevel: 'unknown', statutoryCategory: 'unknown', basis: '' })
 const categories: Record<string, string> = { unknown: '待判定', ...assetCategoryLabels }
 const levels: Record<string, string> = { unknown: '待判定', ...assetBusinessLevelLabels }
 const statutory: Record<string, string> = { unknown: '待认定', general: '一般数据', important: '重要数据', core: '核心数据' }
 const locations: Record<string, string> = { parameter: '参数', request: '请求体', response: '响应体' }
-const metrics = [
-  { key: 'total', label: '资产总数' }, { key: 'pending', label: '待确认' },
-  { key: 'reviewed', label: '人工确认' }, { key: 'automatic', label: '自动识别' },
-  { key: 'importantOrCore', label: '重要或核心数据' },
-] as const
 const standardOptions = computed(() => standardCatalog.value?.items.filter(item => item.status === 'effective' || isReferencePublication(item)) ?? [])
 const standardOptionGroups = computed(() => standardsByIndustry(standardOptions.value))
 const selectedStandard = computed(() => standardOptions.value.find(item => item.id === standardId.value))
@@ -184,27 +174,14 @@ async function collect() {
   }
 }
 
-async function load(append = false) {
-  if (loading.value || saving.value) return
+async function load() {
+  if (!detailPath || loading.value || saving.value) return
   loading.value = true
   loadError.value = ''
   try {
-    if (detailPath) {
-      setDetail(await request<Detail>(detailPath, { signal: active.signal }))
-      saveError.value = ''
-      conflict.value = false
-    } else {
-      const query = new URLSearchParams(append ? appliedFilters : '')
-      if (!append) {
-        if (status.value) query.set('status', status.value)
-        if (statutoryFilter.value) query.set('statutoryCategory', statutoryFilter.value)
-      }
-      const cursor = page.value?.nextCursor
-      if (append && cursor) query.set('after', String(cursor))
-      const result = await request<Page>(apiPath + '?' + query, { signal: active.signal })
-      page.value = append && page.value ? { ...result, items: [...page.value.items, ...result.items] } : result
-      if (!append) appliedFilters = query.toString()
-    }
+    setDetail(await request<Detail>(detailPath, { signal: active.signal }))
+    saveError.value = ''
+    conflict.value = false
   } catch (error) {
     loadError.value = errorText(error)
   } finally {
@@ -257,7 +234,7 @@ async function save() {
 }
 
 onMounted(() => {
-  void load()
+  if (detailPath) void load()
   if (detailPath && canEdit.value) void loadStandards()
 })
 onBeforeUnmount(() => {
@@ -268,7 +245,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="classification-view">
-    <a v-if="assetId" class="back-link" :href="home + '/classification'"><Icon name="back" />返回分类台账</a>
+    <a v-if="assetId" class="back-link" :href="link('classification')"><Icon name="back" />返回分类台账</a>
     <header class="page-header">
       <div>
         <p class="eyebrow">数据分类分级</p>
@@ -277,57 +254,19 @@ onBeforeUnmount(() => {
       </div>
       <div class="page-actions">
         <button v-if="assetId && detail" type="button" class="button button-secondary" :disabled="loading || saving || collecting" @click="load()">刷新结果</button>
-        <a class="button button-secondary" :href="home + '/classification/standards'">标准库</a>
-        <a v-if="assetId && detail?.asset.sourceProvider === 'postgresql'" class="button button-secondary" :href="home + '/assets/' + assetId">查看字段与权限</a>
-        <a v-if="!assetId" class="button button-secondary" :href="home + '/assets'">查看数据资产</a>
+        <a class="button button-secondary" :href="link('classification/standards')">标准库</a>
+        <a v-if="assetId && detail?.asset.sourceProvider === 'postgresql'" class="button button-secondary" :href="link('assets/' + assetId)">查看字段与权限</a>
+        <a v-if="!assetId" class="button button-secondary" :href="link('assets')">查看数据资产</a>
       </div>
     </header>
+    <div v-if="assetId && detail" class="classification-scene-actions"><span>按本资产进入场景检查</span><a v-for="scene in connectedScenarios" :key="scene.id" class="table-link" :href="link('scenarios/' + scene.id, { assetId: String(detail.asset.id), activityId: scenarioContext.assetId === String(detail.asset.id) ? scenarioContext.activityId : '' })">{{ scene.label }}<Icon name="chevron"/></a></div>
     <p v-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }}</p>
     <p v-if="assetId && loading && !detail" class="empty-state" role="status">正在读取资产分类…</p>
     <button v-if="assetId && loadError" type="button" class="button button-secondary" :disabled="loading" @click="load()">重新读取</button>
     <p v-if="collectionError" class="message message-error page-feedback" role="alert">{{ collectionError }}</p>
     <p v-if="collectionNotice" class="message message-success page-feedback" role="status">{{ collectionNotice }}</p>
 
-    <template v-if="!assetId">
-      <dl v-if="page" class="panel report-counts classification-counts" aria-label="工作区分类总览">
-        <div v-for="metric in metrics" :key="metric.key"><dt>{{ metric.label }}</dt><dd>{{ page.counts[metric.key] ?? '—' }}</dd></div>
-      </dl>
-      <div class="classification-list-workbench"><section class="panel" aria-labelledby="classification-list-title" :aria-busy="loading">
-        <div class="panel-heading">
-          <div><h2 id="classification-list-title">资产分类</h2><p>识别建议供经办人核对，法定类别由经办人填写依据并确认。</p></div>
-        </div>
-        <form class="filter-bar classification-filter" @submit.prevent="load()">
-          <label for="classification-filter-status">确认状态</label>
-          <select id="classification-filter-status" v-model="status" :disabled="loading">
-            <option value="">全部</option><option value="pending">待确认</option><option value="reviewed">人工确认</option><option value="automatic">自动识别</option>
-          </select>
-          <label for="classification-filter-statutory">法定类别</label>
-          <select id="classification-filter-statutory" v-model="statutoryFilter" :disabled="loading">
-            <option value="">全部</option><option v-for="(label, value) in statutory" :key="value" :value="value">{{ label }}</option>
-          </select>
-          <button type="submit" class="button button-secondary" :disabled="loading">{{ loading ? '正在查询…' : '查询' }}</button>
-        </form>
-        <p v-if="loading && !page" class="empty-state" role="status">正在读取分类台账…</p>
-        <div v-else-if="page?.items.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="classification-list-title">
-          <table class="data-table classification-table">
-            <thead><tr><th scope="col">资产</th><th scope="col">数据属性</th><th scope="col">业务级别</th><th scope="col">法定类别</th><th scope="col">采用标准</th><th scope="col">判定来源</th><th scope="col">操作</th></tr></thead>
-            <tbody><tr v-for="item in page.items" :key="item.asset.id" :class="{ 'classification-row-selected': selectedListItem?.asset.id === item.asset.id }">
-              <th scope="row"><button class="classification-asset-name" type="button" @click="selectedListId = String(item.asset.id)">{{ item.asset.name }}</button><span class="table-secondary">{{ item.asset.system }}</span></th>
-              <td>{{ categories[item.asset.category || 'unknown'] }}<span class="table-secondary">{{ item.candidateCount ? item.candidateCount + ' 项识别线索' : '暂无线索' }}</span><span v-if="item.suggestedCategory" class="table-secondary">建议 {{ categories[item.suggestedCategory] }}</span></td>
-              <td>{{ levels[item.asset.businessLevel || 'unknown'] }}</td><td>{{ statutory[item.asset.statutoryCategory || 'unknown'] }}</td>
-              <td><template v-if="item.standard">{{ item.standard.code }}<span v-if="item.standard.levelLabel" class="table-secondary">{{ item.standard.levelLabel }}</span></template><span v-else>未记录</span></td>
-              <td><span class="badge" :class="item.revision ? item.origin === 'automatic' ? 'status-in_review' : 'status-verified' : 'status-draft'">{{ item.revision ? classificationOriginLabels[item.origin || 'manual'] : '待确认' }}</span><span v-if="item.revision" class="table-secondary">版本 {{ item.revision }}</span></td>
-              <td><a class="table-link" :href="home + '/classification/' + item.asset.id">{{ canEdit ? '确认分类' : '查看依据' }}</a></td>
-            </tr></tbody>
-          </table>
-        </div>
-        <p v-else-if="page && !loading" class="empty-state">暂无符合条件的资产。</p>
-        <div v-if="page?.nextCursor != null" class="panel-footer">
-          <button type="button" class="button button-secondary" :disabled="loading" @click="load(true)">加载更多资产</button>
-        </div>
-      </section>
-    <aside class="context-rail classification-list-context"><section class="panel"><div class="panel-heading"><div><p class="eyebrow">采用版本与条件</p><h2>{{ selectedListItem?.asset.name || '判定依据' }}</h2></div></div><template v-if="selectedListItem"><dl class="detail-list"><div><dt>当前判定</dt><dd>{{ selectedListItem.revision ? classificationOriginLabels[selectedListItem.origin || 'manual'] + ' · v' + selectedListItem.revision : '尚未确认' }}</dd></div><div><dt>采用标准</dt><dd>{{ selectedListItem.standard?.code || '未记录' }}<span v-if="selectedListItem.standard" class="table-secondary">{{ selectedListItem.standard.title }}</span></dd></div><div v-if="selectedListItem.standard?.ruleTitle"><dt>采用规则</dt><dd>{{ selectedListItem.standard.ruleClause }} · {{ selectedListItem.standard.ruleTitle }}</dd></div><div><dt>识别线索</dt><dd>{{ selectedListItem.candidateCount }} 项<span v-if="selectedListItem.automatic" class="table-secondary">规则快照 {{ selectedListItem.automatic.evaluation.version }}</span></dd></div><div><dt>法定类别</dt><dd>{{ statutory[selectedListItem.asset.statutoryCategory || 'unknown'] }}</dd></div></dl><div v-if="selectedListItem.automatic?.evaluation.missingConditions?.length" class="classification-missing-summary"><h3>仍需补充的条件</h3><ul><li v-for="condition in selectedListItem.automatic.evaluation.missingConditions" :key="condition">{{ condition }}</li></ul></div><div class="classification-rail-actions"><a class="button button-primary" :href="home + '/classification/' + selectedListItem.asset.id">查看判定依据</a></div></template><p v-else class="empty-state">选择一项资产查看标准、版本和条件。</p></section><section class="panel classification-explainer"><h3>三个独立维度</h3><p>数据属性、企业内部敏感级别与法定类别分别记录。识别线索用于辅助判断，重要与核心数据需要适用条款和业务事实支持。</p><a class="table-link" :href="home + '/classification/standards'">选择参照标准 <Icon name="chevron" /></a></section></aside></div>
-    </template>
+    <ClassificationWorkbench v-if="!assetId" :workspace="workspace" @session-expired="emit('sessionExpired')" />
 
     <div v-else-if="detail" class="classification-detail">
       <div class="classification-detail-main section-stack"><div class="scope-strip classification-asset-scope"><div><span class="eyebrow">当前资产</span><strong>{{ detail.asset.name }}</strong><span>{{ detail.asset.system }} · 分类修订 v{{ detail.revision }}</span></div><span class="badge status-draft">{{ detail.automatic ? '有自动判定快照' : '暂无自动判定快照' }}</span></div>
@@ -350,6 +289,7 @@ onBeforeUnmount(() => {
           </dd></div>
           <div v-if="detail.standard?.levelLabel"><dt>标准等级</dt><dd>{{ detail.standard.levelLabel }}</dd></div>
           <div v-if="detail.standard?.ruleTitle"><dt>采用规则</dt><dd>{{ detail.standard.ruleClause }} · {{ detail.standard.ruleTitle }}</dd></div>
+          <div v-if="detail.taxonomy" class="detail-wide"><dt>采用业务分类</dt><dd>{{ taxonomyPath(detail.taxonomy) }} · 目录 v{{ detail.taxonomy.revision }}<span v-if="detail.taxonomyStale" class="table-secondary">目录已变更，需核对采用版本。</span></dd></div>
           <div class="detail-wide"><dt>判定依据</dt><dd class="text-block">{{ detail.asset.classificationBasis || '—' }}</dd></div>
         </dl>
         <details v-if="detail.standard?.ruleCriterion || detail.standard?.ruleEvidence" class="classification-current-rule"><summary>查看采用规则的判定条件与取证要求</summary><dl class="detail-list">          <div v-if="detail.standard?.ruleCriterion" class="detail-wide"><dt>规则判定条件</dt><dd class="text-block">{{ detail.standard.ruleCriterion }}</dd></div>
@@ -373,7 +313,7 @@ onBeforeUnmount(() => {
         <div class="panel-heading">
           <div>
             <h2 id="classification-candidates-title">自动识别线索</h2>
-            <p>基于 PostgreSQL 字段元数据和 OpenAPI 契约识别。当前共有 {{ detail.candidateCount }} 项线索。</p>
+            <p>展示已采集数据库、目录及 OpenAPI 的识别线索，按实际来源保留规则、范围和批次。当前共有 {{ detail.candidateCount }} 项线索。</p>
           </div>
         </div>
         <dl v-if="detail.suggestedCategory || detail.suggestedBusinessLevel" class="detail-list">
@@ -387,10 +327,16 @@ onBeforeUnmount(() => {
             <tbody>
               <tr v-for="(candidate, index) in detail.candidates" :key="index">
                 <th scope="row" class="mono">{{ candidate.name }}</th>
-                <td>{{ postgresSensitivityLabel(candidate.category) }}</td>
+                <td>{{ postgresSensitivityLabel(candidate.category) }}
+                  <span v-if="candidate.ruleKey" class="table-secondary">{{ candidate.ruleKey }}<template v-if="candidate.ruleVersion != null"> · v{{ candidate.ruleVersion }}</template></span>
+                  <span v-if="candidate.method" class="table-secondary">{{ classificationCandidateMethodLabel(candidate.method) }}</span>
+                  <span v-if="candidate.matchCount != null || candidate.scannedCount != null" class="table-secondary">命中 {{ candidate.matchCount ?? '—' }} / 已观察 {{ candidate.scannedCount ?? '—' }}</span>
+                  <span v-if="candidate.current === false" class="table-secondary">历史线索，需重新采集</span>
+                </td>
                 <td>
-                  <a v-if="candidate.scanId" class="table-link" :href="home + '/api-security/' + candidate.scanId">OpenAPI 扫描 #{{ candidate.scanId }}</a>
+                  <a v-if="candidate.scanId" class="table-link" :href="link('api-security/' + candidate.scanId)">OpenAPI 扫描 #{{ candidate.scanId }}</a>
                   <span v-else>{{ providerLabel(candidate.source) }}</span>
+                  <span v-if="candidate.sourceId != null" class="table-secondary">来源 #{{ candidate.sourceId }}</span>
                   <span v-if="candidate.location" class="table-secondary">{{ locations[candidate.location] || candidate.location }}</span>
                   <span v-if="candidate.runId" class="table-secondary mono">{{ candidate.runId }}</span>
                 </td>
@@ -424,6 +370,7 @@ onBeforeUnmount(() => {
                 <div v-if="entry.standard.ruleEvidence"><dt>取证要求</dt><dd class="text-block">{{ entry.standard.ruleEvidence }}</dd></div>
               </dl>
             </details>
+            <p v-if="entry.taxonomy" class="classification-history-standard">采用业务分类：{{ taxonomyPath(entry.taxonomy) }} · 目录 v{{ entry.taxonomy.revision }}</p>
             <p class="text-block">{{ entry.basis }}</p>
             <details v-if="entry.previousCategory || entry.previousBusinessLevel || entry.previousStatutoryCategory || entry.previousBasis">
               <summary class="table-link">查看变更前记录</summary>
@@ -515,7 +462,7 @@ onBeforeUnmount(() => {
             <button v-if="conflict" type="button" class="button button-secondary" :disabled="loading" @click="load()">读取最新版本</button>
           </div>
         </form>
-      </section><section v-if="!canEdit" class="panel classification-explainer"><h2>分类确认</h2><p>当前角色可查看判定依据和变更历史。所有者或操作员可保存分类确认。</p></section><section class="panel classification-explainer"><h3>版本与取证</h3><p>每次确认保留采用标准、条款、依据及经办人。重新采集形成新的来源快照，历史确认内容保持可追溯。</p><a class="table-link" :href="home + '/classification/standards'">查看标准库 <Icon name="chevron" /></a></section></aside>
+      </section><section v-if="!canEdit" class="panel classification-explainer"><h2>分类确认</h2><p>当前角色可查看判定依据和变更历史。所有者或操作员可保存分类确认。</p></section><section class="panel classification-explainer"><h3>版本与取证</h3><p>每次确认保留采用标准、条款、依据及经办人。重新采集形成新的来源快照，历史确认内容保持可追溯。</p><a class="table-link" :href="link('classification/standards')">查看标准库 <Icon name="chevron" /></a></section></aside>
     </div>
   </div>
 </template>
@@ -525,10 +472,10 @@ onBeforeUnmount(() => {
 .classification-counts div { border-bottom: 0; }
 .classification-filter select { min-width: 0; }
 .classification-detail { display:grid;grid-template-columns:minmax(0,1fr) 320px;align-items:start;gap:16px; }
-.classification-detail-main,.classification-confirm-rail{min-width:0}.classification-list-workbench{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:16px;align-items:start}.classification-list-workbench>*{min-width:0}.classification-list-context .detail-list{grid-template-columns:minmax(0,1fr)}.classification-asset-name{border:0;background:none;padding:0;text-align:left;color:var(--accent);font:inherit;font-weight:650;cursor:pointer;overflow-wrap:anywhere}.classification-row-selected{background:var(--surface-subtle)}.classification-list-context dd{overflow-wrap:anywhere}.classification-rail-actions{padding:0 20px 20px;display:flex;flex-direction:column}.classification-explainer{padding:20px}.classification-explainer h3,.classification-missing-summary h3{font-size:14px}.classification-explainer p{margin:10px 0;color:var(--secondary);font-size:12px;line-height:1.75}.classification-explainer .table-link{display:inline-flex;gap:8px;align-items:center}.classification-missing-summary{padding:0 20px 20px;color:var(--secondary);font-size:12px}.classification-missing-summary ul{padding-left:18px;margin-top:8px}.classification-asset-scope{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}.classification-asset-scope>div{display:grid;gap:4px;min-width:0}.classification-asset-scope>div>span:last-child{font-size:12px;color:var(--secondary)}.classification-asset-scope strong{overflow-wrap:anywhere}.classification-confirm-panel .panel-heading{align-items:flex-start;flex-direction:column}.classification-confirm-panel .classification-fields{grid-template-columns:minmax(0,1fr)}.classification-confirm-panel .classification-fields .field+.field{margin:0}.classification-confirm-panel .classification-fields{margin-bottom:14px}.classification-confirm-panel .form-actions{align-items:stretch;flex-direction:column}.classification-confirm-panel select{font-size:12px}.classification-confirm-panel textarea{min-height:120px}.classification-confirm-panel .panel-heading p{line-height:1.7}.classification-confirm-panel .classification-rule-preview{font-size:12px;line-height:1.7}.classification-confirm-rail{position:sticky;top:84px}.classification-detail .detail-list{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:1399px){.classification-detail{grid-template-columns:minmax(0,1fr) 300px}.classification-list-workbench{grid-template-columns:minmax(0,1fr) 270px}.classification-detail .detail-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.classification-detail-main,.classification-confirm-rail{min-width:0}.classification-list-workbench{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:16px;align-items:start}.classification-list-workbench>*{min-width:0}.classification-list-context .detail-list{grid-template-columns:minmax(0,1fr)}.classification-asset-name{border:0;background:none;padding:0;text-align:left;color:var(--accent);font:inherit;font-weight:650;cursor:pointer;overflow-wrap:anywhere}.classification-row-selected{background:var(--accent-soft)}.classification-row-selected>th{box-shadow:inset 1px 0 var(--accent)}.classification-list-context dd{overflow-wrap:anywhere}.classification-rail-actions{padding:0 20px 20px;display:flex;flex-direction:column}.classification-explainer{padding:20px}.classification-explainer h3,.classification-missing-summary h3{font-size:14px}.classification-explainer p{margin:10px 0;color:var(--secondary);font-size:12px;line-height:1.75}.classification-explainer .table-link{display:inline-flex;gap:8px;align-items:center}.classification-missing-summary{padding:0 20px 20px;color:var(--secondary);font-size:12px}.classification-missing-summary ul{padding-left:18px;margin-top:8px}.classification-asset-scope{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}.classification-asset-scope>div{display:grid;gap:4px;min-width:0}.classification-asset-scope>div>span:last-child{font-size:12px;color:var(--secondary)}.classification-asset-scope strong{overflow-wrap:anywhere}.classification-confirm-panel .panel-heading{align-items:flex-start;flex-direction:column}.classification-confirm-panel .classification-fields{grid-template-columns:minmax(0,1fr)}.classification-confirm-panel .classification-fields .field+.field{margin:0}.classification-confirm-panel .classification-fields{margin-bottom:14px}.classification-confirm-panel .form-actions{align-items:stretch;flex-direction:column}.classification-confirm-panel select{font-size:12px}.classification-confirm-panel textarea{min-height:120px}.classification-confirm-panel .panel-heading p{line-height:1.7}.classification-confirm-panel .classification-rule-preview{font-size:12px;line-height:1.7}.classification-confirm-rail{position:sticky;top:84px}.classification-detail .detail-list{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:1399px){.classification-detail{grid-template-columns:minmax(0,1fr) 300px}.classification-list-workbench{grid-template-columns:minmax(0,1fr) 270px}.classification-detail .detail-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .classification-automatic-body { padding: .85rem 1.1rem; }
 .classification-note { margin: .7rem 1.1rem; }
-.classification-table { min-width: 790px; }
+.classification-table { min-width: 850px; table-layout:fixed; }.classification-table th:first-child{width:26%}.classification-table th:nth-child(2){width:19%}.classification-table th:nth-child(3),.classification-table th:nth-child(4){width:12%}.classification-table th:nth-child(5){width:18%}.classification-table th:nth-child(6){width:13%}
 .classification-candidates { min-width: 33rem; }
 .classification-table :is(th, td), .classification-candidates :is(th, td), .classification-view .text-block { overflow-wrap: anywhere; }
 .classification-form { padding: .9rem 1.1rem 1.1rem; }
@@ -554,3 +501,5 @@ onBeforeUnmount(() => {
 .classification-list-context,.classification-confirm-rail{display:grid;gap:16px}.classification-list-workbench>section>.table-scroll{max-height:calc(100vh - 450px);min-height:300px;overflow:auto}.classification-list-workbench .data-table th:first-child{max-width:220px}.classification-list-workbench .classification-asset-name{max-width:220px}.classification-detail-main>.scope-strip{border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .classification-current-rule{margin:0 18px 18px}.classification-current-rule>summary{cursor:pointer;color:var(--accent);font-size:12px}.classification-current-rule .detail-list{padding:14px 0 0;border:0}
 </style>
+
+<style scoped>.classification-scene-actions{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:13px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12px;margin-bottom:16px}.classification-scene-actions>span{color:var(--secondary)}.classification-scene-actions a{display:inline-flex;align-items:center;gap:6px}.classification-scene-actions .icon{width:14px;height:14px}</style>

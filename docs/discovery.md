@@ -20,6 +20,7 @@
 | MySQL / MariaDB 原生 | 数据库、表、字段、类型、注释、可空性、约束 | 客户侧关键词/RE2/精确词典，样本不出客户环境 | 当前账号SHOW GRANTS；不等于全体主体有效权限。MariaDB认证条款从授权字符串移除 | 未采集，unknown | MySQL8.4与MariaDB11.8真实Docker验证；使用同一标准驱动与独立样本入口 |
 | MongoDB 原生 | 集合、JSON Schema validator声明字段及说明、受限文档字段路径、类型 | 客户侧受限文档，嵌套对象路径；数组元素不推断 | 未采集源ACL，unknown | 未采集，unknown | MongoDB8.0真实Docker通过；只读角色、嵌套对象和词典命中 |
 | OpenMetadata 深目录 | service/database/schema/table/column、嵌套字段、注释、标签、约束 | 不读取源数据值，标签与元数据规则仅为候选 | 源数据库ACL unknown；OpenMetadata owners不当作源ACL | `/v1/lineage/table/{id}` 一跳边，权限拒绝记unknown | 真实OpenMetadata2.0.7与官方PostgreSQL采集工作流已联调；新增源表/视图自动同步、真实401使旧批次失效、目录证据及报告通过；其他源系统仍须分别验收 |
+| 本地文件 `local_files` | 匿名文件资产、格式、大小、修改时间、来源专用HMAC摘要 | TXT/CSV/JSON/JSONL、DOCX主文档与PPTX文字；显式本地Poppler PDF文本层、Tesseract图片OCR | 不推定文件有效ACL，unknown | 不推定业务血缘，unknown | 真实本地提取、隔离PostgreSQL资产/候选/指纹查询；原名、路径及正文不上送，格式和预算边界见[文件与指纹说明](file-content-and-value-evidence.md) |
 
 SQL Server、Oracle、DB2、Hive、ClickHouse、Snowflake、BigQuery、Redshift、Trino、Presto、Spark、Databricks 通过客户已有 OpenMetadata 连接器进入同一深元数据适配链路。平台任务须填写实际系统类型并严格绑定 service/database/schema；返回的serviceType必须与任务声明一致，缺失或矛盾时拒绝该批次。此链路不是这些数据库的原生连接驱动；能见字段取决于客户 OpenMetadata 版本、权限及其实际采集结果。不能从元数据服务所有者推断数据库授权，不能从同名字段推断精确访问关系。
 
@@ -29,7 +30,7 @@ SQL Server、Oracle、DB2、Hive、ClickHouse、Snowflake、BigQuery、Redshift�
 
 owner/operator 可管理关键词、RE2正则、精确词典规则，规则明确元数据或内容范围。草稿不会下发；发布替换同标识的上一发布版本，旧版本与规则命中证据保留。每项命中保存规则标识、版本、方法、匹配数、扫描数、库表字段范围、来源批次与覆盖，结果协议无原值字段。负向结果只表示本次样本未匹配。
 
-内置邮箱、手机号格式与个人信息字段名候选；PostgreSQL保留身份证校验位、银行卡Luhn的既有源内聚合。已验证的内置格式统计进入现有分类标准引擎，采用工作区默认或资产已选标准，保留缺失条件。自动判定只升级可确定的个人信息属性与业务等级；人工确认不被自动覆盖，负向采样不会降级，重要/核心等法定类别仍需独立取证。任意客户自定义类别首先作为候选证据，不借用未满足条件的法规条款作结论。
+内置邮箱、手机号、身份证校验位、银行卡Luhn格式，以及个人信息字段名候选；原生采集共享格式校验，PostgreSQL保留既有源内聚合。已验证的原生数据库内置格式统计进入现有分类标准引擎，采用工作区默认或资产已选标准，保留缺失条件。自动判定只升级可确定的个人信息属性与业务等级；人工确认不被自动覆盖，负向采样不会降级，重要/核心等法定类别仍需独立取证。任意客户自定义类别和文件命中首先作为候选证据，不借用未满足条件的法规条款作结论。
 
 ## 目录、修订与CMDB
 

@@ -108,7 +108,15 @@ func (s *server) disableAssessmentTemplate(w http.ResponseWriter, r *http.Reques
 	respond(w, http.StatusOK, map[string]string{"status": "disabled"})
 }
 func (s *server) listAssessments(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
-	items, err := s.store.ListAssessments(r.Context(), ws.ID, u.ID, r.URL.Query().Get("kind"), r.URL.Query().Get("status"))
+	assetID, ok := optionalQueryID(w, r, "assetId")
+	if !ok {
+		return
+	}
+	activityID, ok := optionalQueryID(w, r, "activityId")
+	if !ok {
+		return
+	}
+	items, err := s.store.ListScopedAssessments(r.Context(), ws.ID, u.ID, r.URL.Query().Get("kind"), r.URL.Query().Get("status"), assetID, activityID)
 	if err != nil {
 		assessmentFailure(w, err)
 		return

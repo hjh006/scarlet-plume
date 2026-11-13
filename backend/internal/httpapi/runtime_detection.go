@@ -28,7 +28,7 @@ func (s *server) runtimeDetectionPolicies(w http.ResponseWriter, r *http.Request
 		storeFailure(w, err)
 		return
 	}
-	respond(w, http.StatusOK, map[string]any{"items": items, "retentionHours": 24, "sampleLimitPerSource": 20000, "windowLimitMinutes": 60})
+	respond(w, http.StatusOK, map[string]any{"items": items, "retentionHours": 25, "sampleLimitPerSource": 20000, "windowLimitMinutes": 60, "ruleWindowLimitMinutes": map[string]int{"subject_repeated_access": 1440}})
 }
 
 func (s *server) saveRuntimeDetectionPolicy(w http.ResponseWriter, r *http.Request, user store.User, ws store.Workspace) {

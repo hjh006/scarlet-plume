@@ -19,6 +19,9 @@ var (
 )
 
 func normalizeCapture(o *Observation) error {
+	if err := normalizeRuntimeEvidence(o); err != nil {
+		return err
+	}
 	if o.TraceRef != "" && (!traceReference.MatchString(o.TraceRef) || o.TraceRef == strings.Repeat("0", 32)) ||
 		o.SpanRef != "" && (!spanReference.MatchString(o.SpanRef) || o.SpanRef == strings.Repeat("0", 16) || o.TraceRef == "") ||
 		o.ParentSpanRef != "" && (!spanReference.MatchString(o.ParentSpanRef) || o.ParentSpanRef == strings.Repeat("0", 16) || o.TraceRef == "" || o.SpanRef == "" || o.ParentSpanRef == o.SpanRef) ||
@@ -95,7 +98,7 @@ func normalizeCapture(o *Observation) error {
 	o.DatabaseTargets = slices.Compact(targets)
 	warnings := slices.Clone(o.CaptureWarnings)
 	for _, warning := range warnings {
-		if !slices.Contains([]string{"json_size_limit", "json_depth_limit", "json_field_limit", "json_dynamic_keys", "json_invalid", "json_read_error", "json_encoding_unsupported", "invalid_trace_context", "invalid_data_fields", "invalid_database_target", "invalid_security_context", "invalid_service_call", "capture_item_limit"}, warning) {
+		if !slices.Contains([]string{"json_size_limit", "json_depth_limit", "json_field_limit", "json_dynamic_keys", "json_invalid", "json_read_error", "json_encoding_unsupported", "invalid_trace_context", "invalid_data_fields", "invalid_database_target", "invalid_security_context", "invalid_runtime_context", "invalid_service_call", "capture_item_limit"}, warning) {
 			return ErrInvalidObservation
 		}
 	}

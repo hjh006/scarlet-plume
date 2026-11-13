@@ -54,7 +54,7 @@ func TestCatalogDiscoveryLifecycle(t *testing.T) {
 	must(repo.PublishDiscoveryRule(ctx, ws.ID, user.ID, rule.Key, 1))
 	claim, e := repo.ClaimDiscovery(ctx, token, "11111111111111111111111111111111")
 	must(e)
-	if claim == nil || len(claim.Config.Rules) != 4 {
+	if claim == nil || len(claim.Config.Rules) != len(collector.BuiltinDiscoveryRules())+1 {
 		t.Fatal("published rules not claimed")
 	}
 	second, e := repo.ClaimDiscovery(ctx, token, "22222222222222222222222222222222")

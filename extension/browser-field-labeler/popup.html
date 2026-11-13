@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>当前页字段标注</title><link rel="stylesheet" href="popup.css"></head><body>
+<header><small>赤翎 / 应用字段标注</small><h1>标注已授权当前页</h1><p>只读取当前可见的字段名称与标签，不读取输入值、密码或页面正文。请在业务页面打开所需弹窗后手动采集。</p></header>
+<label class="check"><input id="authorized" type="checkbox">我已获得当前业务页面的采集授权</label>
+<button id="collect" disabled>读取当前页字段</button><p id="status" role="status"></p>
+<section id="preview" hidden><p id="scope"></p><div id="fields"></div><label>平台工作区地址<input id="platform" type="url" placeholder="https://平台地址/#/工作区/overview"></label><p>标签将在平台再次预览，关联资产后才保存。传递在地址片段内完成，不携带平台令牌。</p><button id="send">前往平台预览</button></section>
+<script type="module" src="popup.js"></script></body></html>

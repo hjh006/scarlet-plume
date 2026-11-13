@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -241,17 +242,20 @@ func updateRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 	var status string
 	var lastPositive time.Time
 	var retestAt *time.Time
+	var firstSeen time.Time
+	var previousDetection *RuntimeDetection
 	err := tx.QueryRow(ctx, `
-		SELECT f.id, c.id, c.status, f.last_positive_at, f.retest_at
+		SELECT f.id, c.id, c.status, f.last_positive_at, f.retest_at,f.first_seen,NULLIF(f.detection,'{}'::jsonb)
 		FROM plume.runtime_findings f JOIN plume.checks c ON c.id = f.check_id AND c.workspace_id = f.workspace_id
-		WHERE f.workspace_id = $1 AND f.service = $2 AND f.method = $3 AND f.route_key = $4 AND f.rule = $5
+		WHERE f.workspace_id = $1 AND f.service = $2 AND f.method = $3 AND f.route_key = $4 AND f.rule = $5 AND f.scope_key=$6 AND COALESCE((f.detection->>'sourceId')::bigint,f.source_id)=$7
 		ORDER BY f.id DESC LIMIT 1 FOR NO KEY UPDATE OF c
-	`, batch.workspaceID, batch.service, candidate.key.method, candidate.key.route, candidate.rule).
-		Scan(&findingID, &checkID, &status, &lastPositive, &retestAt)
+	`, batch.workspaceID, batch.service, candidate.key.method, candidate.key.route, candidate.rule, runtimeFindingScopeKey(candidate), batch.sourceID).
+		Scan(&findingID, &checkID, &status, &lastPositive, &retestAt, &firstSeen, &previousDetection)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, nil, nil
 	}
-	if err != nil || !candidate.observedAt.After(lastPositive) {
+	extended := candidate.detection != nil && slices.Contains(extendedRuntimeRules, candidate.rule)
+	if err != nil || !extended && !candidate.observedAt.After(lastPositive) {
 		return false, nil, err
 	}
 	if status == "verified" {
@@ -261,7 +265,43 @@ func updateRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 		verified, err := latestCheckEvent(ctx, tx, checkID, "verified")
 		return err == nil && verified.ID > 0 && candidate.observedAt.After(verified.CreatedAt), &checkID, err
 	}
-	_, err = tx.Exec(ctx, "UPDATE plume.runtime_findings SET last_positive_at = $2, detection=COALESCE($3::jsonb,detection) WHERE id = $1",
+	if extended && previousDetection != nil {
+		oldScope := previousDetection.RetestScope
+		if oldScope == nil {
+			legacyEnd := candidate.observedAt
+			if lastPositive.After(legacyEnd) {
+				legacyEnd = lastPositive
+			}
+			samples, e := readRuntimeDetectionSamples(ctx, tx, batch, legacyEnd)
+			if e != nil {
+				return false, nil, e
+			}
+			oldScope = reconstructRuntimeRetestScope(previousDetection.Policy, samples, candidate.key, firstSeen, legacyEnd)
+		}
+		if oldScope == nil {
+			oldScope = &RuntimeRetestScope{Version: 1, Complete: false, PolicyID: previousDetection.Policy.ID, PolicyRevision: previousDetection.Policy.Revision}
+		}
+		candidate.detection.RetestScope = mergeRuntimeRetestScope(oldScope, candidate.detection.RetestScope)
+		scopeChanged := assessmentDigest(oldScope) != assessmentDigest(candidate.detection.RetestScope)
+		if !candidate.observedAt.After(lastPositive) && !scopeChanged {
+			return false, nil, nil
+		}
+		if candidate.observedAt.Before(lastPositive) {
+			latest := *previousDetection
+			latest.RetestScope = candidate.detection.RetestScope
+			latest.AutomaticRetest = nil
+			candidate.detection = &latest
+		}
+		if status == "in_review" && (candidate.observedAt.After(lastPositive) || scopeChanged) {
+			if _, e := tx.Exec(ctx, `UPDATE plume.checks SET status='needs_work',submitted_by=NULL,updated_at=clock_timestamp() WHERE id=$1`, checkID); e != nil {
+				return false, nil, e
+			}
+			if e := recordCheckEvent(ctx, tx, checkID, batch.actorID, "changes", "同范围出现新的阳性，自动复测失效，继续整改并等待完整新窗口。"); e != nil {
+				return false, nil, e
+			}
+		}
+	}
+	_, err = tx.Exec(ctx, "UPDATE plume.runtime_findings SET first_seen=LEAST(first_seen,$2),last_positive_at=GREATEST(last_positive_at,$2),detection=COALESCE($3::jsonb,detection) WHERE id=$1",
 		findingID, candidate.observedAt, candidate.detection)
 	return false, nil, err
 }
@@ -298,10 +338,10 @@ func createRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO plume.runtime_findings
-		    (workspace_id, check_id, previous_check_id, source_id, source, baseline_scan_id, service, method, route_key, route, rule, first_seen, last_positive_at,detection)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,COALESCE($14::jsonb,'{}'::jsonb))
+		    (workspace_id, check_id, previous_check_id, source_id, source, baseline_scan_id, service, method, route_key, route, rule, first_seen, last_positive_at,detection,scope_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,COALESCE($14::jsonb,'{}'::jsonb),$15)
 	`, batch.workspaceID, check.ID, previousCheckID, batch.sourceID, batch.sourceName, scanID, batch.service, candidate.key.method,
-		candidate.key.route, candidate.route, candidate.rule, candidate.firstSeen, candidate.observedAt, candidate.detection); err != nil {
+		candidate.key.route, candidate.route, candidate.rule, candidate.firstSeen, candidate.observedAt, candidate.detection, runtimeFindingScopeKey(candidate)); err != nil {
 		return err
 	}
 	summary := fmt.Sprintf("%s。%s 返回 HTTP %d，来源类型 %s。按当前契约范围核对访问策略。", title, assetName, candidate.status, batch.kind)
@@ -315,4 +355,11 @@ func createRuntimeFinding(ctx context.Context, tx pgx.Tx, batch runtimeFindingBa
 		ObservedAt:   candidate.observedAt,
 	}, true)
 	return err
+}
+
+func runtimeFindingScopeKey(candidate runtimeFindingCandidate) string {
+	if candidate.detection != nil {
+		return candidate.detection.Policy.ScopeKey
+	}
+	return ""
 }

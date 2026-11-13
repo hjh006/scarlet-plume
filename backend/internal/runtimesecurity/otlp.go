@@ -172,6 +172,9 @@ func ParseOTLP(payload []byte) ([]Observation, error) {
 		} else {
 			observation.CaptureWarnings = append(observation.CaptureWarnings, "invalid_security_context")
 		}
+		if !otlpRuntimeEvidence(attrs, &observation) {
+			observation.CaptureWarnings = append(observation.CaptureWarnings, "invalid_runtime_context")
+		}
 		servers[node.id] = len(observations)
 		observations = append(observations, observation)
 	}

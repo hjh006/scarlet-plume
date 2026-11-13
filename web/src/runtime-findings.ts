@@ -2,6 +2,7 @@ import type { Check } from './workflow'
 import type { RuntimeDetectionPolicy } from './runtime-policies'
 
 export const runtimeRuleLabels = {
+  over_collection:'超出允许数据类型',credential_cleartext_transport:'认证材料明文传输',subject_multi_ip:'同一账号多IP',subject_multi_region:'同一账号多来源地域',client_region_mismatch:'来源地域超出允许范围',recipient_scope:'共享接收方超范围',destination_scope:'目的地超范围',volume_limit:'传输量超阈值',subject_repeated_access:'主体反复访问',
   unregistered_success: '未登记接口成功响应',
   deprecated_success: '已弃用接口成功响应',
   sensitive_response: '敏感数据响应', credential_response: '疑似凭据响应', missing_auth: '需认证接口匿名成功',

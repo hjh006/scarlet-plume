@@ -1,8 +1,14 @@
 export const apiValidationRules = {
+  auth_required:'明确认证要求下的匿名访问对照',
+  sensitive_exposure:'指定敏感字段的匿名暴露对照',
+  response_headers:'已批准响应头基线检查',
   bola: '双测试账号对象级授权验证',
   weak_credential: '显式弱凭据验证',
 }
 export const apiValidationRuleDescriptions = {
+  auth_required:'先确认A自有对象，再匿名请求同一路径；同对象成功才为风险，明确401/403才为本用例未观测。',
+  sensitive_exposure:'先确认A对象存在指定格式，再对照匿名响应；完整检查已批准字段，不上传字段值。',
+  response_headers:'仅对已确认的A对象响应，核对独立批准的明确响应头和值；不是所有接口的通用法律基线。',
   bola: '由 Agent 在本地确认对象归属，并对照两个已授权测试账号是否获得同一测试对象。仅 HTTP 200 不构成越权证据。',
   weak_credential: '只使用清单中明确授权的测试凭据，核对是否被接受及是否命中所选弱规则。',
 }
@@ -11,7 +17,9 @@ export const apiValidationRunStates: Record<string, string> = { leased: '来源�
 export const apiValidationOutcomes: Record<string, string> = {
   vulnerable: '后台确认风险', not_observed: '本轮未观测到风险', inconclusive: '无法判定',
 }
+export interface APIValidationProbePolicy {authRequired?:boolean;sensitiveFields?:{path:string;category:string}[];responseHeaders?:{name:string;value:string}[]}
 export interface APIValidationPlanInput {
+  probePolicy?:APIValidationProbePolicy
   revision: number; sourceId: number; name: string; service: string; method: 'GET'; route: string
   targetOrigin: string; manifestRef: string; rules: (keyof typeof apiValidationRules)[]; intervalMinutes: number
 }
@@ -20,6 +28,7 @@ export interface APIValidationPlan extends APIValidationPlanInput {
   nextRunAt: string; leaseExpiresAt?: string; updatedAt: string; canApprove?: boolean
 }
 export interface APIValidationRuleResult {
+  anonymousStatus?:number;anonymousObjectConfirmed?:boolean;policyConfirmed?:boolean;policyDigest?:string;sensitiveChecked?:number;ownerSensitiveCount?:number;anonymousSensitiveCount?:number;headerChecked?:number;headerMismatches?:string[]
   rule: string; outcome: string; ownerStatus: number; otherStatus?: number; otherOwnedStatus?: number; otherAccountConfirmed: boolean
   ownerConfirmed: boolean; sameObject: boolean; credentialAccepted: boolean; weakRuleMatched: boolean
   comparisonComplete: boolean; requests: number; gaps: string[]
@@ -36,6 +45,7 @@ export interface APIValidationRun {
 export interface APIValidationSource { id: number; name: string; kind: string; ownerTeam: string; revokedAt?: string; lastSeen?: string }
 export function validationStatusCode(code?: number) { return code && code >= 100 && code <= 599 ? 'HTTP ' + code : '未取得响应状态' }
 const validationGapLabels: Record<string, string> = {
+  probe_policy_mismatch:'本地策略与已批准基线不一致',anonymous_response_unexpected:'匿名响应没有同一对象证明或明确拒绝',sensitive_control_missing:'A对象未提供所选敏感格式的正向对照',field_shape_unknown:'字段形态超出本次有界标量检查范围',
   plan_changed: '任务版本已变化，旧运行结果不能用于当前范围',
   lease_expired: '运行领取期限已过',
   lease_lost: '运行领取状态已失效',

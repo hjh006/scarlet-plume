@@ -16,6 +16,7 @@ const CatalogDiscoveryRunPath = "/api/v1/discovery-agent/runs"
 
 func (s *server) catalogDiscoveryRoutes(mux *http.ServeMux) {
 	const base = "/api/v1/workspaces/{slug}"
+	s.valueFingerprintRoutes(mux)
 	mux.HandleFunc("GET "+base+"/discovery/sources", s.workspace(false, s.listDiscoverySources))
 	mux.HandleFunc("POST "+base+"/discovery/sources", s.workspace(false, s.saveDiscoverySource))
 	mux.HandleFunc("PUT "+base+"/discovery/sources/{id}", s.workspace(false, s.saveDiscoverySource))

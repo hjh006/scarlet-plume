@@ -11,7 +11,7 @@ import './overview.css'
 const props = defineProps<{ home: string; overview: Overview | null; loading?: boolean }>()
 const emit = defineEmits<{ refresh: []; sessionExpired: [] }>()
 const metrics = computed(() => [
-  { label: '已配置来源', value: props.overview?.counts.activeSources, route: 'automation', icon: 'assets', tone: 'teal' },
+  { label: '已配置来源', value: props.overview?.counts.activeSources, route: 'tools', icon: 'assets', tone: 'teal' },
   { label: '数据资产', value: props.overview?.counts.assets, route: 'assets', icon: 'classification', tone: 'violet' },
   { label: '待处置发现', value: props.overview?.counts.openRuntimeFindings, route: 'api-security/runtime', icon: 'warning', tone: 'coral' },
   { label: '待复核检查', value: props.overview?.counts.inReview, route: 'checks', icon: 'checks', tone: 'blue' },
@@ -19,11 +19,11 @@ const metrics = computed(() => [
 const sources = computed(() => props.overview?.collectionSources ?? [])
 const findings = computed(() => props.overview?.recentFindings ?? [])
 const sourceStates: Record<string, string> = {
-  collecting: '采集中', queued: '已排队', paused: '已暂停', enabled: '已启用', failed: '采集失败', never_run: '待首次记录', observing: '已接入',
+  collecting: '采集中', queued: '已排队', paused: '已暂停', enabled: '已启用', failed: '采集失败', never_run: '待首次记录', observing: '已接入', current: '近期有记录', stale: '记录已过期', revoked: '权限已失效',
 }
-function sourceTarget(kind: string) { return props.home + (kind === 'runtime' ? '/api-security/runtime' : kind === 'discovery' ? '/discovery' : kind === 'operations' ? '/operations' : '/automation') }
+function sourceTarget(kind: string) { return props.home + (kind === 'application_api' ? '/scenarios/ai' : kind === 'runtime' ? '/api-security/runtime' : kind === 'discovery' ? '/discovery' : kind === 'operations' ? '/operations' : '/automation') }
 function sourceIcon(provider: string) { return ['otlp', 'gateway'].includes(provider) ? 'api-security' : ['postgresql','mysql','mariadb','mongodb'].includes(provider) ? 'assets' : 'integrations' }
-function sourceProvider(provider: string) { return provider === 'otlp' ? '应用探针 · OTLP' : provider === 'gateway' ? '独立 Agent / 网关' : provider === 'feishu' ? '飞书' : providerLabel(provider) }
+function sourceProvider(provider: string) { return provider === 'application_api' ? '应用 API 采集' : provider === 'otlp' ? '应用探针 · OTLP' : provider === 'gateway' ? '独立 Agent / 网关' : provider === 'feishu' ? '飞书' : providerLabel(provider) }
 const graph=ref<DataFlowGraph|null>(null), graphLoading=ref(false), graphError=ref(''), selectedId=ref('')
 let graphRequest:AbortController|undefined
 const selectedNode=computed(()=>graph.value?.nodes.find(node=>node.id===selectedId.value)??graph.value?.nodes[0]??null)
@@ -43,7 +43,7 @@ watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immedia
       </div>
       <div class="page-actions">
         <button type="button" class="button button-secondary" :disabled="loading" @click="emit('refresh')"><Icon name="automation" />{{ loading ? '刷新中…' : '刷新数据' }}</button>
-        <a class="button button-primary" :href="home + '/discovery'"><Icon name="plus" />接入数据源</a>
+        <a class="button button-primary" :href="home + '/scenarios'"><Icon name="checks" />按场景检查</a>
       </div>
     </header>
 
@@ -76,7 +76,7 @@ watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immedia
         <div v-else class="overview-empty"><Icon name="shield" /><strong>{{ overview ? '暂无运行时发现' : '正在读取运行时发现…' }}</strong><p>接入运行时来源并导入对应服务契约后，查看实际观测到的差异。</p><a :href="home + '/api-security/runtime'">进入运行时观测 <Icon name="chevron" /></a></div>
       </section>
       <section class="panel overview-collections" aria-labelledby="overview-collections-title">
-        <div class="overview-panel-heading"><h2 id="overview-collections-title">采集来源状态</h2><a class="quiet-link" :href="home + '/automation'">管理来源 <Icon name="chevron" /></a></div>
+        <div class="overview-panel-heading"><h2 id="overview-collections-title">采集来源状态</h2><a class="quiet-link" :href="home + '/tools'">管理来源 <Icon name="chevron" /></a></div>
         <ul v-if="sources.length" class="overview-source-list"><li v-for="source in sources" :key="source.kind + ':' + source.id"><Icon :name="sourceIcon(source.provider)" /><span class="overview-source-name"><a :href="sourceTarget(source.kind)">{{ source.name }}</a><small>{{ sourceProvider(source.provider) }}</small></span><span class="overview-source-status" :data-state="source.state">{{ sourceStates[source.state] || '状态待确认' }}</span><time v-if="source.lastObservedAt || source.lastRunAt" :datetime="source.lastObservedAt || source.lastRunAt">{{ formatDate(source.lastObservedAt || source.lastRunAt || '') }}</time><span v-else class="overview-source-time">尚无采集记录</span></li></ul>
         <div v-else class="overview-empty"><Icon name="automation" /><strong>尚无接入来源</strong><p>配置 PostgreSQL 自动采集，或接入独立 Agent 与应用探针。</p><a :href="home + '/automation'">添加采集来源 <Icon name="chevron" /></a></div>
         <p v-if="sources.length" class="overview-source-note">来源数按配置统计，包含暂停的发现任务及尚未撤销的集成；此处最多预览6项。状态来自最近记录，不代表实时连通性。</p>
@@ -87,3 +87,14 @@ watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immedia
     <details v-if="overview" class="panel overview-records"><summary><span>近期导入批次</span><span>{{ overview.recentImports.length }} 项记录 <Icon name="chevron" /></span></summary><div v-if="overview.recentImports.length" class="table-scroll" role="region" tabindex="0" aria-label="近期导入批次"><table class="data-table overview-import-table"><thead><tr><th scope="col">来源与批次</th><th scope="col">新增</th><th scope="col">已有</th><th scope="col">导入时间</th></tr></thead><tbody><tr v-for="run in overview.recentImports" :key="run.id"><th scope="row">{{ run.source }}<span class="table-secondary">{{ providerLabel(run.provider) }} · {{ run.batchId }}</span></th><td>{{ run.created }}</td><td>{{ run.existing }}</td><td class="date-text">{{ formatDate(run.createdAt) }}</td></tr></tbody></table></div><p v-else class="empty-state">完成首次采集后，这里会显示导入批次和写入数量。</p></details>
   </div>
 </template>
+
+<style scoped>
+.overview-heading>div:first-child{min-width:0}.overview-heading .page-actions{flex-shrink:0}
+.overview-metric-copy>small,.overview-panel-heading p,.overview-flow-legend,.overview-proof-spine li,.overview-proof-spine li time,.overview-source-name small,.overview-source-status,.overview-source-list time,.overview-source-time,.overview-source-note,.overview-records>summary>span:last-child{font-size:12px}
+.overview-primary-grid>*,.overview-secondary-grid>*{min-width:0}
+.overview-flow-legend{flex-wrap:wrap;color:var(--nav-text)}
+.overview-proof-spine{border-color:var(--line)}.overview-proof-spine li::before{background:var(--accent);box-shadow:0 0 0 1px var(--line)}
+.overview-source-list>li{align-items:start}.overview-source-name>a{line-height:1.6}.overview-source-status{padding-top:1px}
+.overview-findings-table{min-width:620px;table-layout:fixed}.overview-findings-table th:first-child{width:44%}.overview-findings-table th:nth-child(2){width:26%}.overview-findings-table th:nth-child(3){width:20%}.overview-findings-table th:last-child{width:10%}.overview-findings-table .table-secondary{font-size:12px;overflow-wrap:anywhere}
+.overview-records>summary{flex-wrap:wrap}.overview-records[open]>summary{border-bottom:1px solid var(--line)}
+</style>

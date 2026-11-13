@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/hjh006/scarlet-plume/backend/internal/dataformat"
 )
 
 // DiscoveryRule is evaluated in the customer collector. No sampled values leave it.
@@ -67,6 +69,7 @@ type DiscoveryCoverage struct {
 }
 type DiscoveryResult struct {
 	Tables   []DiscoveryTable  `json:"tables"`
+	Files    []FileEvidence    `json:"files,omitempty"`
 	Coverage DiscoveryCoverage `json:"coverage"`
 }
 type DiscoveryConfig struct {
@@ -82,6 +85,8 @@ func BuiltinDiscoveryRules() []DiscoveryRule {
 	return []DiscoveryRule{
 		{Key: "builtin.email", Version: 1, Name: "邮箱格式", Kind: "regexp", Target: "content", Category: "email", Expression: `^[A-Za-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,63}$`},
 		{Key: "builtin.phone", Version: 1, Name: "中国大陆手机号格式", Kind: "regexp", Target: "content", Category: "phone", Expression: `^(\+86[- ]?)?1[3-9][0-9]{9}$`},
+		{Key: "builtin.national_id", Version: 1, Name: "中国居民身份证格式与校验位", Kind: "regexp", Target: "content", Category: "national_id", Expression: `^[1-9][0-9]{5}(18|19|20)[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}[0-9Xx]$`},
+		{Key: "builtin.financial_account", Version: 1, Name: "银行卡格式与Luhn校验", Kind: "regexp", Target: "content", Category: "financial_account", Expression: `^[1-9][0-9]{15,18}$`},
 		{Key: "builtin.metadata.personal", Version: 1, Name: "个人信息字段名候选", Kind: "keyword", Target: "metadata", Category: "personal_information", Expression: "email,phone,mobile,身份证,手机号,邮箱,姓名"},
 	}
 }
@@ -116,6 +121,12 @@ func ValidateDiscoveryRule(rule DiscoveryRule) error {
 	return nil
 }
 func discoveryMatch(rule DiscoveryRule, value string) bool {
+	if rule.Target == "content" {
+		switch rule.Key {
+		case "builtin.email", "builtin.phone", "builtin.national_id", "builtin.financial_account":
+			return dataformat.Matches(strings.TrimPrefix(rule.Key, "builtin."), value)
+		}
+	}
 	switch rule.Kind {
 	case "regexp":
 		if rule.compiled != nil {
@@ -141,6 +152,19 @@ func discoveryMatch(rule DiscoveryRule, value string) bool {
 		}
 	}
 	return false
+}
+
+func prepareDiscoveryRule(rule DiscoveryRule) DiscoveryRule {
+	if rule.Kind == "regexp" {
+		rule.compiled, _ = regexp.Compile(rule.Expression)
+	}
+	if rule.Kind == "dictionary" {
+		rule.exact = make(map[string]struct{}, len(rule.Dictionary))
+		for _, value := range rule.Dictionary {
+			rule.exact[value] = struct{}{}
+		}
+	}
+	return rule
 }
 func discoveryFieldHits(f *DiscoveryField, rules []DiscoveryRule, values []string) {
 	if f.Hits == nil {
@@ -206,19 +230,13 @@ func DiscoverWithConnection(ctx context.Context, c DiscoveryConfig, connection D
 		c.Rules = BuiltinDiscoveryRules()
 	}
 	for i := range c.Rules {
-		if c.Rules[i].Kind == "regexp" {
-			c.Rules[i].compiled, _ = regexp.Compile(c.Rules[i].Expression)
-		}
-		if c.Rules[i].Kind == "dictionary" {
-			c.Rules[i].exact = map[string]struct{}{}
-			for _, v := range c.Rules[i].Dictionary {
-				c.Rules[i].exact[v] = struct{}{}
-			}
-		}
+		c.Rules[i] = prepareDiscoveryRule(c.Rules[i])
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	switch c.Provider {
+	case "local_files":
+		return DiscoverLocalFiles(ctx, c, dsn, FileScanOptions{})
 	case "postgresql":
 		return discoverPostgres(ctx, c, dsn, insecure, connection.LocalDocker)
 	case "mysql", "mariadb":
@@ -361,6 +379,12 @@ func discoverPostgres(ctx context.Context, c DiscoveryConfig, dsn string, insecu
 
 // ValidateDiscoveryResult guards the agent boundary, including exact scopes and bounded metadata.
 func ValidateDiscoveryResult(c DiscoveryConfig, r DiscoveryResult) error {
+	if c.Provider == "local_files" {
+		return validateFileDiscoveryResult(c, r)
+	}
+	if len(r.Files) > 0 {
+		return errors.New("文件证据必须来自文件来源")
+	}
 	if len(r.Tables) > 100 || len(r.Coverage.Warnings) > 100 {
 		return errors.New("采集范围超过上限")
 	}
@@ -386,7 +410,7 @@ func ValidateDiscoveryResult(c DiscoveryConfig, r DiscoveryResult) error {
 			}
 			seenFields[f.Name] = true
 			count++
-			if !validText(f.Name, 256) || len(f.Type) > 256 || len(f.Comment) > 2048 || !utf8.ValidString(f.Comment) || len(f.Sensitivity) > 160 || len(f.Hits) > 103 {
+			if !validText(f.Name, 256) || len(f.Type) > 256 || len(f.Comment) > 2048 || !utf8.ValidString(f.Comment) || len(f.Sensitivity) > 160 || len(f.Hits) > 100+len(BuiltinDiscoveryRules()) {
 				return errors.New("字段元数据无效")
 			}
 			for _, h := range f.Hits {

@@ -77,7 +77,7 @@ func TestAssessmentsVersionedIndependentLifecycle(t *testing.T) {
 			base = v
 		}
 	}
-	if len(base.Questions) != 7 {
+	if len(base.Questions) != 8 || base.Questions[7].Key != "classification_context" || base.Questions[7].Required {
 		t.Fatal("missing builtin PIA clauses")
 	}
 	_, err = repo.SaveAssessmentTemplate(ctx, ws.ID, operator, 0, AssessmentTemplateInput{})

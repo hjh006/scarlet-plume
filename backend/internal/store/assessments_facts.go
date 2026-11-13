@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjh006/scarlet-plume/backend/internal/collector"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -45,42 +44,16 @@ func assessmentFacts(ctx context.Context, tx pgx.Tx, workspaceID int64, activity
 	add("activity_retention", activity.RetentionPolicy, "activity", ref, nil)
 	add("activity_transfer", activity.TransferPath, "activity", ref, nil)
 	add("activity_safeguards", activity.Safeguards, "activity", ref, nil)
-	var category, level, statutory string
-	var revision int64
-	if err := tx.QueryRow(ctx, `SELECT category,business_level,statutory_category,classification_revision FROM plume.assets WHERE workspace_id=$1 AND id=$2`, workspaceID, activity.AssetID).Scan(&category, &level, &statutory, &revision); err != nil {
-		return nil, storeError(err)
-	}
-	add("asset_category", category, "classification", fmt.Sprintf("asset:%d/revision:%d", activity.AssetID, revision), nil)
-	add("asset_business_level", level, "classification", fmt.Sprint(revision), nil)
-	add("asset_statutory_category", statutory, "classification", fmt.Sprint(revision), nil)
-	var table collector.PostgreSQLTable
-	var run string
-	var at time.Time
-	err := tx.QueryRow(ctx, `SELECT i.inspection,r.run_id,r.observed_at FROM plume.postgres_asset_inspections i
- JOIN plume.assets a ON a.id=i.asset_id JOIN plume.automation_jobs j ON j.id=i.job_id AND j.workspace_id=a.workspace_id
- JOIN plume.managed_postgres_jobs p ON p.job_id=j.id
- JOIN plume.automation_runs r ON r.id=i.automation_run_id AND r.status='success'
- WHERE a.workspace_id=$1 AND a.id=$2 AND j.revoked_at IS NULL
- AND (i.source_host,i.source_port,i.source_database)=(p.host,p.port,p.database_name)
- AND r.id=(SELECT latest.id FROM plume.automation_runs latest WHERE latest.job_id=i.job_id ORDER BY latest.id DESC LIMIT 1)`, workspaceID, activity.AssetID).Scan(&table, &run, &at)
-	if err == nil {
-		fields := postgresSensitiveFields(table)
-		types := map[string]bool{}
-		for _, field := range fields {
-			types[field.Sensitivity] = true
-		}
-		add("source_observed_types", strings.Join(sortedAssessmentKeys(types), ", "), "postgresql", run, &at)
-		scope := "metadata"
-		if table.ContentAnalysis != nil {
-			scope = table.ContentAnalysis.Status + fmt.Sprintf(" / sampled rows %d", table.ContentAnalysis.RowsScanned)
-		}
-		add("source_coverage", scope, "postgresql", run, &at)
-	} else if err == pgx.ErrNoRows {
-		add("source_observed_types", "", "source", "not_collected_or_stale", nil)
-		add("source_coverage", "", "source", "not_collected_or_stale", nil)
-	} else {
+	classification, _, err := classificationAssessmentFacts(ctx, tx, workspaceID, activity.AssetID)
+	if err != nil {
 		return nil, err
 	}
+	facts = append(facts, classification...)
+	collected, err := collectedAssessmentFacts(ctx, tx, workspaceID, activity.AssetID)
+	if err != nil {
+		return nil, err
+	}
+	facts = append(facts, collected...)
 	// Business/legal facts are never inferred from a field count or a server region.
 	for _, key := range []string{"deduplicated_subject_count", "cii_status", "cross_border_exception", "public_ai_service", "automated_decision", "processing_start_time", "lawful_basis", "notice_consent"} {
 		add(key, "", "business_fact", "requires_verified_business_evidence", nil)

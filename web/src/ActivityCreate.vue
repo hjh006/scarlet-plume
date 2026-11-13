@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { activityKindLabels, type Activity, type ActivityKind } from './activity'
 import { ApiError, describeError, request, workspacePath, type Asset, type AssetPage, type Workspace } from './api'
 import { canManageChecks } from './workflow'
 import Icon from './Icon.vue'
+import ScenarioDataPanel from './ScenarioDataPanel.vue'
+import { useScenarioContext } from './scenario-context'
 
 const props = defineProps<{ workspace: Workspace }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const apiUrl = workspacePath(props.workspace.slug)
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
-const pageUrl = home + '/activities'
+const { context, href, setScope } = useScenarioContext(props.workspace.slug)
+const pageUrl = computed(() => href('activities'))
+const materialsScene = computed(() => ['personal', 'domestic', 'crossborder'].includes(context.value.scene))
 const assets = ref<Asset[]>([])
 const cursor = ref<number | null>(null)
 const loading = ref(true)
@@ -18,9 +22,9 @@ const loadError = ref('')
 const formError = ref('')
 const active = new AbortController()
 const draft = reactive({
-  assetId: '',
+  assetId: context.value.assetId,
   name: '',
-  kind: 'internal' as ActivityKind,
+  kind: (context.value.scene === 'crossborder' ? 'cross_border' : 'internal') as ActivityKind,
   purpose: '',
   recipient: '',
   region: '',
@@ -57,6 +61,10 @@ async function load(append = false) {
     if (active.signal.aborted) return
     assets.value = append ? [...assets.value, ...page.items] : page.items
     cursor.value = page.nextCursor
+    if (draft.assetId && !assets.value.some(asset => String(asset.id) === draft.assetId)) {
+      const selected = await request<{ asset: Asset }>(apiUrl + '/classification/assets/' + encodeURIComponent(draft.assetId), { signal: active.signal })
+      assets.value.push(selected.asset)
+    }
   } catch (error) {
     loadError.value = errorText(error)
   } finally {
@@ -66,6 +74,7 @@ async function load(append = false) {
 
 async function createActivity() {
   if (saving.value || loading.value || !canManageChecks(props.workspace.role)) return
+  if (!selectedAsset.value) { formError.value = '请核对本工作区已读取的关联资产。'; return }
   saving.value = true
   formError.value = ''
   try {
@@ -78,7 +87,7 @@ async function createActivity() {
         safeguards: isExternal.value ? draft.safeguards.trim() : '',
       }),
     })
-    if (!active.signal.aborted) window.location.hash = pageUrl + '/' + activity.id
+    if (!active.signal.aborted) window.location.hash = href('activities/' + activity.id, { assetId: String(activity.assetId), activityId: String(activity.id) })
   } catch (error) {
     formError.value = errorText(error)
   } finally {
@@ -86,6 +95,8 @@ async function createActivity() {
   }
 }
 
+watch(() => context.value.assetId, value => { if (value !== draft.assetId) { draft.assetId = value; void load() } })
+function selectAsset() { setScope({ assetId: draft.assetId, activityId: '' }) }
 onMounted(() => { void load() })
 onBeforeUnmount(() => active.abort())
 </script>
@@ -95,6 +106,7 @@ onBeforeUnmount(() => active.abort())
   <header class="page-header">
     <div><p class="eyebrow">数据治理 / 处理活动</p><h1>新建处理活动</h1><p>说明关联资产、处理目的和数据流向。审批、取证与整改在关联检查中记录。</p></div>
   </header>
+  <ScenarioDataPanel v-if="materialsScene && draft.assetId" :workspace="workspace" :asset-id="draft.assetId" activity-id="" compact @session-expired="emit('sessionExpired')" />
   <p v-if="!canManageChecks(workspace.role)" class="message message-warning" role="alert">当前账号无权登记活动。</p>
   <p v-else-if="loading && !assets.length" class="message" role="status">正在读取数据资产…</p>
   <div v-else-if="loadError && !assets.length" class="message message-error page-feedback">
@@ -104,7 +116,7 @@ onBeforeUnmount(() => active.abort())
   <section v-else-if="!assets.length" class="panel empty-state">
     <h2>请先登记数据资产</h2>
     <p>每项处理活动关联本工作区的一项资产。</p>
-    <a class="button button-primary" :href="home + '/assets'">前往数据资产</a>
+    <a class="button button-primary" :href="href('assets')">前往数据资产</a>
   </section>
   <div v-else class="form-workbench activity-create-layout"><aside class="panel activity-form-outline"><div class="panel-heading"><h2>配置步骤</h2></div><ol class="workflow-spine"><li><button type="button" @click="focusField('activity-name')">关联范围</button></li><li><button type="button" @click="focusField('activity-purpose')">处理目的</button></li><li><button type="button" @click="focusField('activity-recipient')">接收与区域</button></li><li><button type="button" @click="focusField('activity-retention')">保留与保障</button></li></ol></aside><form class="panel form-main activity-create-form" @submit.prevent="createActivity"><div class="panel-heading"><h2>新建处理活动</h2></div><div class="activity-create-fields">
     <p v-if="formError" class="message message-error page-feedback" role="alert">{{ formError }}</p>
@@ -114,7 +126,7 @@ onBeforeUnmount(() => active.abort())
     </div>
     <div class="field">
       <label for="activity-asset">关联资产</label>
-      <select id="activity-asset" v-model="draft.assetId" required>
+      <select id="activity-asset" v-model="draft.assetId" required @change="selectAsset">
         <option value="" disabled>选择本工作区资产</option>
         <option v-for="asset in assets" :key="asset.id" :value="String(asset.id)">{{ asset.name }} · {{ asset.system }}</option>
       </select>
@@ -149,7 +161,7 @@ onBeforeUnmount(() => active.abort())
       <p id="activity-transfer-hint" class="field-hint">记录已识别的路径或待核实事项，并在检查中登记判断依据。</p>
     </div>
     <div class="field">
-      <label for="activity-retention">{{ isAI ? '留存和训练条款（可选）' : '留存条款（可选）' }}</label>
+      <label for="activity-retention">{{ isAI ? '留存和训练条款（可选）' : '保存期限与安排（可选）' }}</label>
       <textarea id="activity-retention" v-model="draft.retentionPolicy" maxlength="400"></textarea>
     </div>
     <div v-if="isExternal" class="field">
@@ -165,7 +177,7 @@ onBeforeUnmount(() => active.abort())
   </form><aside class="form-aside context-rail section-stack"><section class="panel"><div class="panel-heading"><h2>关联资产</h2></div><dl class="activity-create-context"><div><dt>当前资产</dt><dd>{{selectedAsset?.name||'尚未选择'}}</dd></div><div><dt>所属系统</dt><dd>{{selectedAsset?.system||'未记录'}}</dd></div><div><dt>责任团队</dt><dd>{{selectedAsset?.ownerTeam||'待确认'}}</dd></div><div><dt>来源</dt><dd>{{selectedAsset?.source||'手工登记 / 未记录'}}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h2>核验提示</h2></div><p class="activity-create-note">采集可以提供资产与识别事实；处理依据、实际用途、接收方保障和留存条款仍需明确取证。</p></section><section class="panel"><div class="panel-heading"><h2>修订与范围</h2></div><p class="activity-create-note">首次保存后记录活动修订。后续变化将单独留存，已采用的评估和历史报告保持各自时点。</p></section></aside></div>
 </template>
 <style scoped>
-.activity-create-layout{display:grid;grid-template-columns:190px minmax(0,1fr) 290px;gap:16px;align-items:start}.activity-form-outline ol{margin:0;padding:20px 20px 22px 36px;display:grid;gap:22px;font-size:12px}.activity-form-outline button{border:0;padding:0;background:none;color:var(--secondary);font:inherit;text-align:left;cursor:pointer}.activity-create-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding:20px}.activity-create-fields>.field{margin:0;min-width:0}.activity-create-fields>.field:has(textarea){grid-column:1/-1}.activity-create-fields textarea{min-height:100px}.activity-create-form>.form-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;margin:0;padding:16px 20px;border-top:1px solid var(--line);background:#fbfdff;z-index:1}.activity-create-context{margin:0;padding:12px 18px;display:grid;font-size:12px}.activity-create-context>div{display:grid;grid-template-columns:75px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.activity-create-context>div:last-child{border:0}.activity-create-context dt{color:var(--secondary)}.activity-create-context dd{margin:0;overflow-wrap:anywhere}.activity-create-note{padding:18px;font-size:12px;color:var(--secondary);line-height:1.8}.activity-create-form .message{margin:16px 20px 0}.activity-create-fields .more-assets{margin-top:10px}
+.activity-create-layout>*{min-width:0}.activity-create-layout{display:grid;grid-template-columns:190px minmax(0,1fr) 290px;gap:16px;align-items:start}.activity-form-outline ol{margin:0;padding:20px 20px 22px 36px;display:grid;gap:22px;font-size:12px}.activity-form-outline button{min-height:32px;border:0;padding:4px 0;background:none;color:var(--secondary);font:inherit;text-align:left;cursor:pointer}.activity-create-fields{scroll-margin-top:90px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding:20px}.activity-create-fields>.field{margin:0;min-width:0}.activity-create-fields>.field:has(textarea){grid-column:1/-1}.activity-create-fields textarea{min-height:100px}.activity-create-form>.form-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;margin:0;padding:16px 20px;border-top:1px solid var(--line);background:var(--surface-subtle);z-index:1}.activity-create-context{margin:0;padding:12px 18px;display:grid;font-size:12px}.activity-create-context>div{display:grid;grid-template-columns:75px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.activity-create-context>div:last-child{border:0}.activity-create-context dt{color:var(--secondary)}.activity-create-context dd{margin:0;overflow-wrap:anywhere}.activity-create-note{padding:18px;font-size:12px;color:var(--secondary);line-height:1.8}.activity-create-form .message{margin:16px 20px 0}.activity-create-fields .more-assets{margin-top:10px}
 @media(max-width:1400px){.activity-create-layout{grid-template-columns:160px minmax(0,1fr) 250px}}
 .activity-form-outline .workflow-spine>li+li::before{left:-15px;top:-17px;width:1px;height:20px}
 </style>

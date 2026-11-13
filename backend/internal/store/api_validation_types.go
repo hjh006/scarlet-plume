@@ -3,16 +3,17 @@ package store
 import "time"
 
 type APIValidationPlanInput struct {
-	Revision        int64    `json:"revision"`
-	SourceID        int64    `json:"sourceId"`
-	Name            string   `json:"name"`
-	Service         string   `json:"service"`
-	Method          string   `json:"method"`
-	Route           string   `json:"route"`
-	TargetOrigin    string   `json:"targetOrigin"`
-	ManifestRef     string   `json:"manifestRef"`
-	Rules           []string `json:"rules"`
-	IntervalMinutes int      `json:"intervalMinutes"`
+	ProbePolicy     APIValidationProbePolicy `json:"probePolicy,omitempty"`
+	Revision        int64                    `json:"revision"`
+	SourceID        int64                    `json:"sourceId"`
+	Name            string                   `json:"name"`
+	Service         string                   `json:"service"`
+	Method          string                   `json:"method"`
+	Route           string                   `json:"route"`
+	TargetOrigin    string                   `json:"targetOrigin"`
+	ManifestRef     string                   `json:"manifestRef"`
+	Rules           []string                 `json:"rules"`
+	IntervalMinutes int                      `json:"intervalMinutes"`
 }
 type APIValidationPlan struct {
 	CanApprove bool `json:"canApprove"`
@@ -41,19 +42,28 @@ type APIValidationResult struct {
 	Results    []APIValidationRuleResult `json:"results"`
 }
 type APIValidationRuleResult struct {
-	OtherAccountConfirmed bool     `json:"otherAccountConfirmed"`
-	OtherOwnedStatus      int      `json:"otherOwnedStatus,omitempty"`
-	Rule                  string   `json:"rule"`
-	Outcome               string   `json:"outcome"`
-	OwnerStatus           int      `json:"ownerStatus"`
-	OtherStatus           int      `json:"otherStatus,omitempty"`
-	OwnerConfirmed        bool     `json:"ownerConfirmed"`
-	SameObject            bool     `json:"sameObject"`
-	CredentialAccepted    bool     `json:"credentialAccepted"`
-	WeakRuleMatched       bool     `json:"weakRuleMatched"`
-	ComparisonComplete    bool     `json:"comparisonComplete"`
-	Requests              int      `json:"requests"`
-	Gaps                  []string `json:"gaps"`
+	AnonymousStatus          int      `json:"anonymousStatus,omitempty"`
+	AnonymousObjectConfirmed bool     `json:"anonymousObjectConfirmed,omitempty"`
+	PolicyConfirmed          bool     `json:"policyConfirmed,omitempty"`
+	PolicyDigest             string   `json:"policyDigest,omitempty"`
+	SensitiveChecked         int      `json:"sensitiveChecked,omitempty"`
+	OwnerSensitiveCount      int      `json:"ownerSensitiveCount,omitempty"`
+	AnonymousSensitiveCount  int      `json:"anonymousSensitiveCount,omitempty"`
+	HeaderChecked            int      `json:"headerChecked,omitempty"`
+	HeaderMismatches         []string `json:"headerMismatches,omitempty"`
+	OtherAccountConfirmed    bool     `json:"otherAccountConfirmed"`
+	OtherOwnedStatus         int      `json:"otherOwnedStatus,omitempty"`
+	Rule                     string   `json:"rule"`
+	Outcome                  string   `json:"outcome"`
+	OwnerStatus              int      `json:"ownerStatus"`
+	OtherStatus              int      `json:"otherStatus,omitempty"`
+	OwnerConfirmed           bool     `json:"ownerConfirmed"`
+	SameObject               bool     `json:"sameObject"`
+	CredentialAccepted       bool     `json:"credentialAccepted"`
+	WeakRuleMatched          bool     `json:"weakRuleMatched"`
+	ComparisonComplete       bool     `json:"comparisonComplete"`
+	Requests                 int      `json:"requests"`
+	Gaps                     []string `json:"gaps"`
 }
 type APIValidationRun struct {
 	Mode            string               `json:"mode"`

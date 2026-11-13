@@ -79,9 +79,33 @@ func (f *operationsFixture) want(t *testing.T, err, target error) {
 }
 func operationsTestDigest(s string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(s))) }
 
+// checkFixtureTimeline prints only synthetic fixture identities and timestamps,
+// so a blocked review shows which causal prerequisite actually failed.
+func checkFixtureTimeline(ctx context.Context, pool *pgxpool.Pool, checkID int64) string {
+	var timeline string
+	err := pool.QueryRow(ctx, `SELECT jsonb_build_object(
+ 'dbNow',clock_timestamp(),'hostNow',$2::timestamptz,
+ 'sourceEvents',(SELECT jsonb_agg(jsonb_build_object('id',id,'sourceId',source_id,'outcome',metadata->>'outcome','observedAt',observed_at,'createdAt',created_at) ORDER BY id) FROM plume.operations_security_events WHERE check_id=$1),
+ 'evidence',(SELECT jsonb_agg(jsonb_build_object('id',id,'kind',kind,'observedAt',observed_at,'createdAt',created_at) ORDER BY id) FROM plume.check_evidence WHERE check_id=$1),
+ 'workflow',(SELECT jsonb_agg(jsonb_build_object('action',action,'createdAt',created_at) ORDER BY id) FROM plume.check_events WHERE check_id=$1))::text`, checkID, time.Now().UTC()).Scan(&timeline)
+	if err != nil {
+		return "fixture timeline unavailable: " + err.Error()
+	}
+	return timeline
+}
+
 func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	f := newOperationsFixture(t)
 	ctx, repo, ws := f.ctx, f.repo, f.workspace
+	// A fresh observation must follow the committed remediation on the same
+	// clock as evidence.created_at; host now + 1ms does not establish that order.
+	dbNow := func() time.Time {
+		t.Helper()
+		var at time.Time
+		f.must(t, f.pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at))
+		return at
+	}
+
 	token := operationsTestDigest(f.slug + "-events")
 	source, err := repo.CreateOperationsSource(ctx, ws.ID, f.owner.ID, OperationsSourceInput{Name: "Authorized SIEM", Kind: "security_events", OwnerTeam: "Security"}, token)
 	f.must(t, err)
@@ -92,7 +116,7 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	otherToken := operationsTestDigest(f.slug + "-other")
 	_, err = repo.CreateOperationsSource(ctx, ws.ID, f.owner.ID, OperationsSourceInput{Name: "Other SIEM", Kind: "security_events", OwnerTeam: "Security"}, otherToken)
 	f.must(t, err)
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	now := dbNow()
 	input := SecurityEventInput{Outcome: "observed", EventID: "fixture-1", ObservedAt: now, Category: "data_leak", Rule: "fixture.response", Severity: "high", Count: 2, WindowSeconds: 60}
 	event, replayed, err := repo.ReceiveSecurityEvent(ctx, token, input)
 	f.must(t, err)
@@ -130,7 +154,7 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	wrongRoute.Route = "/beta/{id}"
 	wrongRoute.Outcome = "cleared"
 	wrongRoute.Count = 0
-	wrongRoute.ObservedAt = time.Now().UTC().Add(time.Millisecond)
+	wrongRoute.ObservedAt = dbNow()
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, wrongRoute)
 	f.want(t, err, ErrEvidenceRequired)
 	detail, err := repo.CheckDetail(ctx, ws.ID, f.owner.ID, event.CheckID)
@@ -152,8 +176,8 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	f.must(t, err)
 	f.want(t, repo.ReviewCheck(ctx, ws.ID, f.reviewer.ID, event.CheckID, detail.ReviewRevision, "verified", "No source retest"), ErrEvidenceRequired)
 	f.must(t, repo.ReviewCheck(ctx, ws.ID, f.reviewer.ID, event.CheckID, detail.ReviewRevision, "changes", "Correct source findings"))
-	f.must(t, repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "remediation", SourceSystem: "fixture", SourceRecord: "release-1", Summary: "Corrected configured condition", ObservedAt: time.Now().UTC()}))
-	manualErr := repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "retest", SourceSystem: "fixture", SourceRecord: "manual-substitute", Summary: "Cannot replace authorized source clear", ObservedAt: time.Now().UTC()})
+	f.must(t, repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "remediation", SourceSystem: "fixture", SourceRecord: "release-1", Summary: "Corrected configured condition", ObservedAt: dbNow()}))
+	manualErr := repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "retest", SourceSystem: "fixture", SourceRecord: "manual-substitute", Summary: "Cannot replace authorized source clear", ObservedAt: dbNow()})
 	if manualErr != nil {
 		f.want(t, manualErr, ErrEvidenceRequired)
 	}
@@ -162,7 +186,7 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	clear.EventID = "clear-1"
 	clear.Outcome = "cleared"
 	clear.Count = 0
-	clear.ObservedAt = time.Now().UTC().Add(time.Millisecond)
+	clear.ObservedAt = dbNow()
 	_, _, err = repo.ReceiveSecurityEvent(ctx, otherToken, clear)
 	f.want(t, err, ErrEvidenceRequired)
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, clear)
@@ -171,12 +195,12 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	detail, err = repo.CheckDetail(ctx, ws.ID, f.reviewer.ID, event.CheckID)
 	f.must(t, err)
 	if !detail.CanVerify {
-		t.Fatal("fresh same-source clear did not qualify for independent review")
+		t.Fatalf("fresh same-source clear did not qualify for independent review: %s", checkFixtureTimeline(ctx, f.pool, event.CheckID))
 	}
 	submittedRevision := detail.ReviewRevision
 	heartbeat := clear
 	heartbeat.EventID = "healthy-after-submission"
-	heartbeat.ObservedAt = clear.ObservedAt.Add(time.Microsecond)
+	heartbeat.ObservedAt = dbNow()
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, heartbeat)
 	f.must(t, err)
 	detail, err = repo.CheckDetail(ctx, ws.ID, f.reviewer.ID, event.CheckID)
@@ -186,7 +210,7 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	}
 	positive := input
 	positive.EventID = "fresh-positive"
-	positive.ObservedAt = clear.ObservedAt.Add(time.Millisecond)
+	positive.ObservedAt = dbNow()
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, positive)
 	f.must(t, err)
 	detail, err = repo.CheckDetail(ctx, ws.ID, f.reviewer.ID, event.CheckID)
@@ -208,20 +232,20 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	staleClear.ObservedAt = positive.ObservedAt.Add(-time.Microsecond)
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, staleClear)
 	f.want(t, err, ErrEvidenceRequired)
-	f.must(t, repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "remediation", SourceSystem: "fixture", SourceRecord: "release-2", Summary: "Corrected recurrence before independent review", ObservedAt: time.Now().UTC()}))
+	f.must(t, repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "remediation", SourceSystem: "fixture", SourceRecord: "release-2", Summary: "Corrected recurrence before independent review", ObservedAt: dbNow()}))
 	clear.EventID = "clear-current-cycle"
-	clear.ObservedAt = time.Now().UTC().Add(time.Millisecond)
+	clear.ObservedAt = dbNow()
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, clear)
 	f.must(t, err)
 	f.must(t, repo.SubmitCheck(ctx, ws.ID, f.owner.ID, event.CheckID))
 	detail, err = repo.CheckDetail(ctx, ws.ID, f.reviewer.ID, event.CheckID)
 	f.must(t, err)
 	if !detail.CanVerify {
-		t.Fatal("new same-source clear did not restore review")
+		t.Fatalf("new same-source clear did not restore review: %s", checkFixtureTimeline(ctx, f.pool, event.CheckID))
 	}
 	f.must(t, repo.ReviewCheck(ctx, ws.ID, f.reviewer.ID, event.CheckID, detail.ReviewRevision, "changes", "Require a new remediation scope"))
-	f.must(t, repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "remediation", SourceSystem: "fixture", SourceRecord: "release-3", Summary: "New remediation scope after earlier clear", ObservedAt: time.Now().UTC()}))
-	manualErr = repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "retest", SourceSystem: "fixture", SourceRecord: "old-clear-substitute", Summary: "Old source clear cannot substitute current round", ObservedAt: time.Now().UTC()})
+	f.must(t, repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "remediation", SourceSystem: "fixture", SourceRecord: "release-3", Summary: "New remediation scope after earlier clear", ObservedAt: dbNow()}))
+	manualErr = repo.AddEvidence(ctx, ws.ID, f.owner.ID, event.CheckID, EvidenceInput{Kind: "retest", SourceSystem: "fixture", SourceRecord: "old-clear-substitute", Summary: "Old source clear cannot substitute current round", ObservedAt: dbNow()})
 	if manualErr != nil {
 		f.want(t, manualErr, ErrEvidenceRequired)
 	}
@@ -229,7 +253,7 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	clear.EventID = "clear-new-remediation-scope"
 	// Intake permits bounded source clock skew. A late positive newer than the
 	// server review time but older than the adopted source clear is not recurrence.
-	clear.ObservedAt = time.Now().UTC().Add(time.Minute)
+	clear.ObservedAt = dbNow().Add(time.Minute)
 	_, _, err = repo.ReceiveSecurityEvent(ctx, token, clear)
 	f.must(t, err)
 	f.must(t, repo.SubmitCheck(ctx, ws.ID, f.owner.ID, event.CheckID))
@@ -244,7 +268,7 @@ func TestOperationsSecurityEventsScopeReplayAndFreshClear(t *testing.T) {
 	}
 	clockSkew := input
 	clockSkew.EventID = "newer-than-review-older-than-clear"
-	clockSkew.ObservedAt = time.Now().UTC().Add(time.Second)
+	clockSkew.ObservedAt = dbNow().Add(time.Second)
 	clockEvent, _, err := repo.ReceiveSecurityEvent(ctx, token, clockSkew)
 	f.must(t, err)
 	if clockEvent.CheckID != event.CheckID || clockEvent.CheckStatus != "verified" {

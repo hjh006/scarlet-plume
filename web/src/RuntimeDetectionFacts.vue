@@ -4,6 +4,8 @@ import { lifecycleCategoryLabels } from './api-lifecycle'
 import type { RuntimeDetection } from './runtime-findings'
 defineProps<{ detection: RuntimeDetection }>()
 const gapLabels: Record<string, string> = {
+  configured_technical_baseline_not_automatic_legal_conclusion: '采用的是已配置技术基线，命中不自动认定违反法律要求',
+  source_labels_not_automatically_verified: '主体、地域或接收方等来源声明仍需核实实际业务事实',
   connected_source_scope_only: '只覆盖已接入来源的观测范围', pattern_or_policy_signal_not_proven_vulnerability: '规则或模式命中，尚未证明存在漏洞',
   credential_field_name_signal_requires_validation: '凭据字段名信号，实际有效性待核实', source_sample_limit_20000: '达到来源样本上限，统计范围不完整',
   auth_state_unknown: '部分请求认证状态未知', source_declared_auth_state: '认证状态由获授权来源明确上报',
@@ -35,5 +37,5 @@ const gapLabels: Record<string, string> = {
 
 <style scoped>
 .detection-facts{margin-top:.65rem;max-width:62ch;font-size:.875rem;line-height:1.65}.detection-facts summary{cursor:pointer;min-height:44px;display:flex;align-items:center;color:var(--primary);font-weight:600}.detection-facts dl{margin:.25rem 0}.detection-facts dl>div{margin:.6rem 0}.detection-facts dt{font-weight:600}.detection-facts dd{margin:0;overflow-wrap:anywhere}.detection-facts ul{padding-left:1.2rem;margin:.65rem 0}
-.detection-facts{max-width:none;margin-top:16px;padding-top:12px;border-top:1px solid var(--line);font-size:12px}.detection-facts summary{min-height:36px;font-size:12px;color:var(--accent);font-weight:600}.detection-facts dl{margin:12px 0;display:grid;gap:14px}.detection-facts dl>div{margin:0}.detection-facts dt{font-size:10px;color:var(--secondary);font-weight:400;margin-bottom:5px}.detection-facts dd{font-size:12px;line-height:1.7}.detection-facts ul{padding:12px 12px 12px 28px;background:#fff8f3;border:1px solid #f1e0d2;border-radius:8px;font-size:11px;color:#82592d}.detection-facts li+li{margin-top:6px}
+.detection-facts{max-width:none;margin-top:16px;padding-top:12px;border-top:1px solid var(--line);font-size:12px}.detection-facts summary{min-height:36px;font-size:12px;color:var(--accent);font-weight:600}.detection-facts dl{margin:12px 0;display:grid;gap:14px}.detection-facts dl>div{margin:0}.detection-facts dt{font-size:12px;color:var(--secondary);font-weight:400;margin-bottom:5px}.detection-facts dd{font-size:12px;line-height:1.7}.detection-facts ul{padding:12px 12px 12px 28px;background:var(--warning-soft);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--warning)}.detection-facts li+li{margin-top:6px}
 </style>

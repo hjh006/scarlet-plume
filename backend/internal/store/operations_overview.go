@@ -44,7 +44,7 @@ func (s *Store) OperationsOverview(ctx context.Context, workspaceID, actorID int
 			return err
 		}
 		if err := tx.QueryRow(ctx, `SELECT
- (SELECT count(*) FROM plume.automation_jobs WHERE workspace_id=$1 AND revoked_at IS NULL)+(SELECT count(*) FROM plume.runtime_security_sources WHERE workspace_id=$1 AND revoked_at IS NULL)+(SELECT count(*) FROM plume.discovery_sources WHERE workspace_id=$1)+(SELECT count(*) FROM plume.operations_sources WHERE workspace_id=$1 AND revoked_at IS NULL),
+ (SELECT count(*) FROM plume.automation_jobs WHERE workspace_id=$1 AND revoked_at IS NULL)+(SELECT count(*) FROM plume.runtime_security_sources WHERE workspace_id=$1 AND revoked_at IS NULL)+(SELECT count(*) FROM plume.discovery_sources WHERE workspace_id=$1)+(SELECT count(*) FROM plume.operations_sources WHERE workspace_id=$1 AND revoked_at IS NULL)+(SELECT count(*) FROM plume.application_sources WHERE workspace_id=$1 AND revoked_at IS NULL),
  (SELECT count(*) FROM plume.operations_security_events WHERE workspace_id=$1 AND observed_at>=clock_timestamp()-interval '30 days'),
  (SELECT count(DISTINCT e.check_id) FROM plume.operations_security_events e JOIN plume.checks c ON c.id=e.check_id AND c.workspace_id=e.workspace_id WHERE e.workspace_id=$1 AND c.status<>'verified'),
  count(*),count(*) FILTER(WHERE status='proposed'),count(*) FILTER(WHERE status='applied'),

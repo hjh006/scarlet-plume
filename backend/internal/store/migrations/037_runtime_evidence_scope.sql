@@ -1,0 +1,10 @@
+ALTER TABLE plume.runtime_request_audit ADD COLUMN observation jsonb NOT NULL DEFAULT '{}' CHECK(jsonb_typeof(observation)='object');
+CREATE INDEX runtime_audit_observation_idx ON plume.runtime_request_audit USING gin(observation jsonb_path_ops);
+ALTER TABLE plume.runtime_detection_policies ADD COLUMN scope_key text NOT NULL DEFAULT '' CHECK(char_length(scope_key)<=80);
+ALTER TABLE plume.runtime_detection_policies DROP CONSTRAINT runtime_detection_policies_workspace_id_rule_revision_key;
+ALTER TABLE plume.runtime_detection_policies ADD UNIQUE(workspace_id,rule,scope_key,revision);
+ALTER TABLE plume.runtime_detection_policies DROP CONSTRAINT runtime_detection_policies_rule_check;
+ALTER TABLE plume.runtime_detection_policies ADD CONSTRAINT runtime_detection_policies_rule_check CHECK(rule IN ('sensitive_response','credential_response','missing_auth','subject_bulk_access','error_spike','off_hours','sql_injection_signal','xss_signal','path_traversal_signal','over_collection','credential_cleartext_transport','subject_multi_ip','subject_multi_region','client_region_mismatch','recipient_scope','destination_scope','volume_limit','subject_repeated_access'));
+ALTER TABLE plume.runtime_findings ADD COLUMN scope_key text NOT NULL DEFAULT '' CHECK(char_length(scope_key)<=80);
+ALTER TABLE plume.runtime_findings DROP CONSTRAINT runtime_findings_rule_check;
+ALTER TABLE plume.runtime_findings ADD CONSTRAINT runtime_findings_rule_check CHECK(rule IN ('unregistered_success','deprecated_success','sensitive_response','credential_response','missing_auth','subject_bulk_access','error_spike','off_hours','sql_injection_signal','xss_signal','path_traversal_signal','over_collection','credential_cleartext_transport','subject_multi_ip','subject_multi_region','client_region_mismatch','recipient_scope','destination_scope','volume_limit','subject_repeated_access'));
