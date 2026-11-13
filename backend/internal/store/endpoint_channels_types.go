@@ -61,6 +61,9 @@ type EndpointPolicy struct {
 	Approver         string               `json:"approver,omitempty"`
 	ApprovedAt       *time.Time           `json:"approvedAt,omitempty"`
 	DecisionNote     string               `json:"decisionNote,omitempty"`
+	EndedAt          *time.Time           `json:"endedAt,omitempty"`
+	SessionCurrent   *bool                `json:"sessionCurrent,omitempty"`
+	CurrentReason    string               `json:"currentReason,omitempty"`
 	Current          bool                 `json:"current"`
 	DeploymentState  string               `json:"deploymentState"`
 	CanReview        bool                 `json:"canReview"`
@@ -69,7 +72,11 @@ type EndpointPolicy struct {
 }
 type EndpointPolicyDetail struct {
 	EndpointPolicy
-	Receipts []EndpointReceipt `json:"receipts"`
+	Receipts               []EndpointReceipt      `json:"receipts"`
+	SessionEvents          []EndpointSessionEvent `json:"sessionEvents"`
+	SessionEventsTotal     int64                  `json:"sessionEventsTotal"`
+	SessionEventsTruncated bool                   `json:"sessionEventsTruncated"`
+	SessionCoverageMissing []string               `json:"sessionCoverageMissing"`
 }
 type EndpointPolicyBundle struct {
 	DeviceRef      string                  `json:"deviceRef"`
@@ -109,13 +116,17 @@ type EndpointReceipt struct {
 	SnapshotDigest string    `json:"snapshotDigest"`
 }
 type EndpointEvidenceSnapshot struct {
-	Version    int                       `json:"version"`
-	Policy     EndpointPolicy            `json:"policy"`
-	Device     EndpointDevice            `json:"device"`
-	Receipts   []EndpointReceipt         `json:"receipts"`
-	Events     []OperationsSecurityEvent `json:"events"`
-	Truncated  bool                      `json:"truncated"`
-	Boundaries []string                  `json:"boundaries"`
+	SessionEvents          []EndpointSessionEvent    `json:"sessionEvents,omitempty"`
+	SessionEventsTotal     int64                     `json:"sessionEventsTotal,omitempty"`
+	SessionEventsTruncated bool                      `json:"sessionEventsTruncated,omitempty"`
+	SessionCoverageMissing []string                  `json:"sessionCoverageMissing,omitempty"`
+	Version                int                       `json:"version"`
+	Policy                 EndpointPolicy            `json:"policy"`
+	Device                 EndpointDevice            `json:"device"`
+	Receipts               []EndpointReceipt         `json:"receipts"`
+	Events                 []OperationsSecurityEvent `json:"events"`
+	Truncated              bool                      `json:"truncated"`
+	Boundaries             []string                  `json:"boundaries"`
 }
 type EndpointEvidenceExport struct {
 	ID             int64                    `json:"id"`
@@ -147,4 +158,40 @@ type EndpointNativeCommand struct {
 	Action       string         `json:"action"`
 	Reason       string         `json:"reason"`
 	Policy       EndpointPolicy `json:"policy"`
+}
+
+// EndpointSessionEventInput contains only bounded source attestations from one
+// interactive clipboard session. No clipboard content or OS identity is stored.
+type EndpointSessionEventInput struct {
+	EventRef           string    `json:"eventRef"`
+	OperationRef       string    `json:"operationRef"`
+	DeviceRef          string    `json:"deviceRef"`
+	SessionRef         string    `json:"sessionRef"`
+	PolicyID           int64     `json:"policyId"`
+	PolicyRevision     int64     `json:"policyRevision"`
+	PolicyDigest       string    `json:"policyDigest"`
+	Scope              string    `json:"scope"`
+	Executor           string    `json:"executor"`
+	ConfigDigest       string    `json:"configDigest"`
+	Status             string    `json:"status"`
+	Code               string    `json:"code"`
+	ObservedAt         time.Time `json:"observedAt"`
+	ResponseAt         time.Time `json:"responseAt"`
+	Capture            string    `json:"capture"`
+	Categories         []string  `json:"categories"`
+	SequenceRef        string    `json:"sequenceRef,omitempty"`
+	CurrentSequenceRef string    `json:"currentSequenceRef,omitempty"`
+	ContentRef         string    `json:"contentRef,omitempty"`
+	ClearAttempted     bool      `json:"clearAttempted"`
+	SequenceMatched    bool      `json:"sequenceMatched"`
+	ClipboardEmpty     bool      `json:"clipboardEmpty"`
+}
+type EndpointSessionEvent struct {
+	EndpointSessionEventInput
+	Historical      bool      `json:"historical"`
+	CurrentResponse bool      `json:"currentResponse"`
+	ID              int64     `json:"id"`
+	SourceID        int64     `json:"sourceId"`
+	ReceivedAt      time.Time `json:"receivedAt"`
+	SnapshotDigest  string    `json:"snapshotDigest"`
 }

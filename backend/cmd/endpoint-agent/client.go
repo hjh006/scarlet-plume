@@ -32,6 +32,9 @@ type endpointClient struct {
 	nativeCapabilities                    func() []channelCapability
 	nativeService                         bool
 }
+
+var errEndpointUnavailable = errors.New("platform unavailable")
+
 type endpointHTTPError struct{ status int }
 
 func (endpointHTTPError) Error() string {
@@ -136,7 +139,7 @@ func (c *endpointClient) request(ctx context.Context, method, path string, in, o
 	}
 	response, err := c.http.Do(r)
 	if err != nil {
-		return errors.New("platform unavailable")
+		return errEndpointUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

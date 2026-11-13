@@ -34,3 +34,25 @@ SYSTEM服务只处理机器级配置租约，不读取用户桌面剪贴板。�
 先在服务停止时运行`Test-ScarletDeployment.ps1 -Mode Plan -OutputPath <测试结果.json>`，只读取匿名能力与权限，不改变原生策略；受保护目录采用跨进程独占锁，运行中的服务不会与验收命令同时操作记录。它的功能结果仍是`not_run`。再按`functional-checklist.csv`由管理员在隔离Windows环境、授权USB/本地测试队列/RDP会话用合成内容逐项验证，保存平台策略/租约/回执和原生观察。不得使用个人文件、真实剪贴板内容或生产打印任务做验收。
 
 每项至少保存：明确目标、基线、采用策略和有效期、准备/配置/回读、实际功能观察、覆盖缺口、撤销/到期恢复和冲突反例。未完成的项保持`not_run`/`unknown`，不填写`passed`。报告应明确原生控制范围，不把一个设备、队列或会话的结果推导为全终端覆盖。
+
+## 本地应用剪贴板：按用户部署
+
+此包 v2 增加 Office（Word/Excel）、Edge/Chrome 和记事本的**待执行**验收清单；目前没有 Windows 测试机，不代表已通过这些应用的兼容性验收。系统服务的 RDP 限制与以下用户进程分别运行。
+
+1. 为当前用户的剪贴板执行器登记**独立安全事件来源**。不要与 SYSTEM 服务共用来源令牌，否则两种心跳会覆盖彼此的能力。复制 `clipboard-config.example.json` 到包外，填可验证证书的 HTTPS 平台 origin、授权 scope，并确认允许本地 Unicode 文本识别；不在模板里填令牌。
+2. 在该用户正常、**非管理员提升**的 Windows PowerShell 5.1 Desktop 中运行 `Install-ScarletClipboardSession.ps1 -Configuration <包外配置.json>`。脚本通过安全输入取得令牌，以当前用户 DPAPI 保护配置和随机 HMAC 密钥；固定 `%LOCALAPPDATA%\ScarletPlumeClipboard` 仅允许当前用户与 SYSTEM。安装前从平台独立发布清单校验执行器与脚本，保留原文件的下载来源标记，不设置 ExecutionPolicy、不 Unblock-File。组织仍应按自身签名/WDAC策略批准这些文件。
+3. 默认不启动。显式运行安装目录 `bin\Start-ScarletClipboardSession.ps1`；如需登录自启动，可在首次安装时显式指定 `-RegisterLogonTask`。任务限当前交互用户、Limited，不运行于 SYSTEM/session 0，不申请管理员权限。组织禁止用户任务注册时保留手动运行方式，不修改限制。
+4. 心跳出现后，在平台选择本地会话响应范围、真实匿名会话目标和模式，由另一人员独立批准。`monitor` 仅观察；`clear_sensitive` 对四类格式规则的确定命中进行条件清除；`clear_all` 对后续可核对的当前实例尝试清除全部格式。没有有效批准时不会读取新文本或清除；启动不读取已有剪贴板。
+5. `Test-ScarletClipboardSession.ps1 -Mode Plan` 不读取剪贴板，也不执行清除。它检查能力并初始化当前用户的本地易失会话标识；实机结果仍为 `not_run`。按 `clipboard-functional-checklist.csv` 使用合成文本/空闲文档逐项验收。
+
+监听通知发生在复制之后。清除前会在同一窗口站/用户桌面内再次核对序号、owner、会话、策略期限与一次性短期票据，变化则跳过，不清除替换后的内容。成功只证明该次清前实例在持锁时被清空，**不能证明其他应用尚未粘贴**。通知可合并、原生延迟渲染可能阻塞，图片/文件列表/HTML和自定义格式的识别仍有缺口；部分 Unicode 有确定命中可处置，部分无命中不算安全。不会清除 Windows 历史、云同步副本或应用已缓存内容，也不会恢复被清除的正文。
+
+源端只保存匿名 intent/result、命中类别与时间，正文在本机内存中处理。intent 先落盘，离线回执保留并使用原时刻补传；重传不重做清除。新登录/重启的匿名会话标识变化会使旧会话批准永久结束，须重新批准。撤销需源端收到才能停止，离线不会延长原固定 TTL；配置由同一用户持有，不宣称防同用户篡改或强制覆盖所有应用。
+
+`Remove-ScarletClipboardSession.ps1` 只移除自己精确匹配的登录任务并请求观察器停止；等待运行标记消失，不强杀进程、不假称被阻塞的原生调用已退出。保留配置、执行文件和证据。停止后可运行 `Test-ScarletClipboardSession.ps1 -Mode Replay` 只重传已有匿名元数据。
+
+## 应用接入后的写入前阻断
+
+`Invoke-ScarletClipboardText.ps1 -PolicyId <独立批准的controlled_operations策略> -AuthorizedRoot <授权目录> -RelativeTextFile <相对文本文件>` 是显式应用集成示例。它复用本机格式识别、写入前策略检查与证据接口，阻止时不调用原生写入；每次操作使用独立编号，未知/失败不能自动换编号重试。允许时写入当前用户剪贴板，同时设置不纳入 Windows 历史/云同步的格式标志；这些标志也不是历史副本已经消失的证明。
+
+这个入口需由应用主动调用，Office、浏览器和记事本自带的 Ctrl+C 不会自动改走该入口；它们使用上面的变化后监听与条件清除链路。两种证据范围在平台分别展示，不能将集成接口的 preflight blocked 结果推导为任意应用的粘贴前全局拦截。

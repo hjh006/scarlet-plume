@@ -249,3 +249,5 @@ GitHub Actions 使用临时 PostgreSQL 服务验证迁移和测试。Django 测�
 数据外发与事件调查已提供终端设备、临时通道策略、独立审批、源端加载回执及实际操作证据。Windows执行器区分原生观察与显式受控动作，不把加载等同全系统拦截；下载与接入命令见[终端通道说明](docs/endpoint-channel-enforcement.md)。
 
 Windows企业终端另提供[部署与验收包源文件](endpoint/windows-enterprise/README.md)及[原生控制契约](docs/windows-enterprise-native-controls.md)：固定的可移动存储拒写、本地指定打印队列暂停、RDP剪贴板重定向限制，使用独立批准、限时租约、分阶段证据与保守恢复。Docker构建生成x64/ARM64执行器、ZIP和独立SHA256清单，下载入口位于终端设备页；Windows实机与PowerShell/SCM运行验收仍待完成，配置回读不代表功能阻断。
+
+Windows 本地剪贴板另支持按交互用户运行的会话监听、四类文本规则命中后的条件清除、稳定匿名会话目标、独立批准/TTL、匿名意图与结果证据；显式应用集成可使用原有写入前受控阻断。具体部署和 Office、Edge/Chrome、记事本待测项见[用户会话说明](docs/windows-clipboard-session.md)和[部署包说明](endpoint/windows-enterprise/README.md)。变化后清除不保证任意应用的粘贴前拦截，Windows实机仍待验收。

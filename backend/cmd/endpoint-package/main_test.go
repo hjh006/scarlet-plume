@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-var publicKitAssets = []string{"README.md", "config.example.json", "Install-ScarletEndpoint.ps1", "Remove-ScarletEndpoint.ps1", "Test-ScarletDeployment.ps1", "functional-checklist.csv"}
+var publicKitAssets = []string{"README.md", "config.example.json", "Install-ScarletEndpoint.ps1", "Remove-ScarletEndpoint.ps1", "Test-ScarletDeployment.ps1", "functional-checklist.csv", "clipboard-config.example.json", "ScarletClipboard.Common.ps1", "Install-ScarletClipboardSession.ps1", "Start-ScarletClipboardSession.ps1", "Remove-ScarletClipboardSession.ps1", "Test-ScarletClipboardSession.ps1", "Invoke-ScarletClipboardText.ps1", "clipboard-functional-checklist.csv"}
 
 type packageFixture struct {
 	source, binaries, output string
@@ -129,15 +129,16 @@ func TestPackageWhitelistManifestAndStandaloneMatch(t *testing.T) {
 		t.Fatal("standalone and ZIP manifests differ", err)
 	}
 	var manifest struct {
-		Version                 string `json:"version"`
-		NativeRuntimeAcceptance string `json:"nativeRuntimeAcceptance"`
-		Files                   []struct {
+		Version                           string `json:"version"`
+		NativeRuntimeAcceptance           string `json:"nativeRuntimeAcceptance"`
+		ClipboardSessionRuntimeAcceptance string `json:"clipboardSessionRuntimeAcceptance"`
+		Files                             []struct {
 			Path   string `json:"path"`
 			SHA256 string `json:"sha256"`
 			Bytes  int    `json:"bytes"`
 		} `json:"files"`
 	}
-	if err := json.Unmarshal(standalone, &manifest); err != nil || manifest.Version != "windows-enterprise-v1" || manifest.NativeRuntimeAcceptance != "pending" || len(manifest.Files) != len(f.want) {
+	if err := json.Unmarshal(standalone, &manifest); err != nil || manifest.Version != "windows-enterprise-v2" || manifest.NativeRuntimeAcceptance != "pending" || manifest.ClipboardSessionRuntimeAcceptance != "pending" || len(manifest.Files) != len(f.want) {
 		t.Fatal("invalid manifest or unverified Windows acceptance was promoted", err)
 	}
 	seen := map[string]bool{}

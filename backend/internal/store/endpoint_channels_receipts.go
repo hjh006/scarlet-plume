@@ -13,7 +13,13 @@ var endpointReceiptCodes = []string{"policy_loaded", "operation_supported", "per
 
 func validEndpointReceipt(in *EndpointReceiptInput) bool {
 	in.ObservedAt = in.ObservedAt.UTC().Truncate(time.Microsecond)
-	if !digestPattern.MatchString(in.ReceiptRef) || !digestPattern.MatchString(in.DeviceRef) || !digestPattern.MatchString(in.PolicyDigest) || in.PolicyID < 1 || in.PolicyRevision < 1 || !slices.Contains([]string{"applied", "failed", "unsupported"}, in.Status) || in.ObservedAt.Before(time.Now().Add(-7*24*time.Hour)) || in.ObservedAt.After(time.Now().Add(time.Minute)) {
+	if !digestPattern.MatchString(in.ReceiptRef) || !digestPattern.MatchString(in.DeviceRef) || !digestPattern.MatchString(in.PolicyDigest) || in.PolicyID < 1 || in.PolicyRevision < 1 || in.ObservedAt.Before(time.Now().Add(-7*24*time.Hour)) || in.ObservedAt.After(time.Now().Add(time.Minute)) {
+		return false
+	}
+	if in.Scope == "session_response" {
+		return validEndpointSessionReceipt(in)
+	}
+	if !slices.Contains([]string{"applied", "failed", "unsupported"}, in.Status) {
 		return false
 	}
 	if in.Scope == "native_control" {
@@ -78,7 +84,18 @@ func (s *Store) ReceiveEndpointReceipt(ctx context.Context, digest string, in En
 		if d.DeviceRef != in.DeviceRef || d.OS != p.OS {
 			return ErrConflict
 		}
-		if p.Scope == "native_control" {
+		if p.Scope == "session_response" {
+			if err = recordEndpointSessionReceipt(ctx, tx, ws, p, in); err != nil {
+				return err
+			}
+			p, err = readEndpointPolicy(ctx, tx, ws, p.ID)
+			if err != nil {
+				return err
+			}
+			if err = refreshEndpointPolicy(ctx, tx, ws, 0, "", &p); err != nil {
+				return err
+			}
+		} else if p.Scope == "native_control" {
 			if err = recordEndpointNativeReceipt(ctx, tx, ws, p, in); err != nil {
 				return err
 			}
@@ -138,7 +155,7 @@ func readEndpointReceipts(ctx context.Context, tx pgx.Tx, ws, policyID int64) ([
 	})
 }
 func (s *Store) EndpointPolicyDetail(ctx context.Context, ws, actor, id int64) (EndpointPolicyDetail, error) {
-	var result EndpointPolicyDetail
+	result := EndpointPolicyDetail{SessionEvents: []EndpointSessionEvent{}, SessionCoverageMissing: []string{}}
 	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		role, err := checkRole(ctx, tx, ws, actor, false)
 		if err != nil {
@@ -150,6 +167,17 @@ func (s *Store) EndpointPolicyDetail(ctx context.Context, ws, actor, id int64) (
 		}
 		if err = refreshEndpointPolicy(ctx, tx, ws, actor, role, &result.EndpointPolicy); err != nil {
 			return err
+		}
+		if result.Scope == "session_response" {
+			result.SessionEvents, result.SessionEventsTotal, err = readEndpointSessionEvents(ctx, tx, ws, id, 100)
+			if err != nil {
+				return err
+			}
+			result.SessionEventsTruncated = result.SessionEventsTotal > int64(len(result.SessionEvents))
+			result.SessionCoverageMissing, err = endpointSessionCoverage(ctx, tx, ws, id, result.SessionEventsTotal, result.SessionEventsTruncated)
+			if err != nil {
+				return err
+			}
 		}
 		result.Receipts, err = readEndpointReceipts(ctx, tx, ws, id)
 		return err

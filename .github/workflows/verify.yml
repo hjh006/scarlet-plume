@@ -186,3 +186,38 @@ jobs:
       - name: Verify real native collector samples
         working-directory: backend
         run: go test -race -p 1 ./internal/collector -run '^TestDiscovery(MySQL|MariaDB|Mongo)Live$' -count=1 -timeout=90s -v
+
+  endpoint-windows:
+    name: Verify Windows clipboard code and PowerShell syntax
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Parse public deployment scripts without executing them
+        shell: powershell
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSEdition -ne 'Desktop') { throw 'Windows PowerShell 5.1 Desktop is required for syntax validation.' }
+          $scripts = @(Get-ChildItem -LiteralPath endpoint/windows-enterprise -Filter '*.ps1' -File)
+          if ($scripts.Count -lt 9) { throw 'Deployment scripts are missing.' }
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors) { throw ($script.Name + ': ' + (($parseErrors | ForEach-Object { $_.Message }) -join '; ')) }
+          }
+          Write-Output ('Parsed ' + $scripts.Count + ' scripts; no installer or clipboard operation was executed.')
+      - name: Verify pure state, buffer and Windows ABI tests
+        working-directory: backend
+        shell: powershell
+        run: |
+          # Native fake/ABI tests never capture a live clipboard or install a task.
+          go test ./internal/endpointnative -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./cmd/endpoint-agent ./internal/endpointnative
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

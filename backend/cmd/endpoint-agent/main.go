@@ -33,7 +33,7 @@ func main() {
 func run() error {
 	origin := flag.String("url", "", "fixed HTTPS platform origin")
 	local := flag.Bool("local", false, "allow loopback HTTP only")
-	mode := flag.String("mode", "heartbeat", "heartbeat, sync, watch, usb, print, clipboard or replay")
+	mode := flag.String("mode", "heartbeat", "heartbeat, sync, watch, usb, print, clipboard, replay, session-plan, session-watch, session-replay, session-stop or session-copy")
 	policyID := flag.Int64("policy", 0, "exact approved policy ID")
 	state := flag.String("state-dir", "", "dedicated private journal/outbox directory")
 	op := flag.String("operation-id", "", "unique local operation ID; never reuse for a different action")
@@ -74,6 +74,32 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	if strings.HasPrefix(*mode, "session-") {
+		binding, err := configureClipboardSession(c)
+		if err != nil {
+			return err
+		}
+		if *mode == "session-plan" {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{"deviceRef": c.device, "sessionRef": binding.sessionRef, "configDigest": binding.configDigest, "capabilities": c.nativeCapabilities(), "prePasteBlocking": false, "windowsRuntimeAcceptance": "pending"})
+		}
+		if *state == "" {
+			return errors.New("dedicated private per-user state directory required")
+		}
+		if err := os.MkdirAll(*state, 0700); err != nil {
+			return errors.New("session state unavailable")
+		}
+		if *mode != "session-copy" {
+			root, err := os.OpenRoot(*state)
+			if err != nil {
+				return errors.New("session state unavailable")
+			}
+			defer root.Close()
+			return runClipboardSession(ctx, c, root, binding, *mode)
+		}
+		// Application integrations call this exact mediated write path. Its
+		// preflight denial is separate from the reactive clipboard observer.
+		*mode = "clipboard"
+	}
 	if *mode == "heartbeat" {
 		return c.heartbeat(ctx)
 	}

@@ -11,6 +11,7 @@ import (
 
 const endpointHeartbeatPath = "/api/v1/endpoint/heartbeat"
 const endpointPolicyPath = "/api/v1/endpoint/policy"
+const endpointSessionEventsPath = "/api/v1/endpoint/session-events"
 const endpointReceiptsPath = "/api/v1/endpoint/receipts"
 
 func (s *server) endpointChannelRoutes(mux *http.ServeMux) {
@@ -23,6 +24,7 @@ func (s *server) endpointChannelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/exports/{export}/export", s.workspace(false, s.exportEndpointEvidence))
 	mux.HandleFunc("POST "+endpointHeartbeatPath, s.operationsExternal("security_events", s.endpointHeartbeat))
 	mux.HandleFunc("GET "+endpointPolicyPath, s.operationsExternal("security_events", s.endpointAgentPolicy))
+	mux.HandleFunc("POST "+endpointSessionEventsPath, s.operationsExternal("security_events", s.endpointSessionEvent))
 	mux.HandleFunc("POST "+endpointReceiptsPath, s.operationsExternal("security_events", s.endpointReceipt))
 }
 func (s *server) endpointDevices(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
@@ -190,4 +192,21 @@ func (s *server) exportEndpointEvidence(w http.ResponseWriter, r *http.Request, 
 		store.EndpointEvidenceExport
 		JSON string
 	}{result, string(raw)})
+}
+
+func (s *server) endpointSessionEvent(w http.ResponseWriter, r *http.Request, digest string) {
+	var in store.EndpointSessionEventInput
+	if !readJSONLimit(w, r, &in, 4096) {
+		return
+	}
+	event, replay, err := s.store.ReceiveEndpointSessionEvent(r.Context(), digest, in)
+	if err != nil {
+		operationsFailure(w, err)
+		return
+	}
+	status := http.StatusCreated
+	if replay {
+		status = http.StatusOK
+	}
+	respond(w, status, map[string]any{"event": event, "replayed": replay})
 }

@@ -14,7 +14,7 @@ foreach ($file in $manifest.files) {
 }
 $nativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 $architecture = switch ($nativeArchitecture.ToUpperInvariant()) { 'AMD64' { 'x64' }; 'ARM64' { 'arm64' }; default { 'unsupported' } }
-$result = [ordered]@{ packageVersion=$manifest.version; packageHashes='passed'; architecture=$architecture; nativeFunctionality='not_run'; usb='not_run'; print='not_run'; rdpClipboard='not_run'; localApplicationClipboard='not_covered'; windowsRuntimeAcceptance='pending' }
+$result = [ordered]@{ packageVersion=$manifest.version; packageHashes='passed'; architecture=$architecture; nativeFunctionality='not_run'; usb='not_run'; print='not_run'; rdpClipboard='not_run'; localApplicationClipboard='not_run'; sessionResponse='not_run'; unintegratedPrePasteBlocking='not_guaranteed'; windowsRuntimeAcceptance='pending' }
 if ($Mode -eq 'Plan') {
   $programData = [Environment]::GetFolderPath('CommonApplicationData')
   $trustedSids = @('S-1-5-18', 'S-1-5-32-544')
