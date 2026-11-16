@@ -24,13 +24,14 @@ const (
 )
 
 type server struct {
-	managed          *managed.Manager
-	classificationAI *classificationai.Manager
-	store            *store.Store
-	origin           string
-	secure           bool
-	loginSlots       chan struct{}
-	runtimeSlots     chan struct{}
+	managed            *managed.Manager
+	classificationAI   *classificationai.Manager
+	store              *store.Store
+	origin             string
+	secure             bool
+	loginSlots         chan struct{}
+	runtimeSlots       chan struct{}
+	identityHTTPClient *http.Client
 }
 
 func New(st *store.Store, origin string, secure bool) http.Handler {
@@ -75,6 +76,11 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 	s.classificationRoutes(mux)
 	s.browserAnnotationRoutes(mux)
 	s.dataFlowRoutes(mux)
+	s.securityPlatformRoutes(mux)
+	s.aiSecurityRuntimeRoutes(mux)
+	s.aiSecurityRoutes(mux)
+	s.identityRoutes(mux)
+	s.gatewayRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})
@@ -83,7 +89,7 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("Origin") != s.origin && !(r.Method == http.MethodPost && (r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath || r.URL.Path == endpointSessionEventsPath)) {
+			r.Header.Get("Origin") != s.origin && !strings.HasPrefix(r.URL.Path, "/scim/v2/") && !gatewayMachineOriginExempt(r) && !(r.Method == http.MethodPost && (r.URL.Path == aiSecurityRuntimePath || r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath || r.URL.Path == endpointSessionEventsPath)) {
 			fail(w, http.StatusForbidden, "请求来源不受信任。")
 			return
 		}
@@ -91,6 +97,18 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 		defer cancel()
 		mux.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func gatewayMachineOriginExempt(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	switch r.URL.Path {
+	case "/api/v1/internal/ai-gateway/resolve", "/api/v1/internal/ai-gateway/authorize", "/api/v1/internal/ai-gateway/settle", "/api/v1/internal/ai-gateway/heartbeat", "/api/v1/internal/ai-gateway/events", "/api/v1/internal/ai-gateway/cache/get", "/api/v1/internal/ai-gateway/cache/put", "/api/v1/internal/ai-gateway/task/check", "/api/v1/internal/ai-gateway/task/steps/admit", "/api/v1/internal/ai-gateway/task/steps/complete":
+		return true
+	default:
+		return false
+	}
 }
 
 func respond(w http.ResponseWriter, status int, value any) {

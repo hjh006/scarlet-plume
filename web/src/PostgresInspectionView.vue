@@ -4,6 +4,7 @@ import { ApiError, describeError, formatDate, request, workspacePath, type Works
 import { postgresPermissionScope, postgresProfileStatusLabels, postgresProfileWarning, postgresPublicSelect, postgresSensitivityLabel, type PostgresInspection } from './postgresql'
 import Icon from './Icon.vue'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
+import './governance-workspace.css'
 
 const props = defineProps<{ workspace: Workspace; assetId: string }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -15,6 +16,7 @@ const loading = ref(true)
 const missing = ref(false)
 const loadError = ref('')
 const candidatesOnly = ref(false)
+const selectedColumnName = ref('')
 const selectedTab = ref('columns')
 const tabs = computed(() => [
   { id: 'columns', label: '字段与识别', count: table.value?.columns.length },
@@ -27,6 +29,7 @@ const tabs = computed(() => [
 const table = computed(() => record.value?.table)
 const candidates = computed(() => table.value?.columns.filter(column => column.sensitivity) ?? [])
 const visibleColumns = computed(() => candidatesOnly.value ? candidates.value : table.value?.columns ?? [])
+const selectedColumn = computed(()=>visibleColumns.value.find(column=>column.name===selectedColumnName.value)??visibleColumns.value[0])
 const publicColumnCount = computed(() => table.value?.publicSelectColumns?.length ?? 0)
 const hasPublicSelect = computed(() => table.value?.publicSelect || publicColumnCount.value > 0)
 const analysis = computed(() => table.value?.contentAnalysis)
@@ -55,7 +58,7 @@ onBeforeUnmount(() => active.abort())
 </script>
 
 <template>
-  <div class="postgres-record">
+  <div class="postgres-record governance-postgres">
     <a class="back-link" :href="home + '/assets'"><Icon name="back" />返回数据资产</a>
     <header class="page-header">
       <div>
@@ -78,7 +81,7 @@ onBeforeUnmount(() => active.abort())
     </section>
     <template v-else-if="record && table">
       <dl class="scope-strip postgres-counts" aria-label="本次采集范围"><div><dt>字段</dt><dd>{{ table.columns.length }}</dd></div><div><dt>疑似敏感字段</dt><dd>{{ candidates.length }}</dd></div><div><dt>直接授权记录</dt><dd>{{ table.grants.length }}</dd></div><div><dt>采集时间</dt><dd class="postgres-count-date"><time :datetime="record.observedAt">{{ formatDate(record.observedAt) }}</time></dd></div></dl>
-      <div class="postgres-workbench"><div class="section-stack postgres-main"><nav class="postgres-tabs" aria-label="查看采集证据"><button v-for="tab in tabs" :key="tab.id" :class="{ active: selectedTab === tab.id }" :aria-pressed="selectedTab === tab.id" type="button" @click="selectedTab = tab.id">{{ tab.label }}<span v-if="tab.count !== undefined">{{ tab.count }}</span></button></nav>
+      <div class="postgres-workbench"><aside class="panel governance-pg-tree"><div class="panel-heading"><h2>当前资产目录</h2></div><p><Icon name="workspace"/>{{table.schema||'Schema 未记录'}}</p><strong><Icon name="assets"/>{{table.name}}</strong><p class="field-hint">{{table.sourceRef}}</p><a class="table-link" :href="home+'/assets'">返回完整资产台账 <Icon name="chevron"/></a><p class="governance-inline-note">仅展示当前明确对象，其他表与字段需从资产台账选择。</p></aside><div class="section-stack postgres-main"><nav class="postgres-tabs" aria-label="查看采集证据"><button v-for="tab in tabs" :key="tab.id" :class="{ active: selectedTab === tab.id }" :aria-pressed="selectedTab === tab.id" type="button" @click="selectedTab = tab.id">{{ tab.label }}<span v-if="tab.count !== undefined">{{ tab.count }}</span></button></nav>
 <section v-show="selectedTab === 'columns'" class="panel postgres-panel" aria-labelledby="postgres-columns-title">
         <div class="panel-heading">
           <div><h2 id="postgres-columns-title">字段与自动识别</h2><p>按字段名称和类型识别疑似敏感字段，供分级分类时核对。</p></div>
@@ -92,8 +95,8 @@ onBeforeUnmount(() => active.abort())
               <tr><th scope="col">字段</th><th scope="col">数据类型</th><th scope="col">可为空</th><th scope="col">疑似敏感</th><th scope="col">采集角色读取权限</th></tr>
             </thead>
             <tbody>
-              <tr v-for="column in visibleColumns" :key="column.ordinal">
-                <th scope="row"><span class="mono">{{ column.name }}</span><span v-if="column.comment" class="table-secondary">{{ column.comment }}</span></th>
+              <tr v-for="column in visibleColumns" :key="column.ordinal" :class="{'governance-selected-row':selectedColumn?.name===column.name}">
+                <th scope="row"><button type="button" class="governance-record-select mono" :aria-pressed="selectedColumn?.name===column.name" @click="selectedColumnName=column.name">{{ column.name }}</button><span v-if="column.comment" class="table-secondary">{{ column.comment }}</span></th>
                 <td class="mono">{{ column.type }}</td>
                 <td>{{ column.nullable ? '是' : '否' }}</td>
                 <td><span v-if="column.sensitivity" class="badge status-needs_work">{{ postgresSensitivityLabel(column.sensitivity) }}</span><span v-else>—</span></td>
@@ -102,7 +105,7 @@ onBeforeUnmount(() => active.abort())
             </tbody>
           </table>
         </div>
-        <p v-else class="empty-state">{{ candidatesOnly ? '此快照未识别到疑似敏感字段。' : '此表暂无字段。' }}</p>
+        <p v-else class="empty-state">{{ candidatesOnly ? '此快照未识别到疑似敏感字段。' : '此表暂无字段。' }}</p><section v-if="selectedColumn" class="governance-field-evidence"><h3>字段详情：{{selectedColumn.name}} <span class="badge" :class="selectedColumn.sensitivity?'status-in_review':'status-draft'">{{selectedColumn.sensitivity?postgresSensitivityLabel(selectedColumn.sensitivity)+'候选':'本次无名称规则命中'}}</span></h3><dl><div><dt>来源依据</dt><dd>任务 #{{record.jobId}} · 运行 {{record.runId}} · {{formatDate(record.observedAt)}}。名称与类型识别仅形成线索，不能直接作为确认属性。</dd></div><div><dt>覆盖边界</dt><dd>{{table.sourceRef}} / {{selectedColumn.name}} · {{selectedColumn.type}}。当前角色读取权限：{{selectedColumn.canSelect===undefined?'未记录':selectedColumn.canSelect?'有 SELECT 权限':'缺少 SELECT 权限'}}；完整访问与内容识别范围另核。</dd></div></dl><a class="table-link" :href="home+'/classification/'+assetId">核对人工确认与采用版本 <Icon name="chevron"/></a></section>
       </section>
 <section v-if="analysis" v-show="selectedTab === 'content'" class="panel postgres-panel" aria-labelledby="postgres-content-title">
         <div class="panel-heading">

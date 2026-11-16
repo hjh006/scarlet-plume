@@ -4,6 +4,7 @@ import type { Workspace } from './api'
 import Icon from './Icon.vue'
 import ScenarioDataPanel from './ScenarioDataPanel.vue'
 import ScenarioChecksPanel from './ScenarioChecksPanel.vue'
+import { defaultScenarioTasks, scenarioPresentations } from './scenario-presentation'
 import { useScenarioContext } from './scenario-context'
 import { scenarios, scenarioEntryPath } from './scenario-navigation'
 
@@ -13,6 +14,7 @@ const checksPanel = ref<InstanceType<typeof ScenarioChecksPanel>>()
 const editor = computed(() => ['owner', 'operator'].includes(props.workspace.role))
 const scenario = computed(() => scenarios.find(item => item.id === props.scenarioId))
 const task = computed(() => scenario.value?.tasks.find(item => item.id === props.taskId))
+const presentation = computed(() => scenarioPresentations[props.scenarioId + '/' + (props.taskId || defaultScenarioTasks[props.scenarioId])])
 const home = computed(() => `#/${encodeURIComponent(props.workspace.slug)}`)
 const { href } = useScenarioContext(props.workspace.slug)
 const scenarioHref = computed(() => scenarioLink(props.scenarioId))
@@ -39,11 +41,11 @@ function entryHref(page: string) {
     <section v-else-if="!scenario" class="panel scenario-unavailable"><h1>未找到这个检查场景</h1><p>从导航选择已有场景，或返回概览核对已接入数据。</p><a class="button button-primary" :href="href('overview')">返回概览</a></section>
     <template v-else>
       <a v-if="taskId" class="back-link" :href="scenarioHref"><Icon name="back"/>返回{{ scenario.label }}检查</a>
-      <header class="page-header scenario-header"><div><p class="eyebrow">技术检查 / {{ scenario.label }}</p><h1>{{ task?.label || scenario.label }}</h1><p>{{ task?.summary || scenario.description }}</p></div><button v-if="editor && (!taskId || task)" class="button button-primary" type="button" :disabled="!checksPanel?.canRun" @click="checksPanel?.run()"><Icon name="checks"/>{{ checksPanel?.running ? '正在运行检查…' : '运行检查' }}</button></header>
+      <header class="page-header scenario-header"><div><p class="eyebrow">技术检查 / {{ scenario.label }}</p><h1>{{ presentation?.title || task?.label || scenario.label }}</h1><p>{{ presentation?.focus || task?.summary || scenario.description }}</p></div><button v-if="editor && (!taskId || task)" class="button button-primary" type="button" :disabled="!checksPanel?.canRun" @click="checksPanel?.run()"><Icon name="checks"/>{{ checksPanel?.running ? '正在运行检查…' : '运行检查' }}</button></header>
       <section v-if="taskId && !task" class="panel scenario-unavailable"><h2>未找到这项技术检查</h2><p>旧任务链接继续兼容已有检查项，请从当前场景重新选择。</p><a class="button button-secondary" :href="scenarioHref">查看本场景检查项</a></section>
       <template v-else>
         <nav class="scenario-task-switcher scenario-check-task-nav" :aria-label="scenario.label + '专项技术检查'"><a :href="scenarioHref" :aria-current="!taskId ? 'page' : undefined">场景综合技术检查</a><a v-for="item in scenario.tasks" :key="item.id" :href="taskHref(item.id)" :aria-current="task?.id === item.id ? 'page' : undefined">{{ item.label }}</a></nav>
-        <ScenarioDataPanel :workspace="workspace" :scenario-id="scenarioId" :task-id="taskId" technical @session-expired="emit('sessionExpired')"><template #checks="{scope}"><ScenarioChecksPanel ref="checksPanel" :workspace="workspace" :scenario-id="scenarioId" :task-id="taskId" :asset-id="scope.assetId" :activity-id="scope.activityId" :scope-ready="scope.ready" @session-expired="emit('sessionExpired')"/></template></ScenarioDataPanel>
+        <ScenarioDataPanel :workspace="workspace" :scenario-id="scenarioId" :task-id="taskId" technical @session-expired="emit('sessionExpired')"><template #checks="{scope,data,asset,activity}"><ScenarioChecksPanel ref="checksPanel" :workspace="workspace" :scenario-id="scenarioId" :task-id="taskId" :asset-id="scope.assetId" :activity-id="scope.activityId" :scope-ready="scope.ready" :task-data="data" :selected-asset="asset" :selected-activity="activity" @session-expired="emit('sessionExpired')"/></template></ScenarioDataPanel>
         <details class="panel scenario-secondary-section"><summary>相关技术台账与辅助证据</summary><div class="scenario-secondary-body"><p>来源台账、分类、处理活动及评估可为本次检查提供补充证据；检查判定以本次采用范围和证据时点为准。</p><p><a :href="href('capabilities?tab=browser')">业务页面字段标注</a> · <a :href="href('capabilities?tab=files')">文件识别证据</a> · <a :href="href('capabilities?tab=value-search')">指纹溯源</a> · <a :href="href('capabilities?tab=reports')">指定范围与周期报告</a></p><ul class="scenario-result-list"><li v-for="view in scenario.views" :key="view.page"><a :href="entryHref(view.page)"><div><h3>{{ view.label }}</h3><p>{{ view.description }}</p></div><Icon name="chevron"/></a></li></ul><ul v-if="task?.entries.length" class="scenario-entry-list"><li v-for="entry in task.entries" :key="entry.page + entry.label"><a :href="entryHref(entry.page)"><div><strong>{{ entry.label }}</strong><p v-if="entry.description">{{ entry.description }}</p></div><Icon name="chevron"/></a></li></ul></div></details>
         <details class="panel scenario-secondary-section"><summary>检查依据、适用条件与报告参考</summary><div class="scenario-secondary-body"><template v-if="task"><h2>适用条件与核查要求</h2><ul class="scenario-guidance-list"><li v-for="requirement in task.requirements" :key="requirement">{{ requirement }}</li></ul><h2>报告与证据参考内容</h2><p>以下为检查范围的参考内容；本次已取得证据和未满足项在检查结果的「监管报告要求」中分别列示。</p><ul class="scenario-material-list"><li v-for="material in task.deliverables" :key="material"><Icon name="reports"/><span>{{ material }}</span></li></ul><p v-if="task.gap" class="scenario-secondary-gap">{{ task.gap }}</p></template><h2>公开依据与版本</h2><ul class="scenario-source-list"><li v-for="source in scenario.sources" :key="source.url + source.label"><a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.label }}<span class="visually-hidden">（在新窗口打开）</span></a></li></ul></div></details>
       </template>
@@ -153,3 +155,5 @@ function entryHref(page: string) {
 </style>
 
 <style scoped>.scenario-check-task-nav{flex-wrap:wrap}.scenario-secondary-section>summary{padding:17px 20px;color:var(--accent);font-size:13px;font-weight:650;cursor:pointer}.scenario-secondary-body{padding:0 20px 20px;font-size:12px;line-height:1.8}.scenario-secondary-body>p{color:var(--secondary);margin-bottom:12px}.scenario-secondary-body>h2{font-size:14px;margin:18px 0 10px}.scenario-secondary-body .scenario-result-list,.scenario-secondary-body .scenario-entry-list{padding:0}.scenario-secondary-body .scenario-result-list{grid-template-columns:repeat(2,minmax(0,1fr))}.scenario-secondary-body .scenario-source-list{padding:0}.scenario-secondary-gap{padding:12px 14px;background:var(--surface-subtle);border-radius:6px;margin-top:16px}@media(max-width:767px){.scenario-secondary-body .scenario-result-list{grid-template-columns:minmax(0,1fr)}}</style>
+
+<style scoped>.scenario-page{gap:14px}.scenario-page>.scenario-header{margin-bottom:0!important}.scenario-header h1{font-size:30px;line-height:1.4}.scenario-header p{font-size:14px;line-height:1.8}.scenario-check-task-nav{min-height:43px}.scenario-check-task-nav a{min-height:40px;padding-top:7px;padding-bottom:7px}@media(max-width:767px){.scenario-header h1{font-size:25px}}</style>

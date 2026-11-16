@@ -36,6 +36,22 @@ import AuditView from './AuditView.vue'
 import ClassificationView from './ClassificationView.vue'
 import ClassificationStandardsView from './ClassificationStandardsView.vue'
 
+const AISecurityView = defineAsyncComponent({
+  loader: () => import('./AISecurityView.vue'), delay: 0, timeout: 15000,
+  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入 AI 运行时安全页面…'),
+  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, 'AI 安全页面未能载入，请刷新重试。'),
+})
+const AISecurityPlatform = defineAsyncComponent({
+  loader: () => import('./AISecurityPlatform.vue'), delay: 0, timeout: 15000,
+  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入安全能力工作台…'),
+  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, '安全能力工作台未能载入，请刷新重试。'),
+})
+const AIGatewayView = defineAsyncComponent({
+  loader: () => import('./AIGatewayView.vue'), delay: 0, timeout: 15000,
+  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入 AI 网关管理页面…'),
+  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, 'AI 网关页面未能载入，请刷新重试。'),
+})
+
 const ApiValidationView = defineAsyncComponent({
   loader: () => import('./ApiValidationView.vue'),
   delay: 0,
@@ -106,6 +122,7 @@ const actionError = ref('')
 const busy = ref(false)
 const username = ref('')
 const password = ref('')
+const enterpriseWorkspace = ref(initialRoute.slug)
 const mainContent = ref<HTMLElement | null>(null)
 const menuButton = ref<HTMLButtonElement | null>(null)
 const menuOpen = ref(false)
@@ -265,6 +282,10 @@ async function signOut() {
     busy.value = false
   }
 }
+function enterpriseSignIn() {
+  const slug=enterpriseWorkspace.value.trim()
+  if(slug)window.location.assign('/api/v1/identity/'+encodeURIComponent(slug)+'/oidc/start')
+}
 
 function sessionExpired() {
   scenarioReturn.value = null
@@ -316,6 +337,12 @@ onUnmounted(() => {
         <div class="nav-group">
           <a :href="scopedHref('overview')" :aria-current="route.page === 'overview' ? 'page' : undefined"><Icon name="overview" /><span>概览</span></a>
         </div>
+        <div class="nav-group">
+          <span class="nav-label">数据与 AI 安全</span>
+          <a :href="scopedHref('security-platform')" :aria-current="route.page === 'security-platform' ? 'page' : undefined"><Icon name="shield" /><span>安全能力工作台</span></a>
+          <a :href="scopedHref('ai-security')" :aria-current="route.page === 'ai-security' ? 'page' : undefined"><Icon name="api-security" /><span>AI 运行时安全</span></a>
+          <a :href="scopedHref('ai-gateway')" :aria-current="route.page === 'ai-gateway' ? 'page' : undefined"><Icon name="integrations" /><span>AI 网关与企业治理</span></a>
+        </div>
         <div class="nav-group scenario-navigation">
           <span class="nav-label">按场景运行检查</span>
           <div v-for="scenario in scenarios" :key="scenario.id" class="scenario-nav-group">
@@ -361,7 +388,7 @@ onUnmounted(() => {
           <span class="breadcrumb-divider" aria-hidden="true">/</span>
           <span class="page-crumb">{{ activeGroup }}</span><span class="breadcrumb-divider" aria-hidden="true">/</span><strong class="page-crumb-current" :title="activePage">{{ activePage }}</strong>
         </div>
-        <button type="button" class="navigation-trigger" @click="openNavigation"><Icon name="search" /><span>查找场景或功能</span><kbd>⌘ / Ctrl K</kbd></button>
+        <button type="button" class="navigation-trigger" aria-label="查找场景或功能" @click="openNavigation"><Icon name="search" /><span>查找场景或功能</span><kbd>⌘ / Ctrl K</kbd></button>
         <div class="topbar-account">
           <span class="account-avatar"><Icon name="user" /></span>
           <div class="account-name">
@@ -382,6 +409,9 @@ onUnmounted(() => {
         <a v-if="scenarioReturn && scenarioReturn.slug === workspace.slug" class="scenario-return" :href="scopedHref(scenarioReturn.path)"><Icon name="back" />返回 {{ scenarioReturn.label }}</a>
         <ScenarioView v-if="route.page === 'scenarios'" :key="`${workspace.slug}/scenarios/${route.recordId}/${route.contextId}`" :workspace="workspace" :scenario-id="route.recordId" :task-id="route.contextId" @session-expired="sessionExpired" />
         <ToolsView v-else-if="route.page === 'tools'" :key="workspace.slug" :workspace="workspace" />
+        <AISecurityPlatform v-else-if="route.page === 'security-platform'" :key="`${workspace.slug}/${route.capabilityTab}`" :initial-tab="route.capabilityTab" :workspace="workspace" @session-expired="sessionExpired" />
+        <AISecurityView v-else-if="route.page === 'ai-security'" :key="`${workspace.slug}/${route.capabilityTab}`" :initial-tab="route.capabilityTab" :workspace="workspace" @session-expired="sessionExpired" />
+        <AIGatewayView v-else-if="route.page === 'ai-gateway'" :key="`${workspace.slug}/${route.capabilityTab}`" :initial-tab="route.capabilityTab" :workspace="workspace" @session-expired="sessionExpired" />
         <CapabilityToolsView v-else-if="route.page === 'capabilities'" :key="`${workspace.slug}/${route.scopeAssetId}/${route.scopeActivityId}`" :workspace="workspace" @session-expired="sessionExpired" />
         <template v-else-if="route.page === 'activities'">
           <ActivityCreate v-if="route.recordId === 'new'" :key="workspace.slug" :workspace="workspace"
@@ -411,8 +441,8 @@ onUnmounted(() => {
         <template v-else-if="route.page === 'reports'">
           <ReportArchiveView v-if="route.recordId === 'archives' && !route.contextId" :key="workspace.slug"
                              :workspace="workspace" @session-expired="sessionExpired" />
-          <ComplianceReportView v-else :key="`${workspace.slug}/${route.recordId}/${route.contextId}`" :workspace="workspace"
-                                :activity-context="route.recordId === 'archives' ? undefined : route.recordId"
+          <ComplianceReportView v-else :key="`${workspace.slug}/${route.recordId}/${route.contextId}/${route.scopeActivityId}`" :workspace="workspace"
+                                :activity-context="route.recordId === 'archives' ? undefined : route.recordId || route.scopeActivityId"
                                 :archive-id="route.recordId === 'archives' ? route.contextId : undefined"
                                 @session-expired="sessionExpired" />
         </template>
@@ -514,6 +544,11 @@ onUnmounted(() => {
             <button type="submit" class="button button-primary" :disabled="busy">
               {{ busy ? '登录中…' : '登录' }} <Icon name="arrow" />
             </button>
+          </form>
+          <form @submit.prevent="enterpriseSignIn">
+            <h3>企业身份登录</h3>
+            <div class="field"><label for="enterprise-workspace">工作区标识</label><input id="enterprise-workspace" v-model.trim="enterpriseWorkspace" name="workspace" autocomplete="organization" required maxlength="160"></div>
+            <button type="submit" class="button button-secondary" :disabled="busy">前往企业身份提供商 <Icon name="arrow" /></button>
           </form>
           <p class="login-access-note">如需工作区访问权限，请联系管理员。</p>
         </section></div>

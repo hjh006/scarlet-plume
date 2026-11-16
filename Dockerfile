@@ -12,6 +12,7 @@ RUN npm run build
 FROM golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS backend
 WORKDIR /src/backend
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+ARG GOPROXY=https://proxy.golang.org,direct
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
@@ -27,6 +28,11 @@ RUN go build -trimpath -o /out/scarlet-server ./cmd/server \
     && go build -trimpath -o /out/scarlet-control-agent ./cmd/control-agent \
     && go build -trimpath -o /out/scarlet-event-bridge ./cmd/event-bridge
 RUN go build -trimpath -o /out/scarlet-data-transfer-guard ./cmd/data-transfer-guard
+RUN go build -trimpath -o /out/scarlet-ai-security-agent ./cmd/ai-security-agent
+RUN go build -trimpath -o /out/scarlet-ai-security-receipts ./cmd/ai-security-receipts
+RUN go build -trimpath -o /out/scarlet-media-inspector ./cmd/media-inspector
+RUN go build -trimpath -o /out/scarlet-ai-gateway ./cmd/ai-gateway \
+    && go build -trimpath -o /out/scarlet-gateway-audit-export ./cmd/gateway-audit-export
 RUN go build -trimpath -o /out/scarlet-endpoint-agent ./cmd/endpoint-agent \
     && GOOS=windows GOARCH=amd64 go build -trimpath -o /downloads/scarlet-endpoint-agent-windows-amd64.exe ./cmd/endpoint-agent \
     && GOOS=windows GOARCH=arm64 go build -trimpath -o /downloads/scarlet-endpoint-agent-windows-arm64.exe ./cmd/endpoint-agent \

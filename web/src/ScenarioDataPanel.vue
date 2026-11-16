@@ -308,9 +308,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="panel scenario-data" aria-labelledby="scenario-data-title" :aria-busy="loading">
-    <div class="panel-heading"><div><h2 id="scenario-data-title">{{ technical ? '检查范围与采集依据' : supportedScenario ? '检查证据与辅助资料' : '已接入来源与采集数据' }}</h2><p>{{ technical ? '选择已授权资产或处理活动，运行技术检查并追踪发现、整改与复测。' : supportedScenario ? '按所选范围引用已有事实，逐项核对检查证据、报告内容和待补条件。' : '读取客户侧采集结果，分别保留登记与来源观察。应用 API 返回的是配置声明，仍需与实际处理情况核对。' }}</p></div><button class="button button-secondary" type="button" :disabled="loading || sourceActionBusy" @click="loadData">{{ technical ? '刷新采集依据' : '刷新已采集数据' }}</button></div>
+  <section class="panel scenario-data" :class="{'is-technical':technical}" aria-labelledby="scenario-data-title" :aria-busy="loading">
+    <h2 v-if="technical" id="scenario-data-title" class="visually-hidden">检查范围与采集依据</h2>
+    <div v-else class="panel-heading"><div><h2 id="scenario-data-title">{{ technical ? '检查范围与采集依据' : supportedScenario ? '检查证据与辅助资料' : '已接入来源与采集数据' }}</h2><p>{{ technical ? '选择已授权资产或处理活动，运行技术检查并追踪发现、整改与复测。' : supportedScenario ? '按所选范围引用已有事实，逐项核对检查证据、报告内容和待补条件。' : '读取客户侧采集结果，分别保留登记与来源观察。应用 API 返回的是配置声明，仍需与实际处理情况核对。' }}</p></div><button class="button button-secondary" type="button" :disabled="loading || sourceActionBusy" @click="loadData">{{ technical ? '刷新采集依据' : '刷新已采集数据' }}</button></div>
 
+    <component :is="technical ? 'details' : 'div'" :class="{'scenario-scope-choice':technical}" :open="technical && !selectedAssetId && !selectedActivityId">
+      <summary v-if="technical"><strong>{{ selectedScope }}</strong><span>选择 / 更换检查范围</span></summary>
+      <button v-if="technical" class="button button-secondary scope-refresh" type="button" :disabled="loading || sourceActionBusy" @click="loadData">刷新当前来源事实</button>
     <div v-if="!compact" class="scenario-data-scope">
       <label class="field" for="scenario-data-activity">按已有处理活动查看<select id="scenario-data-activity" v-model="selectedActivityId" :disabled="activitiesLoading || sourceActionBusy" @change="selectActivity"><option value="">选择处理活动</option><option v-if="selectedActivityId && !selectedActivity" :value="selectedActivityId">处理活动 #{{ selectedActivityId }} · 正在核对身份</option><option v-for="activity in activities" :key="activity.id" :value="String(activity.id)">{{ activity.name }} · {{ activityKindLabels[activity.kind] }} · {{ activity.assetName }}</option></select></label>
       <label class="field" for="scenario-data-asset">或按已有资产查看<select id="scenario-data-asset" v-model="selectedAssetId" :disabled="assetsLoading || sourceActionBusy" @change="selectAsset"><option value="">选择资产</option><option v-if="selectedAssetId && !selectedAsset" :value="selectedAssetId">{{ selectedActivity?.assetName || '资产 #' + selectedAssetId }} · 活动关联资产</option><option v-for="asset in assets" :key="asset.id" :value="String(asset.id)">{{ asset.name }} · {{ asset.system || asset.source }}</option></select></label>
@@ -319,7 +323,8 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="technical && data?.classification" class="scenario-technical-classification"><strong>{{ data.classification.item.asset.name }}</strong><span>资产 #{{ data.assetId }} · 分类 v{{ data.classification.item.revision }}</span><span>{{ assetCategoryLabels[data.classification.item.asset.category || ''] || '数据属性待判定' }} · {{ assetBusinessLevelLabels[data.classification.item.asset.businessLevel || ''] || '内部级别待判定' }}</span><span class="badge" :class="data.classification.usable ? 'status-verified' : 'status-needs_work'">{{ data.classification.usable ? '当前分类依据可引用' : '分类依据需核实' }}</span></div>
-    <slot v-if="technical" name="checks" :scope="{ assetId: selectedAssetId, activityId: selectedActivityId, ready: !!data && !loading && !error }" />
+    </component>
+    <slot v-if="technical" name="checks" :scope="{ assetId: selectedAssetId, activityId: selectedActivityId, ready: !!data && !loading && !error }" :data="data" :asset="selectedAsset" :activity="selectedActivity" />
     <p v-if="loading" class="scenario-data-message" role="status">正在读取来源状态与所选范围的事实…</p>
     <div v-else-if="error" class="scenario-data-message"><p role="alert">{{ error }}</p><button type="button" class="button button-secondary" @click="loadData">重新读取</button></div>
     <template v-else-if="data">
@@ -431,3 +436,7 @@ onBeforeUnmount(() => {
 <style scoped>.scenario-technical-classification{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;padding:14px 22px;border-bottom:1px solid var(--line);background:var(--surface-subtle);font-size:12px}.scenario-technical-classification>span:not(.badge){color:var(--secondary)}.scenario-auxiliary-evidence>summary{padding:16px 22px;font-size:13px;font-weight:600;color:var(--accent);cursor:pointer;border-top:1px solid var(--line)}</style>
 
 <style scoped>details.scenario-data-gaps>summary{font-size:13px;color:var(--accent);font-weight:600;cursor:pointer}details.scenario-data-gaps>ul{margin-top:12px}</style>
+
+<style scoped>
+.scenario-data.is-technical{background:transparent;border:0;box-shadow:none;overflow:visible}.scenario-scope-choice{border:1px solid var(--line);border-radius:8px;background:var(--surface)}.scenario-scope-choice>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:13px;padding:12px 16px;cursor:pointer;line-height:1.7}.scenario-scope-choice>summary>span{color:var(--accent);font-size:12px;white-space:nowrap}.scenario-scope-choice .scope-refresh{margin:10px 16px 0;font-size:12px}.scenario-data.is-technical .scenario-technical-classification{padding:9px 14px;border:0;background:transparent;min-height:36px;gap:8px 12px}.scenario-data.is-technical .scenario-data-scope{padding:14px 16px;gap:10px 16px}.scenario-data.is-technical .scenario-scope-caption{margin-top:0}.scenario-data.is-technical .scenario-scope-feedback{padding:0}
+</style>

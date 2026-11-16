@@ -56,6 +56,10 @@ func TestUnauthenticatedAndCrossOrigin(t *testing.T) {
 		{"POST", "https://other.invalid", "/api/v1/session", 403},
 		{"DELETE", "", "/api/v1/session", 403},
 		{"POST", "https://example.invalid", "/api/v1/workspaces/demo/imports", 401},
+		{"POST", "", "/api/v1/internal/ai-gateway/cache/get", 415},
+		{"POST", "", "/api/v1/internal/ai-gateway/cache/put", 415},
+		{"PUT", "", "/api/v1/internal/ai-gateway/cache/get", 403},
+		{"POST", "", "/api/v1/internal/ai-gateway/cache/unknown", 403},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		req.Header.Set("Origin", tc.origin)

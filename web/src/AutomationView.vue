@@ -6,6 +6,7 @@ import {
   type AutomationJob, type AutomationProvider, type AutomationRun, type IssuedAutomationJob,
 } from './automation'
 import Icon from './Icon.vue'
+import EvidencePath from './EvidencePath.vue'
 import ManagedPostgresForm from './ManagedPostgresForm.vue'
 
 const props = defineProps<{ workspace: Workspace; checkContext?: string }>()
@@ -43,6 +44,13 @@ const historyHeading = ref<HTMLElement | null>(null)
 const selectedJob = ref<AutomationJob | null>(null)
 const runs = ref<AutomationRun[]>([])
 const focusedJob = computed(() => selectedJob.value ?? jobs.value[0])
+const executionStages=computed(()=>{const j=focusedJob.value,r=j?.latestRun;return [
+ {label:'任务配置',value:j?jobLabel(j):'尚无任务',note:j?.managed?'配置修订 v'+j.managed.revision:j?'外部采集器任务 #'+j.id:'按授权范围创建任务',tone:j?'known':'pending'},
+ {label:'任务排队',value:j?.managed?.queued?'已排队':awaitingRun.value?.jobId===j?.id?'等待本次运行':'未处于排队状态',tone:j?.managed?.queued?'known':'pending'},
+ {label:'来源执行',value:j?.managed?.running?'采集器运行中':r?'已有运行记录':'尚无运行回执',tone:j?.managed?.running||r?'known':'pending'},
+ {label:'采集结果',value:r?automationRunStatuses[r.status]:'尚未取得',note:r?formatDate(r.observedAt):undefined,tone:r?.status==='error'?'error':r?'known':'pending'},
+ {label:'采用证据',value:r?.evidenceId?'证据 #'+r.evidenceId:r?'核对本次登记结果':'尚未形成',note:'归档与独立复核分别核对',tone:r?.evidenceId?'known':'pending'},
+] as {label:string;value:string;note?:string;tone:'known'|'pending'|'error'}[]})
 const selectedRunId = ref<number>()
 const focusedRun = computed(() => runs.value.find(run => run.id === selectedRunId.value) ?? runs.value[0])
 const showIssuedToken = ref(false)
@@ -332,7 +340,7 @@ onBeforeUnmount(() => {
   <header class="page-header">
     <div>
       <p class="eyebrow">治理工作区 / 连接器</p>
-      <h1>自动采集</h1>
+      <h1>配置完成之后，还要看到真实运行</h1>
       <p>定期读取已授权的数据来源，自动登记资产目录或检查证据，并保留每次运行结果。</p>
     </div>
     <div v-if="owner && !showForm && !issued && !managedDraft" class="automation-actions">
@@ -426,6 +434,7 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
+  <EvidencePath v-if="!managedDraft && !showForm" :items="executionStages" label="所选任务的配置、运行与采用证据" />
   <div class="automation-workbench"><section class="panel" aria-labelledby="automation-jobs-heading" :aria-busy="loading">
     <div class="panel-heading">
       <div><h2 id="automation-jobs-heading">采集任务</h2><p>查看任务授权和最近一次运行。</p></div>
@@ -488,7 +497,7 @@ onBeforeUnmount(() => {
       <p v-if="owner && managedAvailable">新建 PostgreSQL 任务后可测试连接、设置定期采集，或立即采集一次。</p>
       <p v-else>{{ owner ? '新建任务后，在连接源系统的采集端配置接入令牌和运行频率。' : '工作区负责人创建任务后，可在这里查看采集状态。' }}</p>
     </div>
-  </section><aside class="automation-context-rail"><section v-if="focusedJob" class="panel"><p class="eyebrow">当前采集任务</p><h2>{{ jobLabel(focusedJob) }}</h2><span class="badge">{{ jobState(focusedJob) }}</span><dl><div><dt>任务来源</dt><dd>{{ automationProviders[focusedJob.provider] }}</dd></div><div><dt>任务编号</dt><dd>#{{ focusedJob.id }}</dd></div><template v-if="focusedJob.managed"><div><dt>采集频率</dt><dd>每 {{ focusedJob.managed.intervalMinutes }} 分钟</dd></div><div><dt>自动检查</dt><dd>{{ focusedJob.managed.autoChecks ? '已开启' : '未开启' }}</dd></div><div><dt>报告归档</dt><dd>{{ focusedJob.managed.autoReports ? '已开启' : '未开启' }}</dd></div></template><div><dt>最近运行</dt><dd>{{ focusedJob.latestRun ? automationRunStatuses[focusedJob.latestRun.status] : '等待首次运行' }}</dd></div></dl><button class="button button-secondary" @click="loadRuns(focusedJob, true)">查看运行依据</button></section><section class="panel"><h2>自动化处理链</h2><ol><li>按授权范围采集来源事实</li><li>识别目录、字段与权限</li><li>将可验证结果关联检查</li><li>保留复测与报告快照</li></ol><p>来源状态和运行成功不能代替检查的独立复核结论。</p></section></aside></div>
+  </section><aside class="automation-context-rail"><section v-if="focusedJob" class="panel"><p class="eyebrow">当前采集任务</p><h2>{{ jobLabel(focusedJob) }}</h2><span class="badge">{{ jobState(focusedJob) }}</span><dl><div><dt>任务来源</dt><dd>{{ automationProviders[focusedJob.provider] }}</dd></div><div><dt>任务编号</dt><dd>#{{ focusedJob.id }}</dd></div><template v-if="focusedJob.managed"><div><dt>采集频率</dt><dd>每 {{ focusedJob.managed.intervalMinutes }} 分钟</dd></div><div><dt>自动检查</dt><dd>{{ focusedJob.managed.autoChecks ? '已开启' : '未开启' }}</dd></div><div><dt>报告归档</dt><dd>{{ focusedJob.managed.autoReports ? '已开启' : '未开启' }}</dd></div></template><div><dt>最近运行</dt><dd>{{ focusedJob.latestRun ? automationRunStatuses[focusedJob.latestRun.status] : '等待首次运行' }}</dd></div></dl><button class="button button-secondary" @click="loadRuns(focusedJob, true)">查看运行依据</button></section><section v-if="focusedJob?.latestRun" class="panel latest-run-inspector"><h2>最近来源运行</h2><span class="badge" :class="automationRunClass(focusedJob.latestRun.status)">{{automationRunStatuses[focusedJob.latestRun.status]}}</span><dl><div><dt>批次引用</dt><dd>{{focusedJob.latestRun.runId}}</dd></div><div><dt>实际观察</dt><dd>{{formatDate(focusedJob.latestRun.observedAt)}}</dd></div><div><dt>登记时间</dt><dd>{{formatDate(focusedJob.latestRun.createdAt)}}</dd></div><div><dt>来源结果</dt><dd>{{automationRunDetail(focusedJob.latestRun,Boolean(focusedJob.managed))}}</dd></div><div v-if="focusedJob.latestRun.evidenceId"><dt>证据记录</dt><dd>#{{focusedJob.latestRun.evidenceId}}</dd></div></dl><p>结果只代表本次授权采集范围；完整覆盖、来源复测和报告归档分别核对。</p></section><section class="panel"><h2>自动化处理链</h2><ol><li>按授权范围采集来源事实</li><li>识别目录、字段与权限</li><li>将可验证结果关联检查</li><li>保留复测与报告快照</li></ol><p>来源状态和运行成功不能代替检查的独立复核结论。</p></section></aside></div>
 
   <div v-if="selectedJob" class="automation-workbench"><section class="panel automation-history" aria-labelledby="automation-history-heading" :aria-busy="historyLoading">
     <div class="panel-heading">
@@ -524,3 +533,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>.automation-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start;margin-bottom:18px}.automation-context-rail{display:grid;gap:16px}.automation-context-rail>.panel{padding:20px}.automation-context-rail h2{font-size:14px;line-height:1.8;margin:0 0 14px;overflow-wrap:anywhere}.automation-context-rail p,.automation-context-rail li{font-size:12px;line-height:1.9;color:var(--muted)}.automation-context-rail ol{padding-left:20px}.automation-context-rail dl{display:grid;gap:15px;margin:20px 0}.automation-context-rail dl>div{display:grid;grid-template-columns:74px minmax(0,1fr);gap:8px;font-size:12px}.automation-context-rail dt{color:var(--muted)}.automation-context-rail dd{margin:0;overflow-wrap:anywhere}.automation-record-link{border:0;background:none;color:var(--blue);padding:0;font:inherit;cursor:pointer;text-align:left;overflow-wrap:anywhere}.automation-table{min-width:650px}.automation-table .automation-actions{gap:6px}.automation-table .automation-actions .button{font-size:12px;min-height:32px;padding:6px 9px}.automation-table tr.selected{background:var(--surface-subtle)}.automation-history{margin-top:0}.automation-table td,.automation-table th{vertical-align:top}.automation-form{max-width:none}.automation-form>form,.automation-panel-body{padding:22px}.automation-token{border-color:var(--input-line);margin-bottom:18px}.automation-connect{display:grid;grid-template-columns:1fr 1fr;gap:16px}.automation-connect dd{overflow-wrap:anywhere}.automation-setup pre{padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-subtle);white-space:pre-wrap;font-size:12px}@media(max-width:1400px){.automation-workbench{grid-template-columns:minmax(0,1fr) 270px;gap:12px}}</style>
+
+<style scoped>.automation-workbench{grid-template-columns:minmax(0,1fr) 340px}.automation-context-rail h2{font-size:16px;line-height:1.6}.automation-context-rail dl>div{font-size:13px;line-height:1.7}.automation-context-rail p{font-size:13px;line-height:1.8}.automation-table{min-width:680px}.automation-table td,.automation-table th{padding:16px 13px}.latest-run-inspector{background:linear-gradient(120deg,#fff,#f3f9ff)}.latest-run-inspector dl>div{border-bottom:1px solid var(--line);padding-bottom:10px}@media(max-width:1300px){.automation-workbench{grid-template-columns:minmax(0,1fr) 280px}}@media(max-width:850px){.automation-workbench{grid-template-columns:1fr}.automation-context-rail{grid-template-columns:1fr 1fr}}@media(max-width:620px){.automation-context-rail{grid-template-columns:1fr}}</style>
+
+<style scoped>.automation-context-rail>.latest-run-inspector{order:-1}.automation-context-rail dl{gap:10px;margin:15px 0}.automation-context-rail dl>div{padding-bottom:7px;border-bottom:1px solid var(--line)}</style>

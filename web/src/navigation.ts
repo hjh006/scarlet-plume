@@ -2,6 +2,11 @@ export const toolGroups = [
   { label: '工作区概况', items: [
     { id: 'overview', label: '数据安全全景', icon: 'overview', description: '查看当前工作区的资产、来源、发现和检查概况。' },
   ] },
+  { label: '数据与 AI 安全', items: [
+    { id: 'security-platform', label: '安全能力工作台', icon: 'shield', description: '核对八个能力方向、数据风险、网络关联和当前覆盖缺口。' },
+    { id: 'ai-security', label: 'AI 运行时安全', icon: 'shield', description: '配置知识检索授权、模型数据外发和 Agent 工具动作，查看策略评估与回归证据。' },
+    { id: 'ai-gateway', label: 'AI 网关与企业治理', icon: 'integrations', description: '管理网关接入、模型应用授权、预算限流、节点健康、企业身份与调用审计。' },
+  ] },
   { label: '数据治理', items: [
     { id: 'assets', label: '数据资产', icon: 'assets', description: '查看资产台账、来源引用和数据库字段与权限。' },
     { id: 'asset-catalog', label: '业务资产目录', icon: 'assets', description: '核对业务目录、责任信息与来源确认记录。' },

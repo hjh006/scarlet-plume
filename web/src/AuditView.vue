@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import './runtime-workspaces.css'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import Icon from './Icon.vue'
@@ -34,6 +35,9 @@ const appliedQuery = ref('')
 const selectedIndex = ref(0)
 const selectedRequest = computed(() => runtime.value?.items[selectedIndex.value] ?? runtime.value?.items[0])
 const selectedAction = computed(() => actions.value?.items[selectedIndex.value] ?? actions.value?.items[0])
+const timelineRecords = computed(() => actionsTab
+  ? (actions.value?.items ?? []).map((entry, index) => ({ key: 'action-' + index, index, at: entry.at, title: actionLabels[entry.action] || entry.action, source: entry.automated ? '平台自动登记' : '平台操作', detail: entry.actor + ' · ' + (targetLabels[entry.targetType] || entry.targetType) + ' #' + entry.targetId, sourceRef: '对象 #' + entry.targetId }))
+  : (runtime.value?.items ?? []).map((entry, index) => ({ key: 'request-' + entry.id, index, at: entry.observedAt, title: entry.method + ' ' + entry.route, source: entry.source, detail: entry.service + ' · HTTP ' + entry.status + ' · ' + kindLabels[entry.kind], sourceRef: '来源 #' + entry.sourceId + ' / 审计 #' + entry.id })))
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE']
 const actionLabels: Record<string, string> = {
   'check.created': '创建检查',
@@ -90,6 +94,7 @@ async function load() {
     if (actionsTab) actions.value = await request<AuditPage<ActionAudit>>(apiPath + '?' + query, { signal: active.signal })
     else runtime.value = await request<RequestAuditPage>(apiPath + '?' + query, { signal: active.signal })
     appliedQuery.value = query.toString()
+    selectedIndex.value = 0
   } catch (failure) {
     error.value = errorText(failure)
   } finally {
@@ -122,7 +127,7 @@ onBeforeUnmount(() => active.abort())
     <header class="page-header">
       <div>
         <p class="eyebrow">安全与集成</p>
-        <h1>审计中心</h1>
+        <h1>从一条记录，追到它的来源。</h1>
         <p>按条件查询运行时请求和平台关键操作，按最近一次查询条件导出。</p>
       </div>
       <div class="page-actions">
@@ -191,6 +196,9 @@ onBeforeUnmount(() => active.abort())
         <p v-if="runtime?.truncated || actions?.truncated" class="message message-warning audit-note" role="status">
           当前查询仅展示最近 {{ runtime?.limit ?? actions?.limit }} 条，导出采用相同上限。可缩小时间范围继续查询。
         </p>
+        <section v-if="timelineRecords.length" class="rw-audit-timeline" aria-label="本次查询来源时间线"><div class="rw-timeline-caption"><strong>{{ actionsTab ? '平台操作时间线' : '来源观察时间线' }}</strong><span>展示本次返回记录前 8 条，按来源分别标识。</span></div><ol><li v-for="entry in timelineRecords.slice(0, 8)" :key="entry.key"><time :datetime="entry.at">{{ formatDate(entry.at) }}</time><button type="button" :aria-pressed="selectedIndex === entry.index" @click="selectedIndex = entry.index"><span class="rw-timeline-source"><Icon :name="actionsTab ? 'user' : 'integrations'" />{{ entry.source }}<small>{{ entry.sourceRef }}</small></span><strong>{{ entry.title }}</strong><span>{{ entry.detail }}</span><span class="rw-record-link">查看记录依据 <Icon name="chevron" /></span></button></li></ol><p class="rw-boundary">时间相邻不建立跨来源因果；请求观察、平台操作与来源执行回执分别核对。</p></section>
+        <p v-else class="empty-state">所选范围内暂无审计记录。</p>
+        <details v-if="timelineRecords.length" class="rw-ledger rw-audit-ledger"><summary>完整记录台账（{{ runtime?.items.length ?? actions?.items.length ?? 0 }} 条）</summary>
         <div v-if="runtime?.items.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="audit-title">
           <table class="data-table audit-table">
             <thead><tr><th scope="col">观测时间</th><th scope="col">来源与服务</th><th scope="col">方法</th><th scope="col">路由模板</th><th scope="col">状态码</th></tr></thead>
@@ -227,6 +235,7 @@ onBeforeUnmount(() => active.abort())
           </table>
         </div>
         <p v-else class="empty-state">所选范围内暂无审计记录。</p>
+        </details>
       </template>
     </section><aside class="audit-detail-rail"><section class="panel"><p class="eyebrow">{{ actionsTab ? '操作详情' : '请求详情' }}</p><template v-if="selectedRequest && !actionsTab"><h2><span class="audit-method">{{ selectedRequest.method }}</span>{{ selectedRequest.route }}</h2><dl><div><dt>观察时间</dt><dd>{{ formatDate(selectedRequest.observedAt) }}</dd></div><div><dt>来源</dt><dd>{{ selectedRequest.source }} · #{{ selectedRequest.sourceId }}</dd></div><div><dt>服务</dt><dd>{{ selectedRequest.service }}</dd></div><div><dt>采集方式</dt><dd>{{ kindLabels[selectedRequest.kind] }}</dd></div><div><dt>状态码</dt><dd><span class="badge">{{ selectedRequest.status }}</span></dd></div><div><dt>审计编号</dt><dd>#{{ selectedRequest.id }}</dd></div></dl></template><template v-else-if="selectedAction"><h2>{{ actionLabels[selectedAction.action] || selectedAction.action }}</h2><dl><div><dt>操作时间</dt><dd>{{ formatDate(selectedAction.at) }}</dd></div><div><dt>经办人</dt><dd>{{ selectedAction.actor }}</dd></div><div><dt>对象</dt><dd>{{ targetLabels[selectedAction.targetType] || selectedAction.targetType }} #{{ selectedAction.targetId }}</dd></div><div><dt>登记方式</dt><dd>{{ selectedAction.automated ? '自动登记' : '平台操作' }}</dd></div></dl><a v-if="targetPaths[selectedAction.targetType]" class="button button-secondary" :href="home + targetPaths[selectedAction.targetType] + selectedAction.targetId">打开关联对象</a></template><p v-else>选择记录查看来源与审计标识。</p></section><section class="panel"><h2>查询与留存</h2><p>当前列表 {{ runtime?.items.length ?? actions?.items.length ?? 0 }} 条。{{ runtime?.truncated || actions?.truncated ? '已达到本次查询上限，请缩小查询范围。' : '数量仅代表本次查询返回的记录。' }}</p><p v-if="runtime">保留最近 {{ runtime.retentionDays }} 天<span v-if="runtime.retentionLimitPerSource">，每个来源最多 {{ runtime.retentionLimitPerSource }} 条</span>。</p><p>导出沿用最近一次成功查询的条件和展示上限。</p></section></aside></div>
   </div>

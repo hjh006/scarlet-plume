@@ -1,0 +1,52 @@
+services:
+  ai-gateway:
+    build:
+      context: .
+      dockerfile: docker/bifrost/Dockerfile
+    image: scarlet-ai-gateway:bifrost-2.5.1
+    restart: unless-stopped
+    ports:
+      - "${SCARLET_GATEWAY_BIND:-127.0.0.1}:8905:8905"
+    volumes:
+      - ./var/ai-gateway/config:/config:ro
+      - ./var/ai-gateway/state:/state
+    environment:
+      SCARLET_GATEWAY_PROVIDER_KEY: ${SCARLET_GATEWAY_PROVIDER_KEY:?set the approved upstream credential}
+      SCARLET_GATEWAY_ENDPOINT: ${SCARLET_GATEWAY_ENDPOINT:?set the fixed HTTPS provider base URL}
+      SCARLET_GATEWAY_FALLBACK_PROVIDER_KEY: ${SCARLET_GATEWAY_FALLBACK_PROVIDER_KEY:-}
+      SCARLET_GATEWAY_FALLBACK_ENDPOINT: ${SCARLET_GATEWAY_FALLBACK_ENDPOINT:-}
+    command:
+      - -bifrost-binary
+      - /app/main
+      - -listen
+      - 0.0.0.0:8905
+      - -catalog
+      - /config/catalog.json
+      - -bindings
+      - /config/bindings.json
+      - -bifrost-profile
+      - /config/bifrost.json
+      - -documents
+      - "${SCARLET_GATEWAY_DOCUMENTS_FILE-/config/documents.json}"
+      - -document-source-url
+      - "${SCARLET_GATEWAY_DOCUMENT_SOURCE_URL:-}"
+      - -document-source-token-file
+      - "${SCARLET_GATEWAY_DOCUMENT_SOURCE_URL:+/config/document-source.token}"
+      - -media-inspector-url
+      - ${SCARLET_GATEWAY_MEDIA_INSPECTOR_URL:-}
+      - -media-inspector-token-file
+      - /config/media-inspector.token
+      - -audit
+      - /state/audit.jsonl
+      - -journal
+      - /state/replay.jsonl
+      - -control-url
+      - ${SCARLET_GATEWAY_CONTROL_URL:?set the fixed HTTPS controller URL}
+      - -control-token-file
+      - /config/controller.token
+      - -workspace
+      - ${SCARLET_GATEWAY_WORKSPACE:?set the controller-bound workspace}
+      - -tls-cert
+      - /config/tls.crt
+      - -tls-key
+      - /config/tls.key

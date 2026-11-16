@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import './runtime-workspaces.css'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
 import type { RuntimeEvidenceSource } from './runtime-evidence-scope'
 import { lifecycleCategoryLabels } from './api-lifecycle'
+import Icon from './Icon.vue'
 import { runtimeDetectionDescriptions, runtimeDetectionLabels, type RuntimeDetectionPolicy, type RuntimePolicyPage } from './runtime-policies'
 
 const props = defineProps<{ workspace: Workspace }>()
@@ -30,6 +32,8 @@ let historyRequest = 0
 const canEdit = computed(() => props.workspace.role === 'owner')
 const windowRule = computed(() => ['subject_bulk_access', 'error_spike', 'off_hours','subject_repeated_access','subject_multi_ip','subject_multi_region'].includes(form.value?.rule||''))
 const home = `#/${encodeURIComponent(props.workspace.slug)}`
+const savedPolicy = computed(() => page.value?.items.find(item => policyKey(item) === selected.value))
+const policyScopeSource = computed(() => form.value?.sourceId ? sourceOptions.value.find(source => source.id === form.value?.sourceId)?.name || '来源 #' + form.value.sourceId : '各已授权来源分别计算')
 
 function failureText(failure: unknown) {
   if (active.signal.aborted) return ''
@@ -38,7 +42,7 @@ function failureText(failure: unknown) {
 }
 function choose() {
   const policy = page.value?.items.find(item => policyKey(item) === selected.value)
-  form.value = policy ? { ...policy, categories: [...policy.categories] } : null
+  form.value = policy ? { ...policy, sourceId: policy.sourceId ?? 0, method: policy.method ?? '', categories: [...policy.categories] } : null
   newPolicy.value=false;updateLists()
   error.value = ''; saved.value = ''
   history.value = []; historyError.value = ''
@@ -68,7 +72,7 @@ async function save() {
     const result = await request<RuntimeDetectionPolicy>(endpoint, { method: 'PUT', body: JSON.stringify({...form.value,allowedCategories:splitList(lists.categories),allowedCountries:splitList(lists.countries),allowedClientCountries:splitList(lists.clientCountries),allowedRecipients:splitList(lists.recipients),allowedDomains:splitList(lists.domains)}), signal: active.signal })
     if (page.value) {const index=page.value.items.findIndex(item=>policyKey(item)===policyKey(result));if(index>=0)page.value.items[index]=result;else page.value.items.push(result)}
     selected.value=policyKey(result);newPolicy.value=false
-    form.value = { ...result, categories: [...result.categories] };updateLists()
+    form.value = { ...result, sourceId: result.sourceId ?? 0, method: result.method ?? '', categories: [...result.categories] };updateLists()
     saved.value = `已保存版本 ${result.revision}，后续观测使用此版本。历史命中和证据保留原依据。`
     if (historyOpen.value) void loadHistory()
   } catch (failure) { error.value = failure instanceof ApiError && failure.status === 409 ? '策略版本已变化。未保存的草稿仍已保留，请核对最新版本后重试。' : failureText(failure) }
@@ -81,15 +85,16 @@ onBeforeUnmount(() => active.abort())
 <template>
   <div>
     <header class="page-header">
-      <div><p class="eyebrow">安全运营</p><h1>运行时检测策略</h1><p>配置真实观测信号的阈值，将命中送入检查、整改和独立复核。</p></div>
+      <div><p class="eyebrow">安全运营</p><h1>把检测条件，落实到明确目标。</h1><p>配置真实观测信号的阈值，将命中送入检查、整改和独立复核。</p></div>
       <div class="page-actions"><a class="button button-secondary" :href="home + '/api-security/runtime'">运行时发现</a><button class="button button-secondary" type="button" :disabled="loading || saving" @click="load">刷新策略</button></div>
     </header>
     <p v-if="error" class="message message-error" role="alert">{{ error }}<span v-if="error.includes('冲突')"> 请刷新当前策略后重新修改。</span></p>
     <p v-if="saved" class="message message-success" role="status">{{ saved }}</p>
+    <section v-if="form" class="rw-panel rw-policy-primary" aria-labelledby="rw-policy-target"><div class="rw-section-heading"><div><h2 id="rw-policy-target">{{ runtimeDetectionLabels[form.rule] || form.rule }} · 目标与条件</h2><p>下图为编辑区草稿预览；保存版本、来源采用和真实命中分别留存。</p></div><span class="rw-state-label">{{ newPolicy ? '新增范围草稿' : savedPolicy?.revision ? '已保存 v' + savedPolicy.revision : '系统默认配置' }}</span></div><div class="rw-policy-route"><article><Icon name="integrations" /><span>来源范围</span><strong>{{ policyScopeSource }}</strong><small>{{ form.scopeKey || '工作区默认' }}</small></article><Icon name="arrow" /><article><Icon name="api-security" /><span>方法与路由</span><strong>{{ form.method || '全部方法' }} {{ form.route || '来源内所有路由' }}</strong><small>{{ form.subjectRef ? '主体 ' + form.subjectRef : '未限定主体' }} · {{ form.clientIp ? '已限定客户端 IP' : '未限定客户端 IP' }}</small></article><Icon name="arrow" /><article><Icon name="checks" /><span>窗口与计数条件</span><strong>{{ form.windowMinutes }} 分钟 · 命中 ≥ {{ form.threshold }}</strong><small>最少 {{ form.minRequests }} 次来源请求</small></article><Icon name="arrow" /><article class="rw-policy-output"><Icon name="reports" /><span>配置输出</span><strong>{{ form.enabled ? '草稿启用' : '草稿停用' }}</strong><small>保存新版本后核对来源采用；不改写旧检查</small></article></div><div class="rw-policy-specific"><strong>本规则采用条件</strong><p>{{ runtimeDetectionDescriptions[form.rule] || '按当前登记规则核对来源事实与覆盖。' }}</p></div><p class="rw-boundary"><Icon name="warning" />缺失来源、未知认证、未检查完整与预算截断均需保留。关闭或放宽策略不表示原风险已消除。</p></section>
     <div class="policy-workbench"><aside class="panel policy-catalog" aria-labelledby="detection-list-title" :aria-busy="loading"><div class="panel-heading"><h2 id="detection-list-title">检测规则</h2></div><p v-if="loading && !page" class="empty-state" role="status">正在读取检测策略…</p><nav v-else-if="page" aria-label="选择检测规则"><button v-for="policy in page.items" :key="policyKey(policy)" type="button" class="policy-catalog-item" :aria-pressed="selected === policyKey(policy)" :disabled="saving" @click="selected = policyKey(policy); choose()"><span>{{ runtimeDetectionLabels[policy.rule] || policy.rule }}<small>{{policy.scopeKey||'工作区默认'}}{{policy.sourceId?' · 来源 #'+policy.sourceId:''}}</small></span><small :class="policy.enabled ? 'enabled' : ''">{{ policy.enabled ? '已启用' : '未启用' }}</small><code>{{ policy.revision ? 'v' + policy.revision : '系统默认' }}</code></button></nav></aside>
     <section v-if="form" class="panel policy-editor" aria-labelledby="detection-edit-title">
       <div class="panel-heading"><div><h2 id="detection-edit-title">{{ runtimeDetectionLabels[form.rule] }}</h2><p>{{ runtimeDetectionDescriptions[form.rule] }}</p></div></div>
-      <p v-if="!canEdit" class="message">只有工作区负责人可以修改策略。当前显示已生效配置。</p>
+      <p v-if="!canEdit" class="message">只有工作区负责人可以修改策略。当前显示已保存配置，来源采用须另行核对。</p>
       <form @submit.prevent="save">
         <fieldset :disabled="!canEdit || saving" class="policy-fields">
           <legend class="sr-only">{{ runtimeDetectionLabels[form.rule] }}配置</legend>

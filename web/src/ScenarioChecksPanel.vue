@@ -9,8 +9,12 @@ import { controlKindLabels, controlResultLabel, controlStatusLabels, type Contro
 import Icon from './Icon.vue'
 import RuntimeEvidenceScope from './RuntimeEvidenceScope.vue'
 import type { RuntimeEvidenceScope as RuntimeScope } from './runtime-evidence-scope'
+import type { ScenarioTaskData } from './scenario-context'
+import type { Asset } from './api'
+import type { Activity } from './activity'
+import ScenarioWorkspaceVisual from './ScenarioWorkspaceVisual.vue'
 
-const props = defineProps<{ workspace: Workspace; scenarioId: string; taskId?: string; assetId: string; activityId: string; scopeReady: boolean }>()
+const props = defineProps<{ workspace: Workspace; scenarioId: string; taskId?: string; assetId: string; activityId: string; scopeReady: boolean; taskData?: ScenarioTaskData | null; selectedAsset?: Asset; selectedActivity?: Activity }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const { href } = useScenarioContext(props.workspace.slug)
 const base = workspacePath(props.workspace.slug) + '/scenario-check-runs'
@@ -26,6 +30,16 @@ const exporting = ref(false)
 const error = ref('')
 const notice = ref('')
 const view = ref('findings')
+const ledgerOpen = ref(false)
+const ledgerAnchor = ref<HTMLElement>()
+const runtimeOptions = ref<HTMLDetailsElement>()
+async function openRuntimeOptions() { if (runtimeOptions.value) runtimeOptions.value.open = true; await nextTick(); runtimeOptions.value?.scrollIntoView({ block: 'nearest' }) }
+async function openLedger(nextView: string, id?: string) {
+  view.value = nextView; ledgerOpen.value = true
+  if (id) { selectedFindingId.value = id; outcomeFilter.value = '' }
+  await nextTick(); ledgerAnchor.value?.scrollIntoView({ block: 'start', behavior: 'auto' })
+}
+
 const views = [{ key: 'findings', label: '检查发现' }, { key: 'evidence', label: '证据清单' }, { key: 'requirements', label: '监管报告要求' }, { key: 'history', label: '历史结果' }]
 const outcomeFilter = ref('')
 const selectedFindingId = ref('')
@@ -132,12 +146,17 @@ defineExpose({ run, canRun, running })
 </script>
 
 <template>
-  <section class="scenario-checks" aria-labelledby="scenario-check-results-title" :aria-busy="running || detailLoading || actionBusy">
-    <div class="scenario-check-runbar"><div><h2 id="scenario-check-results-title">技术检查与发现</h2><p>分析当前已采集事实，保存规则、证据和范围；新来源采集与结果复查分别记录。</p></div><div class="scenario-check-actions"><button class="button button-secondary" type="button" :disabled="historyLoading || running" @click="view = 'history'; loadHistory()">查看历史结果</button><button v-if="editor" class="button button-primary" type="button" :disabled="!canRun" @click="run()"><Icon name="checks"/>{{ running ? '正在运行检查…' : '运行检查' }}</button></div></div>
-    <RuntimeEvidenceScope :workspace="workspace" @change="runtimeChanged" @session-expired="emit('sessionExpired')"/><p v-if="runtimeEnabled" class="scenario-check-message">本次按独立运行时来源范围检查，不将该来源伪关联到上方数据库或业务资产。来源观察不完整的项目保持待核实。</p>
+  <section class="scenario-checks" aria-label="技术检查与场景证据" :aria-busy="running || detailLoading || actionBusy">
+
+    <p v-if="error" class="message message-error" role="alert">{{ error }}</p><p v-if="notice" class="message message-success" role="status">{{ notice }}</p>
+    <ScenarioWorkspaceVisual :slug="workspace.slug" :scenario-id="scenarioId" :task-id="taskId" :data="taskData" :asset="selectedAsset" :activity="selectedActivity" :run="selected" :runtime="runtimeEnabled" :runtime-input="runtimeScope" :editor="editor" :busy="running || detailLoading || actionBusy || exporting" @finding="id => openLedger('findings',id)" @ledger="openLedger" @runtime="openRuntimeOptions" @remediate="proposeRemediation" @export="exportRun('zip')" />
+    <details ref="runtimeOptions" class="scenario-runtime-options"><summary>独立运行时来源范围（可选）</summary><RuntimeEvidenceScope :workspace="workspace" @change="runtimeChanged" @session-expired="emit('sessionExpired')"/></details><p v-if="runtimeEnabled" class="scenario-check-message">本次按独立运行时来源范围检查，不将该来源伪关联到上方数据库或业务资产。来源观察不完整的项目保持待核实。</p>
+    <details class="scenario-check-help"><summary>本次检查能力与采用边界</summary>
     <p v-if="!runtimeEnabled && !assetId && !activityId" class="scenario-check-message">先选择已授权资产或处理活动，再运行检查或查看该范围的历史结果。</p><p v-else-if="!taskId" class="scenario-check-message">当前为场景综合技术检查，使用本页列明的技术规则；选择专项项可进一步核对适用说明和报告要求。</p><p v-else-if="!editor" class="scenario-check-message">当前角色可查看检查结果、证据与报告；负责人或经办人可运行检查及申请受控整改。</p>
     <p class="scenario-check-message">资产范围核对分类一致性、数据库直接授权与保护配置覆盖；运行时范围核对实际用户/IP、敏感数据、共享及目的地观察与已配置策略。未提供事实或许可基线时保持待核实。</p>
-    <p v-if="error" class="message message-error" role="alert">{{ error }}</p><p v-if="notice" class="message message-success" role="status">{{ notice }}</p>
+    </details>
+    <details ref="ledgerAnchor" class="scenario-result-ledger" :open="ledgerOpen" @toggle="ledgerOpen = ($event.target as HTMLDetailsElement).open"><summary>技术发现工作表、证据清单与历史记录</summary>
+    <div class="scenario-check-runbar"><div><h2 id="scenario-check-results-title">技术检查与发现</h2><p>分析当前已采集事实，保存规则、证据和范围；新来源采集与结果复查分别记录。</p></div><div class="scenario-check-actions"><button class="button button-secondary" type="button" :disabled="historyLoading || running" @click="view = 'history'; loadHistory()">查看历史结果</button><button v-if="editor" class="button button-primary" type="button" :disabled="!canRun" @click="run()"><Icon name="checks"/>{{ running ? '正在运行检查…' : '运行检查' }}</button></div></div>
     <nav class="scenario-check-tabs" aria-label="技术检查结果视图"><button v-for="item in views" :key="item.key" type="button" :aria-pressed="view === item.key" :class="{active:view === item.key}" @click="view = item.key">{{ item.label }}</button></nav>
     <template v-if="selected && view !== 'history'">
       <div class="scenario-check-result-head"><div><span class="badge" :class="outcomeClass(selected.outcome)">{{ outcomeLabel(selected.outcome) }}</span><strong>{{ runTitle(selected) }} #{{ selected.id }} · {{ selected.assetName || selected.scope?.service || '运行时来源' }}</strong><span>{{ formatDate(selected.createdAt) }} · {{ selected.actor }}</span></div><div class="scenario-check-actions"><button class="button button-secondary" type="button" :disabled="detailLoading || running" @click="loadDetail(selected.id)">刷新结果</button><button v-if="editor" class="button button-secondary" type="button" :disabled="!canRun" @click="run(selected)">按本次范围复查</button></div></div>
@@ -158,6 +177,7 @@ defineExpose({ run, canRun, running })
     <section v-if="view === 'history'" class="scenario-check-history"><div class="scenario-check-section-title"><h3>当前范围历史检查</h3><span>当前筛选最近 {{ historyLimit }} 次 · {{ history.length }} 条</span></div><p v-if="historyLoading" class="empty-state" role="status">正在读取历史结果…</p><div v-else-if="history.length" class="table-scroll" role="region" tabindex="0" aria-label="历史检查结果"><table class="data-table"><thead><tr><th scope="col">检查与资产</th><th scope="col">本次判定</th><th scope="col">观察与复查</th><th scope="col">执行人 / 时间</th><th scope="col">操作</th></tr></thead><tbody><tr v-for="item in history" :key="item.id"><th scope="row">#{{ item.id }} · {{ item.assetName }}<span class="table-secondary">{{ runTitle(item) }} · {{ item.engineVersion }}</span></th><td><span class="badge" :class="outcomeClass(item.outcome)">{{ outcomeLabel(item.outcome) }}</span><span class="table-secondary">符合 {{ item.counts.compliant }} / 不符合 {{ item.counts.nonCompliant }} / 待核实 {{ item.counts.needsVerification }}</span></td><td>{{ scenarioCheckRetestLabels[item.retestState] || item.retestState }}<span v-if="item.previousRunId" class="table-secondary">前次 #{{ item.previousRunId }}</span></td><td>{{ item.actor }}<span class="table-secondary">{{ formatDate(item.createdAt) }}</span></td><td><button class="table-link" type="button" :disabled="detailLoading" @click="loadDetail(item.id); view = 'findings'">查看结果与证据</button></td></tr></tbody></table></div><p v-else class="empty-state">当前范围暂无历史检查。运行检查后，将保留逐项发现、依据与证据快照。</p></section>
     <p v-else-if="!selected && !historyLoading && !detailLoading" class="empty-state">暂无检查结果。选择范围并运行检查，或打开已有历史结果。</p><p v-if="detailLoading" class="scenario-check-message" role="status">正在读取本次结果与证据…</p>
 
+    </details>
     <section v-if="actionFinding" class="scenario-check-remediation"><h3 ref="actionHeading" tabindex="-1">申请受控整改 · {{ actionFinding.title }}</h3><p>{{ controlKindLabels[actionFinding.remediation.kind as keyof typeof controlKindLabels] || actionFinding.remediation.kind }} · {{ actionFinding.remediation.reason }}</p><dl v-if="actionFinding.remediation.target" class="scenario-remediation-target"><div v-if="actionFinding.remediation.target.assetId"><dt>拟操作资产</dt><dd>#{{ actionFinding.remediation.target.assetId }}</dd></div><div v-if="actionFinding.remediation.target.operationsSourceId"><dt>来源执行器</dt><dd>#{{ actionFinding.remediation.target.operationsSourceId }}</dd></div><div v-if="actionFinding.remediation.target.role"><dt>账号 / 角色</dt><dd>{{ actionFinding.remediation.target.role }}</dd></div><div v-if="actionFinding.remediation.target.method || actionFinding.remediation.target.route"><dt>请求范围</dt><dd>{{ actionFinding.remediation.target.method }} {{ actionFinding.remediation.target.route }}</dd></div></dl><form @submit.prevent="submitRemediation"><label>整改申请原因<textarea v-model="actionDraft.reason" required maxlength="300" rows="3" :disabled="actionBusy"></textarea></label><label>授权有效期（分钟）<input v-model.number="actionDraft.durationMinutes" type="number" min="1" max="1440" required :disabled="actionBusy"></label><p class="field-hint">仅生成服务端列出的受控处置申请，独立审批后由已登记来源执行；执行回执、新来源复查和回滚分别留存。</p><div class="scenario-check-actions"><button class="button button-secondary" type="button" :disabled="actionBusy" @click="actionFinding = undefined">取消</button><button class="button button-primary" :disabled="actionBusy || !actionDraft.reason.trim()">{{ actionBusy ? '提交中…' : '提交独立审批' }}</button></div></form></section>
   </section>
 </template>
@@ -170,3 +190,9 @@ defineExpose({ run, canRun, running })
 </style>
 
 <style scoped>.scenario-remediation-target{display:flex;flex-wrap:wrap;gap:14px 24px;margin:16px 0}.scenario-remediation-target>div{display:grid;gap:5px}.scenario-remediation-target dt{color:var(--secondary)}.scenario-remediation-target dd{margin:0;overflow-wrap:anywhere}</style>
+
+<style scoped>
+.scenario-checks{background:transparent;padding:16px 0;border:0}.scenario-runtime-options>summary,.scenario-result-ledger>summary{cursor:pointer;font-size:13px;color:var(--accent);padding:12px 0}.scenario-result-ledger{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0 18px}.scenario-result-ledger[open]{padding-bottom:18px}.scenario-runtime-options{border-bottom:1px solid var(--line)}.scenario-check-message{font-size:12px;line-height:1.7}.scenario-check-runbar{margin:10px 0 14px}
+</style>
+
+<style scoped>.scenario-checks{gap:12px;padding-top:0}.scenario-check-help>summary{cursor:pointer;color:var(--secondary);font-size:12px;min-height:28px;line-height:1.8}.scenario-check-help .scenario-check-message{margin:8px 0}.scenario-checks>.scenario-runtime-options{margin-top:0}.scenario-runtime-options>summary{padding:7px 0}.scenario-checks>.message{padding:10px 14px;font-size:13px}</style>

@@ -211,6 +211,29 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
   .desktop-design .navigation-trigger { min-width: 170px; }
   .navigation-trigger kbd { display: none; }
 }
+@media (max-width: 43.99rem) {
+  .desktop-design { display: block; }
+  .desktop-design .sidebar {
+    position: static; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%; height: auto; overflow: visible; padding: 12px; gap: 12px;
+    border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .desktop-design .sidebar .brand { margin: 0; }
+  .desktop-design .mobile-menu { display: inline-flex; }
+  .desktop-design .sidebar-nav, .desktop-design .sidebar-footer { display: none; }
+  .desktop-design .sidebar-open .sidebar-nav { display: flex; grid-column: 1 / -1; overflow: visible; }
+  .desktop-design .nav-group { grid-template-columns: minmax(0, 1fr); }
+  .desktop-design .sidebar-nav a { text-align: left; }
+  .desktop-design .sidebar-open .sidebar-footer { display: block; grid-column: 1 / -1; }
+  .desktop-design .topbar { height: auto; min-height: 56px; padding: 8px 12px; gap: 8px; }
+  .desktop-design .workspace-name { flex: 1; }
+  .desktop-design .workspace-name > :not(.page-crumb-current) { display: none; }
+  .desktop-design .page-crumb-current { max-width: none; }
+  .desktop-design .navigation-trigger { min-width: 38px; width: 38px; margin-left: 0; justify-content: center; }
+  .desktop-design .navigation-trigger :is(span, kbd), .desktop-design .topbar-account > .account-avatar { display: none; }
+  .desktop-design .main-content { padding: 20px 12px 32px; }
+  .desktop-design .page-header h1 { font-size: 24px; }
+}
 @media print {
   .desktop-design { display: block; }
   .desktop-design .sidebar, .desktop-design .topbar, .navigation-dialog { display: none !important; }

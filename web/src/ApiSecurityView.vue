@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import './runtime-workspaces.css'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import { postgresSensitivityLabel as sensitivityLabel } from './postgresql'
@@ -150,7 +151,7 @@ onBeforeUnmount(() => active.abort())
     <header class="api-masthead" :class="{ 'api-masthead--detail': scanId }">
       <div class="api-masthead-copy">
         <p v-if="scanId" class="api-scan-index">API 安全 · 扫描 #{{ scanId }}</p>
-        <h1>{{ scanId ? (detail?.source ? detail.source + ' · 契约扫描详情' : 'API 契约扫描详情') : 'API 契约安全与扫描' }}</h1>
+        <h1>{{ scanId ? (detail?.source ? detail.source + ' · 契约扫描详情' : 'API 契约扫描详情') : '接口说了什么，实际发生了什么？' }}</h1>
         <p class="api-scan-context">
           {{ scanId ? '依据接口契约分析，运行时行为待验证。' : '盘点接口、鉴权声明与疑似敏感字段，将契约发现登记到监管检查。' }}
         </p>
@@ -165,7 +166,7 @@ onBeforeUnmount(() => active.abort())
     <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
 
     <nav class="api-context-tabs" aria-label="API安全视图"><a :href="scanPath" aria-current="page">契约扫描</a><a :href="scanPath + '/runtime'">运行时观测</a><a :href="home + '/api-lifecycle'">接口生命周期</a></nav>
-    <dl v-if="!scanId && scans.length" class="api-metrics" aria-label="最近扫描范围与最新契约"><div class="api-metric"><dt>已显示扫描（最多25次）</dt><dd>{{ scans.length }}</dd></div><div class="api-metric"><dt>最新契约 · 接口操作</dt><dd>{{ scans[0]?.operationCount }}</dd></div><div class="api-metric"><dt>最新契约 · 字段候选</dt><dd>{{ scans[0]?.sensitiveFieldCount }}</dd></div><div class="api-metric"><dt>最新契约 · 待核查信号</dt><dd>{{ scans[0]?.findingCount }}</dd></div></dl>
+    <dl v-if="!scanId && scans.length" class="api-metrics rw-inline-metrics" aria-label="最近扫描范围与最新契约"><div class="api-metric"><dt>已显示扫描（最多25次）</dt><dd>{{ scans.length }}</dd></div><div class="api-metric"><dt>最新契约 · 接口操作</dt><dd>{{ scans[0]?.operationCount }}</dd></div><div class="api-metric"><dt>最新契约 · 字段候选</dt><dd>{{ scans[0]?.sensitiveFieldCount }}</dd></div><div class="api-metric"><dt>最新契约 · 待核查信号</dt><dd>{{ scans[0]?.findingCount }}</dd></div></dl>
     <div v-if="!scanId" class="api-scan-layout">    <section  class="panel api-panel" aria-labelledby="api-history-title" :aria-busy="loading">
       <div class="api-panel-heading">
         <div><h2 id="api-history-title">最近扫描</h2><p>展示最近 25 次扫描，可查看接口明细与关联检查。</p></div>
@@ -222,35 +223,10 @@ onBeforeUnmount(() => active.abort())
     <p v-else-if="loading" class="message" role="status">正在读取 API 扫描结果…</p>
     <p v-else-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }}</p>
     <template v-else-if="detail">
-      <dl class="api-metrics" aria-label="契约扫描结果">
-        <div class="api-metric">
-          <dt>
-            <span class="api-metric-icon api-metric-icon--blue" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 7-5 5 5 5m10-10 5 5-5 5M14.5 5l-5 14" /></svg>
-            </span>
-            接口操作
-          </dt>
-          <dd>{{ detail.operationCount }}</dd>
-        </div>
-        <div class="api-metric">
-          <dt><span class="api-metric-icon api-metric-icon--teal" aria-hidden="true"><Icon name="assets" /></span>疑似敏感字段</dt>
-          <dd>{{ detail.sensitiveFieldCount }}</dd>
-        </div>
-        <div class="api-metric">
-          <dt>
-            <span class="api-metric-icon api-metric-icon--coral" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.4 4.6 2.8 18a1.7 1.7 0 0 0 1.5 2.5h15.4a1.7 1.7 0 0 0 1.5-2.5L13.6 4.6a1.85 1.85 0 0 0-3.2 0ZM12 9v4.5m0 3h.01" /></svg>
-            </span>
-            契约风险
-          </dt>
-          <dd>{{ detail.findingCount }}</dd>
-        </div>
-        <div class="api-metric">
-          <dt><span class="api-metric-icon api-metric-icon--violet" aria-hidden="true"><Icon name="checks" /></span>关联检查</dt>
-          <dd>{{ detail.checkCount }}</dd>
-        </div>
-      </dl>
-
+      <div class="rw-scope-bar"><span><Icon name="reports" /><strong>{{ detail.source }}</strong> · OpenAPI {{ detail.version }}</span><span>扫描 {{ formatDate(detail.createdAt) }}</span><span>{{ detail.operationCount }} 项接口 · {{ detail.sensitiveFieldCount }} 项字段候选 · {{ detail.findingCount }} 项契约发现 · {{ detail.checkCount }} 项关联检查</span></div>
+      <div class="rw-api-workspace"><nav class="rw-panel rw-endpoint-list" aria-label="选择契约中的接口"><div class="rw-section-heading"><h2>端点目录</h2><span>{{ detail.operations.length }} 项</span></div><button v-for="operation in detail.operations" :key="operation.method + operation.path" type="button" :aria-pressed="selectedOperation === operation" @click="detailTab = 'operations'; selectedOperationKey = operation.method + ' ' + operation.path"><span class="rw-method">{{ operation.method }}</span><strong>{{ operation.path }}</strong><small>{{ operation.findings?.length ? operation.findings.length + ' 项契约提示' : '仅契约声明' }}</small></button><p v-if="!detail.operations.length" class="empty-state">此契约没有可扫描的接口。</p></nav>
+      <section v-if="selectedOperation" class="rw-panel rw-contract-comparison"><div class="rw-section-heading"><div><h2><span class="rw-method">{{ selectedOperation.method }}</span>{{ selectedOperation.path }}</h2><p>契约声明、扫描候选与实际观察分别核对。</p></div><a class="button button-secondary" :href="home + '/api-lifecycle'">核对版本变化</a></div><div class="rw-comparison-scroll" role="region" tabindex="0" aria-label="契约与观察对照"><table class="rw-comparison-table"><thead><tr><th>核对对象</th><th><Icon name="reports" />契约声明 / 扫描</th><th><Icon name="audit" />来源观察</th><th>下一步依据</th></tr></thead><tbody><tr><th>鉴权</th><td>{{ authLabels[selectedOperation.auth] || selectedOperation.auth }}</td><td class="rw-unknown">本次契约扫描不返回实际鉴权观察</td><td><a :href="scanPath + '/runtime'">进入运行时核对</a></td></tr><tr><th>字段类别</th><td><ul v-if="selectedOperation.sensitiveFields?.length" class="rw-compact-list"><li v-for="field in selectedOperation.sensitiveFields" :key="field.location + field.name + field.category"><code>{{ field.name }}</code> · {{ locationLabels[field.location] || field.location }} · {{ sensitivityLabel(field.category) }}</li></ul><span v-else>本次契约未识别到字段候选</span></td><td class="rw-unknown">本页尚未关联运行时内容证据；候选不证明实际返回</td><td><a v-if="selectedOperation.assetId" :href="home + '/classification/' + selectedOperation.assetId">核对资产分类 #{{ selectedOperation.assetId }}</a><span v-else>需取得实际来源及分类依据</span></td></tr><tr><th>契约提示</th><td><ul v-if="selectedOperation.findings?.length" class="rw-compact-list"><li v-for="finding in selectedOperation.findings" :key="finding.code">{{ finding.title }} · {{ severityLabels[finding.severity] || finding.severity }}</li></ul><span v-else>本次契约扫描未检出提示</span></td><td class="rw-unknown">静态提示不能直接认定实际漏洞</td><td><a v-if="selectedOperation.checkId" :href="home + '/checks/' + selectedOperation.checkId">查看关联检查 #{{ selectedOperation.checkId }}</a><span v-else>当前接口暂无关联检查</span></td></tr></tbody></table></div><p class="rw-boundary"><Icon name="warning" />没有行为来源的对象保持未知；未检出契约提示不代表接口安全。</p></section></div>
+      <details class="rw-ledger"><summary>完整接口台账与采用依据</summary>
       <div class="api-detail-layout"><section class="panel api-panel api-operations" aria-labelledby="api-operations-title">
         <div class="api-panel-heading">
           <h2 id="api-operations-title">接口与发现</h2>
@@ -325,6 +301,7 @@ onBeforeUnmount(() => active.abort())
           <span>结果基于 OpenAPI 定义。<template v-if="detail.unresolvedReferences"> 有 {{ detail.unresolvedReferences }} 处引用未解析，对应内容未纳入扫描。</template></span>
         </p>
       </section><aside v-if="selectedOperation" class="context-rail"><section class="panel api-panel"><div class="api-panel-heading"><h2>接口采用依据</h2></div><div class="api-basis"><span class="api-method mono">{{ selectedOperation.method }}</span><h3 class="mono">{{ selectedOperation.path }}</h3><span class="badge">契约声明 · 待运行时验证</span><dl><div><dt>鉴权声明</dt><dd>{{ authLabels[selectedOperation.auth] || selectedOperation.auth }}</dd></div><div><dt>采用版本</dt><dd>OpenAPI {{ detail.version }}</dd></div><div><dt>扫描来源</dt><dd>{{ detail.source }}</dd></div><div><dt>采用时点</dt><dd>{{ formatDate(detail.createdAt) }}</dd></div><div><dt>生命周期</dt><dd>{{ selectedOperation.deprecated ? '契约已标记弃用' : '未声明弃用' }}</dd></div></dl><a v-if="selectedOperation.checkId" class="button button-primary" :href="home + '/checks/' + selectedOperation.checkId">查看关联检查</a><p v-else class="muted">当前接口暂无关联检查。</p></div></section><section class="panel api-panel"><div class="api-panel-heading"><h3>字段候选</h3></div><ul v-if="selectedOperation.sensitiveFields?.length" class="api-proof-fields"><li v-for="field in selectedOperation.sensitiveFields" :key="field.location + field.name"><strong class="mono">{{ field.name }}</strong><small>{{ locationLabels[field.location] || field.location }} · {{ sensitivityLabel(field.category) }}</small></li></ul><p v-else class="empty-state">契约范围内未识别到字段候选。</p></section></aside></div>
+      </details>
     </template>
   </div>
 </template>

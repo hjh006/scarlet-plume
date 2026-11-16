@@ -1,0 +1,46 @@
+# Optional private scanner. The runtime must join this network and trust the TLS CA.
+services:
+  media-inspector:
+    profiles: [media-inspector]
+    build:
+      context: .
+      dockerfile: docker/media/Dockerfile
+    image: scarlet-media-inspector:whisper-1.9.5
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1770,uid=10001,gid=10001
+    environment:
+      SCARLET_MEDIA_INSPECTOR_TOKEN: ${SCARLET_MEDIA_INSPECTOR_TOKEN:?set the private scanner bearer token}
+    volumes:
+      - ${SCARLET_MEDIA_INSPECTOR_TLS_DIR:-./var/media-inspector/tls}:/certs:ro
+      - ${SCARLET_MEDIA_INSPECTOR_MODEL_DIR:-./var/media-inspector/models}:/models:ro
+    command:
+      - --listen
+      - 0.0.0.0:8912
+      - --tls-cert
+      - /certs/tls.crt
+      - --tls-key
+      - /certs/tls.key
+      - --tesseract
+      - /usr/bin/tesseract
+      - --whisper
+      - /usr/local/bin/whisper-cli
+      - --whisper-model
+      - /models/ggml-model.bin
+      - --whisper-model-sha256
+      - ${SCARLET_MEDIA_INSPECTOR_MODEL_SHA256:?set the approved model SHA-256}
+      - --languages
+      - eng
+      - --token-env
+      - SCARLET_MEDIA_INSPECTOR_TOKEN
+    networks: [media-inspection]
+networks:
+  media-inspection:
+    name: ${SCARLET_MEDIA_INSPECTOR_NETWORK:-scarlet-media-inspection}
+    internal: true

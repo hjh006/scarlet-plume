@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import './runtime-workspaces.css'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ApiError, describeError, formatDate, request, sessionPath, workspacePath, type Asset, type AssetPage, type Session, type Workspace } from './api'
 import { type AutomationJob } from './automation'
@@ -85,6 +86,16 @@ const validInspection = computed(() => inspection.value?.assetId === Number(acti
 const validRevokeRole = computed(() => eligibleGrants.value.some(grant => actionDraft.role === 'PUBLIC' ? grant.public : !grant.public && grant.grantee === actionDraft.role))
 const canApprove = computed(() => Boolean(selected.value && reviewer.value && username.value && selected.value.actor !== username.value && selected.value.status === 'proposed' && !detailConflict.value))
 const canRollback = computed(() => Boolean(editor.value && selected.value && ['approved', 'applied', 'failed'].includes(selected.value.status) && !detailConflict.value))
+const controlQueues = computed(() => [
+  { key: 'proposed', label: '等待独立审批', note: '申请已登记，尚未取得独立批准。', items: controls.value.filter(item => item.status === 'proposed') },
+  { key: 'approved', label: '等待来源执行', note: '批准与实际执行分开，以来源回执为准。', items: controls.value.filter(item => item.status === 'approved') },
+  { key: 'applied', label: '已有执行回执', note: '执行回执不能替代新来源复测与独立复核。', items: controls.value.filter(item => item.status === 'applied') },
+  { key: 'recovery', label: '失败与恢复', note: '失败、回滚申请与恢复回执分别保留。', items: controls.value.filter(item => ['failed', 'rollback_requested', 'rolled_back'].includes(item.status)) },
+])
+function controlTarget(action: ControlAction) {
+  return action.kind === 'block_api' ? [action.spec.service, action.spec.method, action.spec.route].filter(Boolean).join(' · ') : [action.spec.database, action.spec.schema, action.spec.table, action.spec.role].filter(Boolean).join(' / ')
+}
+function openQueueAction(id: number) { tab.value = 'controls'; void loadDetail(id) }
 const recentTrend = computed(() => [...(overview.value?.trend ?? [])].sort((a, b) => a.day.localeCompare(b.day)).slice(-7))
 const trendMax = computed(() => Math.max(1, ...recentTrend.value.flatMap(point => [point.events, point.verified])))
 const sourceEndpoint = window.location.origin + '/api/v1/operations/security-events'
@@ -212,10 +223,18 @@ onBeforeUnmount(() => { lifetime.abort(); inspectionRequest?.abort(); detailRequ
 
 <template>
   <div class="operations-view">
-    <header class="page-header"><div><p class="eyebrow">安全运营 / 处置中心</p><h1>{{ actionForm ? '申请受控处置' : tab === 'events' ? '安全事件' : tab === 'controls' ? '处置动作与执行回执' : tab === 'sources' ? '事件与执行来源配置' : '安全运营与处置概览' }}</h1><p>汇总来源安全信号，跟踪独立审批、来源执行与回滚回执。</p></div><div class="page-actions"><button class="button button-secondary" type="button" :disabled="loading" @click="load"><Icon name="automation" />{{ loading ? '刷新中…' : '刷新数据' }}</button><button v-if="editor" class="button button-primary" type="button" :aria-expanded="actionForm" aria-controls="operations-control-form" @click="openActionForm"><Icon name="plus" />申请处置</button></div></header>
+    <header class="page-header"><div><p class="eyebrow">安全运营 / 处置中心</p><h1>{{ actionForm ? '申请受控处置' : tab === 'events' ? '安全事件' : tab === 'controls' ? '处置动作与执行回执' : tab === 'sources' ? '事件与执行来源配置' : '每个动作，都知道卡在哪一步。' }}</h1><p>汇总来源安全信号，跟踪独立审批、来源执行与回滚回执。</p></div><div class="page-actions"><button class="button button-secondary" type="button" :disabled="loading" @click="load"><Icon name="automation" />{{ loading ? '刷新中…' : '刷新数据' }}</button><button v-if="editor" class="button button-primary" type="button" :aria-expanded="actionForm" aria-controls="operations-control-form" @click="openActionForm"><Icon name="plus" />申请处置</button></div></header>
     <p v-if="notice" class="message message-success" role="status">{{ notice }}</p>
-    <p v-for="(message, key) in errors" v-show="message" :key="key" class="message message-error" role="alert">{{ message }} 可刷新数据重试。</p>
+    <template v-for="(message, key) in errors" :key="key"><p v-if="message" class="message message-error" role="alert">{{ message }} 可刷新数据重试。</p></template>
     <nav class="operations-tabs" aria-label="安全运营视图"><button v-for="item in ([{id:'overview',label:'运营概览'},{id:'events',label:'安全事件'},{id:'controls',label:'处置动作'},{id:'sources',label:'集成来源'}] as const)" :key="item.id" type="button" class="button" :class="tab === item.id ? 'button-primary' : 'button-secondary'" :aria-pressed="tab === item.id" @click="tab = item.id">{{ item.label }}</button></nav>
+
+    <section v-if="tab === 'overview' && !actionForm" class="rw-panel rw-operations-queue" aria-labelledby="rw-control-queue">
+      <div class="rw-section-heading"><div><h2 id="rw-control-queue">受控动作工作队列</h2><p>按最近载入的 {{ controls.length }} 项动作组织；统计以实际返回记录为准。</p></div><a class="table-link" :href="home + '/checks'">复测与独立复核记录 <Icon name="arrow" /></a></div>
+      <p v-if="loading" class="empty-state" role="status">正在读取动作阶段与来源回执…</p>
+      <p v-else-if="errors.controls" class="message message-warning">本次未取得动作记录，请刷新后查看当前队列。</p>
+      <div v-else class="rw-stage-queue"><section v-for="queue in controlQueues" :key="queue.key" class="rw-stage-column" :data-stage="queue.key" :aria-label="queue.label" tabindex="0"><header><h3>{{ queue.label }}</h3><span>{{ queue.items.length }}</span></header><p class="rw-stage-note">{{ queue.note }}</p><button v-for="action in queue.items.slice(0, 3)" :key="action.id" type="button" class="rw-action-record" @click="openQueueAction(action.id)"><strong><Icon :name="action.kind === 'block_api' ? 'api-security' : 'assets'" />{{ controlKindLabels[action.kind] }}</strong><span class="rw-object">{{ controlTarget(action) || '查看已冻结的操作目标' }}</span><span class="rw-record-status">{{ controlStatusLabels[action.status] || action.status }}</span><small>#{{ action.id }} · 修订 v{{ action.revision }} · {{ formatDate(action.updatedAt) }}</small><span class="rw-record-link">核对目标与阶段 <Icon name="arrow" /></span></button><p v-if="!queue.items.length" class="rw-empty-column">本批返回记录中暂无此阶段动作</p><button v-if="queue.items.length > 3" class="rw-text-button" type="button" @click="tab = 'controls'; controlStatus = queue.key === 'recovery' ? '' : queue.key">在台账查看全部 {{ queue.items.length }} 项</button></section></div>
+      <p class="rw-boundary"><Icon name="warning" />执行成功仅说明来源返回了回执。复测和独立复核须进入关联检查，按同一目标的新证据核对。</p>
+    </section>
 
     <div v-if="actionForm && editor" class="operations-form-workbench"><section id="operations-control-form" class="panel" aria-labelledby="operations-control-title"><div class="panel-heading"><div><h2 id="operations-control-title">申请受控处置</h2><p>目标从已采集范围推导；审批与执行分离，执行成功不代表检查复核通过。</p></div><button class="button button-secondary" type="button" :disabled="actionSaving" @click="actionForm = false">收起</button></div><form class="operations-form" @submit.prevent="createAction"><p v-if="choicesError || actionError" class="message message-error operations-full" role="alert">{{ actionError || choicesError }}</p><div class="field"><label for="operations-kind">处置类型</label><select id="operations-kind" v-model="actionDraft.kind"><option v-for="(label, key) in controlKindLabels" :key="key" :value="key">{{ label }}</option></select></div>
       <template v-if="actionDraft.kind === 'block_api'"><div class="field"><label for="operations-runtime-source">独立 Agent / 网关来源</label><select id="operations-runtime-source" v-model="actionDraft.runtimeSourceId" required :disabled="choicesLoading" @change="actionDraft.route = ''"><option value="">请选择未撤销的来源</option><option v-for="source in gatewaySources" :key="source.id" :value="String(source.id)">{{ source.name }} · {{ source.service }}</option></select></div><div class="field operations-full"><label for="operations-route">已观测接口</label><select id="operations-route" v-model="actionDraft.route" required :disabled="!actionDraft.runtimeSourceId"><option value="">请选择实际方法与路由</option><option v-for="route in selectableRoutes" :key="JSON.stringify([route.method, route.route])" :value="JSON.stringify([route.method, route.route])">{{ route.method }} {{ route.route }}</option></select><p class="field-hint">仅具备处置指令领取能力的独立 Agent 会执行阻断并回执；仅上报网关日志不代表能执行。</p><a class="table-link" :href="home + '/api-security/runtime'">管理运行时来源</a></div></template>

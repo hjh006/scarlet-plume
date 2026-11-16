@@ -9,6 +9,8 @@ import { classificationOriginLabels, isReferencePublication, standardKindLabels,
 import { automationRunDetail, type AutomationJob } from './automation'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
 import Icon from './Icon.vue'
+import GovernanceSteps from './GovernanceSteps.vue'
+import './governance-workspace.css'
 import ClassificationWorkbench from './ClassificationWorkbench.vue'
 import { useScenarioContext } from './scenario-context'
 import { classificationCandidateMethodLabel, taxonomyPath, type ClassificationCandidate } from './classification-workbench'
@@ -249,8 +251,8 @@ onBeforeUnmount(() => {
     <header class="page-header">
       <div>
         <p class="eyebrow">数据分类分级</p>
-        <h1>{{ assetId ? '分类确认与判定依据' : '分类分级' }}</h1>
-        <p>{{ assetId ? '核对自动识别线索，记录分类决定和判定依据。' : '查看采集器的字段识别线索、已确认分类和变更历史。' }}</p>
+        <h1>{{ assetId ? '分类确认与判定依据' : '识别线索可追溯，确认与采用有版本。' }}</h1>
+        <p>{{ assetId ? '核对自动识别线索，记录分类决定和判定依据。' : '默认自有识别引擎，模型建议、人工确认和独立发布分别留证。' }}</p>
       </div>
       <div class="page-actions">
         <button v-if="assetId && detail" type="button" class="button button-secondary" :disabled="loading || saving || collecting" @click="load()">刷新结果</button>
@@ -266,6 +268,7 @@ onBeforeUnmount(() => {
     <p v-if="collectionError" class="message message-error page-feedback" role="alert">{{ collectionError }}</p>
     <p v-if="collectionNotice" class="message message-success page-feedback" role="status">{{ collectionNotice }}</p>
 
+    <GovernanceSteps :labels="['数据准备','分类识别','确认与修订','发布采用','复核归档']" :current="assetId?2:1"/>
     <ClassificationWorkbench v-if="!assetId" :workspace="workspace" @session-expired="emit('sessionExpired')" />
 
     <div v-else-if="detail" class="classification-detail">

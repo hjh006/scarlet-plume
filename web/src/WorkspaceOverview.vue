@@ -7,6 +7,7 @@ import Icon from './Icon.vue'
 import FeatherGraph from './FeatherGraph.vue'
 import { dataFlowNodeLabels, dataFlowEvidenceLabels, type DataFlowGraph, type DataFlowNode } from './data-flows'
 import './overview.css'
+import './governance-workspace.css'
 
 const props = defineProps<{ home: string; overview: Overview | null; loading?: boolean }>()
 const emit = defineEmits<{ refresh: []; sessionExpired: [] }>()
@@ -24,6 +25,14 @@ const sourceStates: Record<string, string> = {
 function sourceTarget(kind: string) { return props.home + (kind === 'application_api' ? '/scenarios/ai' : kind === 'runtime' ? '/api-security/runtime' : kind === 'discovery' ? '/discovery' : kind === 'operations' ? '/operations' : '/automation') }
 function sourceIcon(provider: string) { return ['otlp', 'gateway'].includes(provider) ? 'api-security' : ['postgresql','mysql','mariadb','mongodb'].includes(provider) ? 'assets' : 'integrations' }
 function sourceProvider(provider: string) { return provider === 'application_api' ? '应用 API 采集' : provider === 'otlp' ? '应用探针 · OTLP' : provider === 'gateway' ? '独立 Agent / 网关' : provider === 'feishu' ? '飞书' : providerLabel(provider) }
+const priorityItems=computed(()=>{
+  const result=findings.value.filter(finding=>finding.checkStatus!=='verified').slice(0,3).map(finding=>({id:'finding-'+finding.id,title:runtimeRuleLabels[finding.rule]||finding.rule,detail: `${finding.service} · ${finding.method} ${finding.route}`,stage:checkStatusLabels[finding.checkStatus]||finding.checkStatus,next:'查看检查与处置依据',route:props.home+'/checks/'+finding.checkId,icon:'warning'}))
+  if(result.length<3&&props.overview?.counts.inReview)result.push({id:'review',title:`${props.overview.counts.inReview} 项检查等待复核`,detail:'当前授权工作区 · 具体采用范围见检查记录',stage:'待复核',next:'核对证据与独立复核条件',route:props.home+'/checks',icon:'checks'})
+  const source=sources.value.find(item=>['failed','stale','revoked'].includes(item.state))
+  if(result.length<3&&source)result.push({id:'source-'+source.id,title:source.name+'的来源状态需关注',detail:sourceProvider(source.provider),stage:sourceStates[source.state]||'待核实',next:'查看来源与补采缺口',route:sourceTarget(source.kind),icon:'integrations'})
+  return result
+})
+const sceneLinks=[{id:'governance',label:'数据治理',icon:'classification',desc:'来源、分类与采用'},{id:'personal',label:'个人信息',icon:'user',desc:'用途与保护依据'},{id:'domestic',label:'国内合规',icon:'checks',desc:'要求与证据对照'},{id:'crossborder',label:'数据跨境',icon:'data-flows',desc:'登记与实际去向'},{id:'ai',label:'AI 数据安全',icon:'ai',desc:'输入、工具与出口'},{id:'sharing',label:'共享与委托',icon:'integrations',desc:'提供范围与权限'},{id:'incident',label:'事件处置',icon:'shield',desc:'调查、处置与复测'}]
 const graph=ref<DataFlowGraph|null>(null), graphLoading=ref(false), graphError=ref(''), selectedId=ref('')
 let graphRequest:AbortController|undefined
 const selectedNode=computed(()=>graph.value?.nodes.find(node=>node.id===selectedId.value)??graph.value?.nodes[0]??null)
@@ -34,10 +43,10 @@ watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immedia
 </script>
 
 <template>
-  <div class="workspace-overview" :aria-busy="loading">
+  <div class="workspace-overview governance-overview" :aria-busy="loading">
     <header class="overview-heading">
       <div>
-        <p class="eyebrow">数据治理 / SCARLET PLUME</p><h1>数据安全全景</h1>
+        <p class="eyebrow">工作区 / 当前关注</p><h1>先处理最需要关注的事。</h1>
         <p v-if="overview?.generatedAt">工作区数据更新于 <time :datetime="overview.generatedAt">{{ formatDate(overview.generatedAt) }}</time></p>
         <p v-else>查看当前工作区的数据接入、治理进度和待办事项。</p>
       </div>
@@ -47,6 +56,9 @@ watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immedia
       </div>
     </header>
 
+    <div class="governance-overview-board"><section class="panel governance-priorities"><div class="panel-heading"><div><h2>需要你继续的工作</h2><p>从已取得的发现和待复核记录进入具体对象。</p></div></div><ol v-if="priorityItems.length" class="governance-priority-list"><li v-for="(item,index) in priorityItems" :key="item.id"><span class="governance-priority-index">{{index+1}}</span><div><h3><Icon :name="item.icon"/>{{item.title}}</h3><p>{{item.detail}}</p><small>下一步：{{item.next}}</small></div><a class="button button-secondary" :href="item.route">{{item.stage}}<Icon name="chevron"/></a></li></ol><div v-else class="empty-state"><Icon name="checks"/><h3>{{overview?'当前预览没有待办记录':'正在读取工作区待办…'}}</h3><p>未取得待办不表示来源覆盖完整；可进入场景核对明确对象和证据缺口。</p><a class="button button-primary" :href="home+'/scenarios'">选择检查场景</a></div></section><section class="panel governance-source-health"><div class="panel-heading"><div><h2>来源与证据健康</h2><p>查看最近来源记录及观察边界。</p></div><a class="table-link" :href="home+'/tools'">管理来源</a></div><div class="governance-evidence-pipeline" aria-label="来源、采集与采用三个独立阶段"><span><Icon name="integrations"/><strong>授权来源</strong></span><Icon name="arrow"/><span><Icon name="automation"/><strong>采集记录</strong></span><Icon name="arrow"/><span><Icon name="reports"/><strong>采用证据</strong></span></div><ul v-if="sources.length" class="governance-health-list"><li v-for="source in sources.slice(0,3)" :key="source.kind+':'+source.id"><a :href="sourceTarget(source.kind)"><Icon :name="sourceIcon(source.provider)"/><span><strong>{{source.name}}</strong><small>{{source.lastObservedAt||source.lastRunAt?formatDate(source.lastObservedAt||source.lastRunAt||''):'尚无来源时点'}}</small></span><span class="badge" :class="['failed','stale','revoked'].includes(source.state)?'status-needs_work':'status-draft'">{{sourceStates[source.state]||'状态待核实'}}</span><Icon name="chevron"/></a></li></ul><p v-else class="empty-state">尚无接入来源，可从专业工具配置授权采集。</p><p class="governance-inline-note">最多预览3项。近期有记录、完整覆盖与措施有效分别核对。</p></section></div>
+    <section class="panel governance-scene-directory"><div class="panel-heading"><div><h2>按你要解决的问题进入</h2><p>保持同一工作区，按任务选择实际检查范围。</p></div></div><div class="governance-scene-shortcuts"><a v-for="scene in sceneLinks" :key="scene.id" :href="home+'/scenarios/'+scene.id"><Icon :name="scene.icon"/><strong>{{scene.label}}</strong><span>{{scene.desc}}</span></a></div></section>
+    <details class="panel governance-overview-detail"><summary>工作区统计、完整来源预览与关系证据 <Icon name="chevron"/></summary>
     <ul class="overview-metrics" aria-label="工作区治理指标">
       <li v-for="metric in metrics" :key="metric.label">
         <a :href="home + '/' + metric.route" class="overview-metric-link">
@@ -85,6 +97,7 @@ watch(()=>[props.home,props.overview?.generatedAt],()=>void loadGraph(),{immedia
 
     <details v-if="overview" class="panel overview-records"><summary><span>最近登记资产</span><span>{{ overview.recentAssets.length }} 项记录 <Icon name="chevron" /></span></summary><div v-if="overview.recentAssets.length" class="table-scroll" tabindex="0" role="region" aria-label="最近登记资产"><table class="data-table overview-asset-table"><thead><tr><th scope="col">资产名称</th><th scope="col">所属系统</th><th scope="col">数据类别</th><th scope="col">业务分级</th><th scope="col">登记时间</th></tr></thead><tbody><tr v-for="asset in overview.recentAssets" :key="asset.id"><th scope="row"><a class="table-link" :href="home + '/classification/' + asset.id">{{ asset.name }}</a><span class="table-secondary">{{ asset.sourceProvider ? providerLabel(asset.sourceProvider) : '手工登记' }}</span></th><td>{{ asset.system || '—' }}</td><td>{{ assetCategoryLabels[asset.category || ''] || '待分类' }}</td><td>{{ assetBusinessLevelLabels[asset.businessLevel || ''] || '待分级' }}</td><td class="date-text">{{ formatDate(asset.createdAt) }}</td></tr></tbody></table></div><p v-else class="empty-state">完成采集或登记首项资产后，这里会显示近期记录。</p></details>
     <details v-if="overview" class="panel overview-records"><summary><span>近期导入批次</span><span>{{ overview.recentImports.length }} 项记录 <Icon name="chevron" /></span></summary><div v-if="overview.recentImports.length" class="table-scroll" role="region" tabindex="0" aria-label="近期导入批次"><table class="data-table overview-import-table"><thead><tr><th scope="col">来源与批次</th><th scope="col">新增</th><th scope="col">已有</th><th scope="col">导入时间</th></tr></thead><tbody><tr v-for="run in overview.recentImports" :key="run.id"><th scope="row">{{ run.source }}<span class="table-secondary">{{ providerLabel(run.provider) }} · {{ run.batchId }}</span></th><td>{{ run.created }}</td><td>{{ run.existing }}</td><td class="date-text">{{ formatDate(run.createdAt) }}</td></tr></tbody></table></div><p v-else class="empty-state">完成首次采集后，这里会显示导入批次和写入数量。</p></details>
+    </details>
   </div>
 </template>
 

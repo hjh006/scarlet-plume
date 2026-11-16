@@ -1,0 +1,25 @@
+.ai-gateway-group-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,.45fr) auto; gap:12px; align-items:end; margin:12px 0; }
+.ai-gateway-address { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:end; margin-bottom:16px; }
+.ai-gateway-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.ai-gateway-metrics article { padding:18px 20px; }
+.ai-gateway-metrics span { color:var(--secondary); font-size:13px; }
+.ai-gateway-metrics strong { display:block; margin-top:8px; font-size:26px; font-weight:650; }
+.ai-gateway-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.6fr); gap:18px; align-items:start; }
+.ai-gateway-layout > * { min-width:0; }
+.ai-gateway-workspace .data-table { min-width:700px; }
+.ai-gateway-workspace .data-table td:last-child .button { white-space:nowrap; }
+@media(max-width:1000px){.ai-gateway-layout { grid-template-columns:1fr; }.ai-gateway-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }}
+@media(max-width:650px){.ai-gateway-group-row,.ai-gateway-address { grid-template-columns:1fr; }.ai-gateway-group-row { padding-bottom:12px; border-bottom:1px solid var(--line); }.ai-gateway-metrics { gap:8px; }.ai-gateway-metrics article { padding:14px; }}
+.ai-gateway-capabilities { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; padding:20px; }
+.ai-gateway-capabilities article,.ai-gateway-policy { min-width:0; padding:16px; border:1px solid var(--line); border-radius:8px; }
+.ai-gateway-capabilities h3,.ai-gateway-policy h3 { margin:0 0 10px; font-size:15px; }
+.ai-gateway-capabilities p,.ai-gateway-policy p { line-height:1.6; }
+.ai-gateway-policy { margin-top:8px; }
+.ai-gateway-policy .ai-security-fields { padding:0; margin-top:16px; }
+.ai-gateway-fallbacks { padding-left:24px; }
+.ai-gateway-fallbacks li { padding:12px 0; border-bottom:1px solid var(--line); }
+.ai-gateway-fallbacks .ai-security-actions { margin-top:10px; }
+.ai-gateway-warning { display:block; color:var(--warning); line-height:1.5; margin-top:6px; }
+.ai-gateway-sections { display:grid; gap:18px; }
+.ai-gateway-workspace .mono { overflow-wrap:anywhere; }
+@media(max-width:650px){.ai-gateway-capabilities { grid-template-columns:1fr; padding:14px; }.ai-gateway-policy { padding:12px; }.ai-gateway-workspace .ai-security-actions { flex-wrap:wrap; }}

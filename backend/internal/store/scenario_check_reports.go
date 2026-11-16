@@ -33,25 +33,28 @@ func scenarioCheckReportRequirements(ctx context.Context, tx pgx.Tx, ws int64, r
 		key = "personal_impact_report"
 		title = "个人信息保护影响评估及处理记录（按适用情形）"
 		deliverables = []string{"处理目的、方式等是否合法正当必要", "个人权益影响及安全风险", "保护措施是否合法有效且与风险相适应", "事前评估、处理记录及责任人确认"}
-		missing = append(missing, "处理合法性依据、实际必要性、完整主体及处理范围、处理开始时点、完整风险影响和措施验证。")
 		if run.Task == "audit" {
 			code = "P05"
 			key = "personal_compliance_audit_report"
 			title = "个人信息保护合规审计材料（独立于影响评估）"
 			deliverables = []string{"实际审计范围、组织与审计底稿", "审计发现、整改及复核依据", "按适用情形签章的专业审计报告和真实报送材料"}
 			missing = append(missing, "审计触发、机构及专业人员、完整审计程序、签章和适用报送要求。")
+		} else {
+			missing = append(missing, "处理合法性依据、实际必要性、完整主体及处理范围、处理开始时点、完整风险影响和措施验证。")
 		}
 	case "domestic":
 		code = "I03"
 		key = "important_data_risk_report"
 		title = "重要数据安全风险评估报告（按适用情形）"
 		deliverables = []string{"处理者基本情况、安全管理机构及负责人", "重要数据数量、种类和处理情况（不含数据内容）", "制度、技术措施及其有效性", "风险、事件及处置情况", "提供、委托及共同处理的评估情况", "数据出境情况", "适用的行业补充内容、整改与责任人确认"}
-		missing = append(missing, "重要数据识别或认定与处理者身份、完整制度和风险评估、真实事件处置、合同及行业要求。")
 		if run.Task == "personal-audit" {
 			code = "P05"
 			key = "personal_compliance_audit_report"
 			title = "个人信息保护合规审计材料（按适用情形）"
 			deliverables = []string{"审计范围与组织", "审计程序、底稿与发现", "整改复核、专业报告签章及适用报送材料"}
+			missing = append(missing, "审计触发、机构及专业人员、完整审计程序、签章和适用报送要求。")
+		} else {
+			missing = append(missing, "重要数据识别或认定与处理者身份、完整制度和风险评估、真实事件处置、合同及行业要求。")
 		}
 	case "crossborder":
 		code = "T03"

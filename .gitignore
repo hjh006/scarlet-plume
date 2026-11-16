@@ -19,6 +19,19 @@ __pycache__/
 /.scarlet-validation/
 /.scarlet-openmetadata/
 
+/var/ai-gateway/
+/var/media-inspector/
+
+# Local design, delivery evidence and deployment records are not source releases.
+/artifacts/
+/docs/design/
+/docs/acceptance-*.md
+/docs/ai-security-evolution-roadmap.md
+/DESIGN.md
+/docs/*-capability-mapping.md
+/docs/reference-scenarios-*.md
+/web/src/plume-flow.webp.json
+
 /backend/.tmp-*/
 
 /governance/static/extensions/*.zip

@@ -8,6 +8,7 @@ import {
 import Icon from './Icon.vue'
 import ImportPanel from './ImportPanel.vue'
 import WorkspaceOverview from './WorkspaceOverview.vue'
+import './governance-workspace.css'
 
 const props = defineProps<{ workspace: Workspace; page: 'overview' | 'assets' | 'integrations' }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
@@ -29,6 +30,7 @@ function assetScopeOf(asset: Asset) {
 const visibleAssets = computed(() => assets.value.filter(asset => (!assetScope.value || assetScopeOf(asset) === assetScope.value) &&
   (!assetQuery.value.trim() || [asset.name, asset.system, asset.ownerTeam, asset.source, asset.sourceRef].some(value => value?.toLocaleLowerCase().includes(assetQuery.value.trim().toLocaleLowerCase())))))
 const selectedAsset = computed(() => visibleAssets.value.find(asset => String(asset.id) === selectedAssetId.value) || visibleAssets.value[0])
+const assetGroups = computed(() => [...new Set(visibleAssets.value.map(asset=>asset.system||'未登记系统'))].map(name=>({name,items:visibleAssets.value.filter(asset=>(asset.system||'未登记系统')===name)})))
 const selectedIntegrationId = ref('')
 const selectedIntegration = computed(() => integrations.value.find(item => item.id === selectedIntegrationId.value) || integrations.value[0])
 const cursor = ref<number | null>(null)
@@ -133,8 +135,8 @@ onBeforeUnmount(() => active?.abort())
   <header v-else class="page-header">
     <div>
       <p class="eyebrow">治理工作区 / {{ page === 'assets' ? '数据资产' : '集成与导入' }}</p>
-      <h1>{{ page === 'assets' ? '数据资产' : '集成与导入' }}</h1>
-      <p>{{ page === 'assets' ? '查看已登记的数据资产、来源引用与责任团队。' : '查看接入能力，并将客户侧采集的元数据登记到工作区。' }}</p>
+      <h1>{{ page === 'assets' ? '先找到对象，再核对依据。' : '集成与导入' }}</h1>
+      <p>{{ page === 'assets' ? '基于登记资产核对属性、来源与责任，进入明确对象查看字段证据。' : '查看接入能力，并将客户侧采集的元数据登记到工作区。' }}</p>
     </div>
     <button v-if="page === 'assets' && canEdit" v-show="!showAssetForm" ref="openFormButton" type="button" class="button button-primary"
             aria-controls="asset-create-form" :aria-expanded="showAssetForm" @click="openAssetForm">
@@ -166,8 +168,9 @@ onBeforeUnmount(() => active?.abort())
         </div>
       </form>
     </section>
-    <div v-if="loaded" class="asset-workbench"><section class="panel" aria-labelledby="assets-title" :aria-busy="loading">
-      <div class="panel-heading"><div><h2 id="assets-title">资产台账</h2><p>包含自动采集、目录导入和人工登记的资产。</p></div><span class="badge status-draft">已加载 {{ assets.length }} 项</span></div>
+    <div v-if="loaded" class="governance-adoption-band"><Icon name="classification"/><strong>当前对象：{{selectedAsset?.name||'尚未选择资产'}}</strong><span>Asset #{{selectedAsset?.id||'—'}}</span><span>已加载 {{assets.length}} 项 · 当前条件 {{visibleAssets.length}} 项</span><span v-if="cursor!==null" class="badge status-draft">仍有未加载记录</span></div>
+    <div v-if="loaded" class="asset-workbench governance-assets"><aside class="panel governance-asset-tree"><div class="panel-heading"><h2>资产目录</h2></div><details v-for="group in assetGroups" :key="group.name" open><summary><Icon name="workspace"/>{{group.name}}</summary><button v-for="asset in group.items" :key="asset.id" type="button" :class="{selected:selectedAsset?.id===asset.id}" :aria-pressed="selectedAsset?.id===asset.id" @click="selectedAssetId=String(asset.id)"><Icon :name="assetScopeOf(asset)==='api'?'api-security':'assets'"/><span>{{asset.name}}</span></button></details><p v-if="!assetGroups.length" class="empty-state">当前条件没有已加载对象。</p><p class="governance-inline-note">按已登记系统分组，不表示运行时流向。</p></aside><section class="panel" aria-labelledby="assets-title" :aria-busy="loading">
+      <div class="panel-heading"><div><h2 id="assets-title"><Icon name="assets"/>资产台账</h2><p>包含自动采集、目录导入和人工登记的资产。</p></div><span class="badge status-draft">已加载 {{ assets.length }} 项</span></div>
       <div class="asset-scope-tabs" role="group" aria-label="筛选已加载资产的来源"><button v-for="scope in providerScopes" :key="scope.id" class="asset-scope-tab" :class="{ active: assetScope === scope.id }" type="button" :aria-pressed="assetScope === scope.id" @click="assetScope = scope.id">{{ scope.label }}</button></div>
       <div class="filter-bar asset-search"><label for="asset-search">搜索已加载资产</label><input id="asset-search" v-model="assetQuery" type="search" placeholder="资产名称 / 系统 / 责任团队"><a class="table-link" :href="home + '/asset-catalog'">业务资产目录</a><button type="button" class="button button-secondary" :disabled="loading" @click="load()">刷新台账</button></div>
       <p v-if="cursor !== null" class="table-hint">筛选作用于已加载记录，继续加载可扩大查看范围。</p>

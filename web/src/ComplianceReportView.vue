@@ -14,6 +14,7 @@ import { controlKindLabels, controlStatusLabels, controlResultLabel, controlEven
 import { runtimeRuleLabels, type RuntimeFinding } from './runtime-findings'
 import ClassificationEvaluation from './ClassificationEvaluation.vue'
 import type { ClassificationRecord } from './classification-standards'
+import reportEvidencePack from './assets/scenario-evidence-pack.webp'
 import { dataFlowWarning } from './data-flows'
 
 interface ComplianceReport {
@@ -55,6 +56,17 @@ const counts = [
   { key: 'verified', label: checkStatusLabels.verified },
 ] as const
 
+const activeSection=ref('report-scope-title')
+const chapters=computed(()=>[
+ {id:'report-scope-title',label:'范围与采用依据',available:true},
+ {id:'report-identification-title',label:'来源与识别',available:!!report.value?.identification},
+ {id:'report-catalog-title',label:'目录与分类证据',available:!!report.value?.catalogDiscovery},
+ {id:'report-operations-title',label:'整改与来源复测',available:!!report.value?.operations},
+ {id:'report-runtime-facts-title',label:'运行时来源事实',available:reportChecks.value.some(entry=>entry.runtimeFinding?.detection)},
+ {id:'report-results-title',label:'检查与独立复核',available:!!report.value},
+ {id:'report-assessment-refs-title',label:'专项评估引用',available:!!report.value?.assessmentReferences},
+ {id:'report-flows-title',label:'数据关系依据',available:!!report.value?.dataFlows},
+])
 const reportQuery = computed(() => activityId.value ? '?activityId=' + encodeURIComponent(activityId.value) : '')
 const activityMissing = computed(() => activityId.value && !activities.value.some(item => String(item.id) === activityId.value))
 const reportChecks = computed(() => report.value?.checks.map(entry => ({
@@ -125,6 +137,7 @@ async function loadReport() {
   errorMessage.value = ''
   exportError.value = ''
   report.value = null
+  activeSection.value='report-scope-title'
   try {
     report.value = await request<ComplianceReport>(reportUrl + reportQuery.value, { signal: active.signal })
   } catch (error) {
@@ -134,7 +147,7 @@ async function loadReport() {
   }
 }
 
-function scrollSection(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }) }
+function scrollSection(id:string){activeSection.value=id;requestAnimationFrame(()=>document.querySelector('.report-document')?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}))}
 function printReport() { window.print() }
 
 function setScope() {
@@ -176,7 +189,7 @@ onBeforeUnmount(() => {
   <a v-if="archiveId" class="back-link" :href="home + '/reports/archives'"><Icon name="back" />返回自动报告归档</a>
   <header class="page-header">
     <div>
-      <h1>{{ archiveId ? '自动归档报告' : '合规报告' }}</h1>
+      <h1>{{ archiveId ? '冻结归档采用了哪些证据？' : '报告采用了什么，还缺什么？' }}</h1>
       <p>{{ archiveId ? '查看采集时保存的数据识别、自动检查和工作流记录。' : '按工作区或处理活动汇总检查、证据、整改复测与复核结果。' }}</p>
     </div>
     <div class="page-actions">
@@ -186,9 +199,9 @@ onBeforeUnmount(() => {
   </header>
   <p v-if="exportError" class="message message-error page-feedback" role="alert">{{ exportError }}</p>
   <div class="report-workbench">
-    <nav class="panel report-contents" aria-label="报告目录"><strong>报告目录</strong><button type="button" @click="scrollSection('report-scope-title')">范围与采用依据</button><button v-if="report?.identification" type="button" @click="scrollSection('report-identification-title')">来源与识别</button><button v-if="report?.catalogDiscovery" type="button" @click="scrollSection('report-catalog-title')">目录与分类证据</button><button v-if="report?.operations" type="button" @click="scrollSection('report-operations-title')">整改与来源复测</button><button type="button" @click="scrollSection('report-results-title')">检查与独立复核</button><button v-if="report?.assessmentReferences" type="button" @click="scrollSection('report-assessment-refs-title')">专项评估引用</button><button v-if="report?.dataFlows" type="button" @click="scrollSection('report-flows-title')">数据关系依据</button></nav>
-    <article class="report-document"><header class="report-document-header"><div class="report-print-brand"><Brand /></div><h2>数据安全合规报告</h2><p>{{report?.scope.activityName || workspace.name}} · {{archiveId ? '历史采用快照' : '当前范围预览'}}<template v-if="report"> · {{formatDate(report.generatedAt)}}</template></p></header>
-  <section class="panel report-scope" aria-labelledby="report-scope-title" :aria-busy="loading">
+    <nav class="panel report-contents" aria-label="报告目录"><strong><Icon name="reports"/>文档工作台</strong><button v-for="chapter in chapters.filter(c=>c.available)" :key="chapter.id" type="button" :class="{active:activeSection===chapter.id}" :aria-current="activeSection===chapter.id?'page':undefined" @click="scrollSection(chapter.id)"><Icon name="reports"/>{{chapter.label}}</button></nav>
+    <article class="report-document"><header class="report-document-header"><div class="report-print-brand"><Brand /></div><h2>数据安全技术检查报告</h2><p>{{report?.scope.activityName || workspace.name}} · {{archiveId ? '历史采用快照' : '当前范围预览'}}<template v-if="report"> · {{formatDate(report.generatedAt)}}</template></p></header>
+  <section class="panel report-scope" aria-labelledby="report-scope-title" :class="{'report-chapter-active':activeSection==='report-scope-title'}" :aria-busy="loading">
     <div class="panel-heading">
       <div>
         <h2 id="report-scope-title">报告范围</h2>
@@ -235,7 +248,7 @@ onBeforeUnmount(() => {
       </p>
     </template>
   </section>
-  <section v-if="report?.identification" class="panel report-results" aria-labelledby="report-identification-title">
+  <section v-if="report?.identification" class="panel report-results" aria-labelledby="report-identification-title" :class="{'report-chapter-active':activeSection==='report-identification-title'}">
     <div class="panel-heading">
       <div><h2 id="report-identification-title">数据自动识别</h2><p>汇总元数据及授权范围内的受限格式统计，具体方法与覆盖范围见证据。</p></div>
     </div>
@@ -249,9 +262,9 @@ onBeforeUnmount(() => {
     </dl>
   </section>
 
-  <section v-if="report?.assessmentReferences" class="panel report-results" aria-labelledby="report-assessment-refs-title"><div class="panel-heading"><div><h2 id="report-assessment-refs-title">关联活动的专项评估引用</h2><p>{{report.assessmentReferences.basis}}</p></div></div><p v-if="report.assessmentReferences.truncated">最多展示200项引用，请在专项评估中核对完整范围。</p><ul><li v-for="assessment in report.assessmentReferences.items" :key="assessment.id"><a :href="home+'/assessments/'+assessment.id">#{{assessment.id}} · {{assessment.title}}</a> · {{assessmentKinds[assessment.kind]||assessment.kind}} · {{assessmentStatuses[assessment.status]||assessment.status}} · 模板#{{assessment.templateRevisionId}} · 修订v{{assessment.revision}} · {{formatDate(assessment.updatedAt)}}<span v-if="assessment.stale||assessment.reassessmentPending"> · 已标记需要重评</span></li></ul></section>
+  <section v-if="report?.assessmentReferences" class="panel report-results" aria-labelledby="report-assessment-refs-title" :class="{'report-chapter-active':activeSection==='report-assessment-refs-title'}"><div class="panel-heading"><div><h2 id="report-assessment-refs-title">关联活动的专项评估引用</h2><p>{{report.assessmentReferences.basis}}</p></div></div><p v-if="report.assessmentReferences.truncated">最多展示200项引用，请在专项评估中核对完整范围。</p><ul><li v-for="assessment in report.assessmentReferences.items" :key="assessment.id"><a :href="home+'/assessments/'+assessment.id">#{{assessment.id}} · {{assessment.title}}</a> · {{assessmentKinds[assessment.kind]||assessment.kind}} · {{assessmentStatuses[assessment.status]||assessment.status}} · 模板#{{assessment.templateRevisionId}} · 修订v{{assessment.revision}} · {{formatDate(assessment.updatedAt)}}<span v-if="assessment.stale||assessment.reassessmentPending"> · 已标记需要重评</span></li></ul></section>
 
-  <section v-if="report?.operations" class="panel report-results" aria-labelledby="report-operations-title">
+  <section v-if="report?.operations" class="panel report-results" aria-labelledby="report-operations-title" :class="{'report-chapter-active':activeSection==='report-operations-title'}">
     <div class="panel-heading"><div><h2 id="report-operations-title">关联安全运营与处置回执</h2><p>{{report.operations.scope}}</p></div><span>{{formatDate(report.operations.capturedAt)}}</span></div>
     <article v-for="action in report.operations.controls" :key="action.id"><h3>处置 #{{action.id}} · {{controlKindLabels[action.kind]}} · {{controlStatusLabels[action.status]||action.status}}</h3><p>检查 #{{action.checkId}} · 修订 v{{action.revision}} · 申请人 {{action.actor}} · 审批人 {{action.approvedBy||'尚未审批'}} · 到期 {{formatDate(action.expiresAt)}}</p><p>{{action.spec.service}} {{action.spec.method}} {{action.spec.route}}<span v-if="action.spec.database">{{action.spec.database}} / {{action.spec.schema}} / {{action.spec.table}} / {{action.spec.role}}</span></p><p>{{action.reason}}</p><p v-if="action.result">执行回执：{{controlResultLabel(action.result.code)}} · {{action.result.success?'来源报告成功':'来源报告失败'}} · {{formatDate(action.result.observedAt)}}</p><ul v-if="action.events?.length"><li v-for="(event,index) in action.events" :key="index">{{controlEventLabels[event.action]||event.action}} · {{event.actor}} · {{formatDate(event.createdAt)}} · {{event.note}}</li></ul></article>
     <div v-if="report.operations.securityEvents.length" class="table-scroll"><table class="data-table"><thead><tr><th>关联检查 / 来源</th><th>类别 / 规则</th><th>来源结果</th><th>来源窗口统计</th></tr></thead><tbody><tr v-for="event in report.operations.securityEvents" :key="event.id"><td>检查 #{{event.checkId}} · {{event.source}}</td><td>{{securityEventCategoryLabels[event.category]||event.category}} · {{event.rule}} · {{operationsSeverityLabels[event.severity]||event.severity}}</td><td>{{securityEventOutcomeLabels[event.outcome]||event.outcome}} · {{formatDate(event.observedAt)}}</td><td>{{event.count}} 次 / {{event.windowSeconds}} 秒（来源统计口径）</td></tr></tbody></table></div>
@@ -262,7 +275,7 @@ onBeforeUnmount(() => {
     <template v-for="entry in reportChecks" :key="'runtime-'+entry.check.id"><article v-if="entry.runtimeFinding?.detection"><h3>检查 #{{entry.check.id}} · {{runtimeRuleLabels[entry.runtimeFinding.rule]}}</h3><p>{{entry.runtimeFinding.service}} · {{entry.runtimeFinding.method}} {{entry.runtimeFinding.route}}</p><RuntimeDetectionFacts :detection="entry.runtimeFinding.detection"/></article></template>
   </section>
 
-  <section v-if="report?.catalogDiscovery" class="panel report-results" aria-labelledby="report-catalog-title">
+  <section v-if="report?.catalogDiscovery" class="panel report-results" aria-labelledby="report-catalog-title" :class="{'report-chapter-active':activeSection==='report-catalog-title'}">
     <div class="panel-heading"><div><h2 id="report-catalog-title">多源目录与分类证据</h2><p>{{report.catalogDiscovery.basis}}</p></div></div>
     <dl class="report-metrics"><div><dt>目录表 / 集合</dt><dd>{{report.catalogDiscovery.tables}}</dd></div><div><dt>字段 / 路径</dt><dd>{{report.catalogDiscovery.fields}}</dd></div><div><dt>最新来源规则证据</dt><dd>{{report.catalogDiscovery.ruleHits}}</dd></div></dl>
     <p v-if="report.catalogDiscovery.truncated" class="message message-warning">来源或评估达到报告展示上限，需缩小范围核对。</p>
@@ -271,7 +284,7 @@ onBeforeUnmount(() => {
     <button v-if="report.catalogDiscovery.assessments.length>catalogLimit" class="button button-secondary" @click="catalogLimit+=20">再显示20项评估</button>
   </section>
 
-  <section v-if="report?.dataFlows" class="panel report-results" aria-labelledby="report-flows-title">
+  <section v-if="report?.dataFlows" class="panel report-results" aria-labelledby="report-flows-title" :class="{'report-chapter-active':activeSection==='report-flows-title'}">
     <div class="panel-heading">
       <div><h2 id="report-flows-title">工作区数据流快照摘要</h2><p>快照 #{{ report.dataFlows.snapshotId }} · {{ formatDate(report.dataFlows.capturedAt) }}</p></div>
       <a class="text-link" :href="home + '/data-flows'">查看数据流转<Icon name="arrow" /></a>
@@ -287,7 +300,7 @@ onBeforeUnmount(() => {
     <p class="muted">{{ report.dataFlows.basis }}</p>
     <ul v-if="report.dataFlows.warnings.length"><li v-for="warning in report.dataFlows.warnings" :key="warning">{{ dataFlowWarning(warning) }}</li></ul>
   </section>
-  <section v-if="report" class="panel report-results" aria-labelledby="report-results-title">
+  <section v-if="report" class="panel report-results" aria-labelledby="report-results-title" :class="{'report-chapter-active':activeSection==='report-results-title'}">
     <div class="panel-heading">
       <div><h2 id="report-results-title">检查明细</h2><p>导出包含全部证据记录和操作时间线。</p></div>
     </div>
@@ -340,7 +353,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-else class="empty-state"><strong>此范围暂无检查</strong><p>{{ archiveId ? '此归档保留了本次采集的识别汇总。' : '新建检查后，报告将纳入该记录和后续操作。' }}</p></div>
   </section>    <footer class="report-print-footer">赤翎 / SCARLET PLUME · 采用来源、版本、证据与独立复核分别列示</footer>
-    </article><aside class="report-actions-rail"><section class="panel"><div class="panel-heading"><h2>报告操作</h2></div><div class="report-export-actions">
+    </article><aside class="report-actions-rail"><section class="panel report-adoption-inspector"><div class="panel-heading"><h2><Icon name="search"/>实际报告采用</h2></div><div class="report-adoption-kind"><span>导航上下文</span><strong>响应采用范围</strong></div><dl class="report-context"><div><dt>工作区</dt><dd>{{workspace.name}}</dd></div><div><dt>实际范围</dt><dd>{{report ? report.scope.activityName || (report.scope.activityId ? '活动 #'+report.scope.activityId : report.scope.source ? '来源：'+report.scope.source.source : '工作区全部纳管范围') : '尚未返回'}}</dd></div><div v-if="report?.scope.activityId"><dt>活动记录</dt><dd>#{{report.scope.activityId}}</dd></div><div v-if="report?.scope.source"><dt>来源批次</dt><dd>{{report.scope.source.runId}}</dd></div><div><dt>生成时间</dt><dd>{{report?formatDate(report.generatedAt):'尚未返回'}}</dd></div><div><dt>采用性质</dt><dd>{{archiveId?'冻结历史快照':'当前汇总预览'}}</dd></div></dl><p class="report-scope-note">场景与资产导航不自动成为报告过滤；采用对象以本次请求及返回范围为准。</p><img class="report-evidence-illustration" :src="reportEvidencePack" alt="证据文档配图"></section><section class="panel"><div class="panel-heading"><h2>报告操作</h2></div><div class="report-export-actions">
       <button type="button" class="button button-primary" :disabled="!report || loading || Boolean(exporting)" @click="download('html')">
         <Icon name="download" />{{ exporting === 'html' ? '正在导出…' : '导出 HTML' }}
       </button>
@@ -358,4 +371,7 @@ onBeforeUnmount(() => {
 
 .report-workbench{display:grid;grid-template-columns:170px minmax(0,1fr) 260px;gap:16px;align-items:start}.report-contents{display:grid;padding:16px 0;position:sticky;top:16px;gap:4px}.report-contents>strong{padding:0 16px 12px;font-size:13px}.report-contents button{border:0;background:none;color:var(--accent);padding:12px 16px;text-align:left;font-size:12px;border-left:2px solid transparent}.report-contents button:hover,.report-contents button:focus-visible{background:var(--accent-soft);border-left-color:var(--accent)}.report-document{min-width:0;background:white;border:1px solid var(--line);border-radius:12px;padding:26px}.report-document-header{padding-bottom:20px;border-bottom:1px solid var(--line);margin-bottom:12px}.report-document-header h2{font-size:22px}.report-document-header p{font-size:12px;color:var(--secondary);margin-top:10px}.report-document>.panel{border:0;border-radius:0;margin:0 0 20px!important;box-shadow:none;background:transparent;overflow:visible}.report-document .panel-heading{padding:18px 0 12px!important;min-height:0;border-bottom:1px solid var(--line)}.report-document .panel-heading h2{font-size:16px}.report-document .panel-heading p{font-size:12px}.report-document .report-results article{border:1px solid var(--line);border-radius:8px;padding:14px;margin:13px 0;font-size:12px}.report-document .report-results article h3{font-size:12px}.report-document .report-results>p,.report-document .report-results>ul{font-size:12px;padding:10px 0}.report-document .table-scroll{max-width:100%;min-width:0}.report-document .data-table{min-width:0!important;font-size:12px!important}.report-document .data-table :is(th,td){padding:11px 10px!important;overflow-wrap:anywhere}.report-document .report-counts{gap:12px;padding:14px 0}.report-document .report-counts dd{font-size:22px}.report-document .filter-bar{padding:12px 0!important;border-bottom:1px solid var(--line);background:transparent;flex-wrap:wrap}.report-document .filter-bar select{max-width:100%;min-width:0}.report-context{margin:0;padding:8px 18px;font-size:12px}.report-context>div{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-bottom:1px solid var(--line);padding:11px 0}.report-context dt{color:var(--secondary)}.report-context dd{margin:0;overflow-wrap:anywhere}.report-actions-rail{position:sticky;top:16px;display:grid;gap:16px}.report-export-actions{padding:18px;display:grid;gap:12px}.report-export-actions .button{width:100%}.report-scope-note{font-size:12px;color:var(--secondary);background:var(--surface-subtle);border:1px solid var(--line);border-radius:6px;padding:12px;margin:15px}.report-print-brand,.report-print-footer{display:none}.report-document [id]{scroll-margin-top:20px}@media(max-width:1320px){.report-workbench{grid-template-columns:145px minmax(0,1fr) 225px;gap:14px}.report-document{padding:20px}.report-contents button{padding:11px 12px}}
 @media print{@page{size:A4;margin:19mm 12mm 18mm}.report-contents,.report-actions-rail,.page-header,.back-link,.report-document .filter-bar,.report-workbench .button{display:none!important}:global(.app-shell){display:block!important}:global(.app-shell .sidebar),:global(.topbar),:global(.skip-link){display:none!important}:global(.main-content){padding:0!important;width:auto!important;max-width:none!important}:global(body){background:white!important;color:#15233d!important}.report-workbench{display:block}.report-document{border:0;padding:0;border-radius:0}.report-document .table-scroll{overflow:visible}.report-document .data-table{font-size:9pt!important}.report-document .data-table :is(td,th){padding:7px 6px!important}.report-document .panel,.report-document article{break-inside:auto}.report-document article,.report-document tr{break-inside:avoid}.report-print-brand{display:block;margin-bottom:24px}.report-print-brand :deep(.brand){color:#15233d!important}.report-print-brand :deep(.brand small){color:#15233d!important}.report-print-footer{display:block;border-top:1px solid #dce5f0;padding-top:12px;font-size:9px;color:#64748d}.report-document .report-classification-snapshot[open]{min-width:0}.report-document .report-counts{display:flex;flex-wrap:wrap}.report-document .report-counts>div{flex:1;min-width:70px}thead{display:table-header-group}}
+</style>
+
+<style scoped>.report-workbench{grid-template-columns:215px minmax(0,1fr) 290px;gap:16px}.report-contents{padding:16px 10px;gap:7px}.report-contents>strong{display:flex;align-items:center;gap:10px;padding:0 6px 15px;font-size:17px;border-bottom:1px solid var(--line)}.report-contents button{display:flex;align-items:flex-start;gap:10px;border:1px solid transparent;border-bottom-color:var(--line);border-radius:5px;padding:14px 8px;color:var(--ink);font-size:13px;line-height:1.7}.report-contents button.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}.report-contents .icon{flex:none;color:var(--accent);width:20px;height:20px}.report-document{padding:22px;border-radius:4px;box-shadow:5px 6px 0 #e3edf5,8px 10px 0 #f0f5fa;min-height:560px}.report-document-header{margin-bottom:10px;padding-bottom:18px}.report-document-header h2{font-size:24px;line-height:1.5}.report-document-header .report-print-brand{display:block;margin-bottom:14px}.report-document-header .report-print-brand :deep(.brand){color:var(--ink)}.report-document-header .report-print-brand :deep(.brand small){color:var(--secondary)}.report-document-header .report-print-brand :deep(.brand img){width:32px;height:32px}.report-document>.panel:not(.report-chapter-active){display:none}.report-document>.report-chapter-active{display:block;min-height:330px}.report-document .report-counts{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;padding:0;margin:18px 0}.report-document .report-counts>div{flex:1;min-width:95px;padding:12px 10px;background:#f1f7fc;border-right:1px solid var(--line)}.report-document .report-counts dt{font-size:12px}.report-document .report-counts dd{font-size:23px;margin-top:7px}.report-adoption-inspector .panel-heading h2{display:flex;align-items:center;gap:10px;font-size:18px}.report-adoption-kind{display:flex;border-radius:6px;overflow:hidden;margin:16px 15px 5px;background:#edf3f8;font-size:12px;text-align:center}.report-adoption-kind>*{flex:1;padding:9px 5px}.report-adoption-kind strong{background:var(--accent);color:white}.report-adoption-inspector .report-context{font-size:13px;padding:4px 16px}.report-adoption-inspector .report-context>div{grid-template-columns:75px minmax(0,1fr);gap:10px}.report-evidence-illustration{display:block;width:150px;height:140px;object-fit:contain;margin:4px auto 14px}.report-actions-rail{position:static}.report-export-actions{gap:9px;padding:16px}.report-document .panel-heading h2{font-size:19px}@media(max-width:1350px){.report-workbench{grid-template-columns:175px minmax(0,1fr) 250px;gap:13px}.report-document{padding:18px}.report-document-header h2{font-size:21px}}@media(max-width:1050px){.report-workbench{grid-template-columns:175px minmax(0,1fr)}.report-actions-rail{grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));display:grid}.report-adoption-inspector{grid-row:span 2}}@media(max-width:720px){.report-workbench{grid-template-columns:1fr}.report-contents{position:static;display:flex;overflow-x:auto}.report-contents>strong{display:none}.report-contents button{white-space:nowrap;flex:none}.report-actions-rail{grid-template-columns:1fr}.report-adoption-inspector{grid-row:auto}}@media print{.report-document>.panel:not(.report-chapter-active){display:block!important}.report-document>.report-chapter-active{min-height:0}.report-document{min-height:0;box-shadow:none}.report-evidence-illustration{display:none}}
 </style>

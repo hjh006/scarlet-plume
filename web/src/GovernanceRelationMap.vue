@@ -1,0 +1,16 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import type { DataFlowGraph } from './data-flows'
+import { dataFlowNodeLabels, dataFlowRelationLabels } from './data-flows'
+import Icon from './Icon.vue'
+const props=defineProps<{graph:DataFlowGraph;selected?:string;selectedEdge?:string}>()
+const emit=defineEmits<{select:[id:string];edge:[id:string]}>()
+const nodes=computed(()=>{const center=props.selected||props.graph.nodes[0]?.id;if(!center)return [];const ids=new Set([center]);for(const edge of props.graph.edges)if(edge.from===center||edge.to===center){ids.add(edge.from);ids.add(edge.to)}return props.graph.nodes.filter(node=>ids.has(node.id)).slice(0,9)})
+const positions=computed(()=>new Map(nodes.value.map((node,index)=>[node.id,{x:70+(index%3)*300,y:45+Math.floor(index/3)*155}])))
+const edges=computed(()=>props.graph.edges.filter(edge=>positions.value.has(edge.from)&&positions.value.has(edge.to)))
+const height=computed(()=>Math.max(350,Math.ceil(nodes.value.length/3)*155+40))
+function path(from:string,to:string){const a=positions.value.get(from)!,b=positions.value.get(to)!;return `M${a.x+105} ${a.y+48} C${a.x+105} ${a.y+110},${b.x+105} ${b.y-12},${b.x+105} ${b.y+48}`}
+function position(id:string){const p=positions.value.get(id)!;return {left:p.x/900*100+'%',top:p.y+'px'}}
+const observed=(relation:string)=>['observed','service_call','database_target','subject_access'].includes(relation)
+</script>
+<template><div class="governance-map-wrap"><div v-if="nodes.length" class="governance-relation-map" :style="{height:height+'px'}"><svg :style="{height:height+'px'}" :viewBox="`0 0 900 ${height}`" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="governance-relation-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7Z"/></marker></defs><path v-for="edge in edges" :key="edge.id" :d="path(edge.from,edge.to)" :class="{declared:!observed(edge.relation),selected:selectedEdge===edge.id}" marker-end="url(#governance-relation-arrow)"/></svg><button v-for="node in nodes" :key="node.id" type="button" class="governance-map-node" :title="node.label" :class="{selected:selected===node.id}" :style="position(node.id)" :aria-pressed="selected===node.id" @click="emit('select',node.id)"><strong><Icon :name="node.kind==='table'||node.kind==='database_type'?'assets':node.kind==='subject'?'user':'api-security'"/><span>{{node.label}}</span></strong><span>{{dataFlowNodeLabels[node.kind]}}</span><small>{{node.evidence.length}} 项来源记录</small></button></div><p v-else class="empty-state">本次范围尚未取得节点与关系；没有观察不表示没有流转。</p><div class="governance-map-relations"><strong>选择真实关系</strong><button v-for="edge in edges.slice(0,12)" :key="edge.id" type="button" :title="(graph.nodes.find(node=>node.id===edge.from)?.label||edge.from)+' → '+(graph.nodes.find(node=>node.id===edge.to)?.label||edge.to)" :aria-pressed="selectedEdge===edge.id" :class="{selected:selectedEdge===edge.id}" @click="emit('edge',edge.id)">{{dataFlowRelationLabels[edge.relation]}} · {{edge.evidence.length}} 项记录</button><span v-if="!edges.length">没有可连线的来源关系</span></div><p class="field-hint">实线为所列观察关系；虚线为目录或声明关系。主图聚焦所选节点的直接邻接，最多预览9个节点；完整关系与记录在下方台账。</p></div></template>
