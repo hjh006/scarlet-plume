@@ -185,6 +185,7 @@ direct integrations 均关闭。应用后端通过内部网络隔离，入口 CS
 正常浏览器页面的连接目标。官方版本的部分文件/网页导入权限仍属于界面限制；修改过的客户端
 也能请求由其自身浏览器执行的 direct RPC，不能据此声称控制了用户任意自带浏览器或密钥的
 网络访问。网关仍独立执行凭证、目录、参数、输入/输出和预算约束。
+`connect-src` 允许 `data:`，仅配合官方选图流程将本地 data URI 转为 Blob，不增加额外网络主机。
 `ENABLE_PERSISTENT_CONFIG=false` 防止旧数据库配置覆盖环境，不是管理员配置锁。
 上传配置列出 `png,jpg,jpeg` 和 4 MiB 大小上限，但该版本仅在 `process=true` 时强制检查
 文件扩展名，原生图片的 `process=false` 路径不受这一扩展名检查，chooser 也不是格式安全门。
