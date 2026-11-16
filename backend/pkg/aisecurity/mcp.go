@@ -81,6 +81,10 @@ func mcpResponseMessage(raw []byte, headers http.Header, requestID string) ([]by
 	case "application/json":
 		messages = append(messages, raw)
 	case "text/event-stream":
+		// The already-bounded response is held in full. Normalize all SSE line
+		// endings before scanning, including a CRLF split across HTTP chunks.
+		raw = bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
+		raw = bytes.ReplaceAll(raw, []byte("\r"), []byte("\n"))
 		scan := bufio.NewScanner(bytes.NewReader(raw))
 		scan.Buffer(make([]byte, 4096), 1<<20)
 		var data []string
@@ -128,7 +132,9 @@ func mcpResponseMessage(raw []byte, headers http.Header, requestID string) ([]by
 				return nil, invalid
 			}
 		}
-		if scan.Err() != nil || !dispatch() {
+		// EOF does not terminate an SSE event. Only a blank line above can
+		// complete the final result; pending data means an incomplete response.
+		if scan.Err() != nil || len(data) != 0 {
 			return nil, invalid
 		}
 	default:

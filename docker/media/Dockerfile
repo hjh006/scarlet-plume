@@ -17,11 +17,14 @@ WORKDIR /src/backend
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 ARG GOPROXY=https://proxy.golang.org,direct
 COPY backend/go.mod backend/go.sum ./
-RUN go mod download
-COPY backend/ ./
+COPY backend/pkg ./pkg
+COPY backend/internal/dataformat ./internal/dataformat
+COPY backend/internal/mediaprobe ./internal/mediaprobe
+COPY backend/cmd/media-inspector ./cmd/media-inspector
 RUN go build -trimpath -o /out/scarlet-media-inspector ./cmd/media-inspector
 
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+LABEL io.scarlet.media-inspection-version="scarlet-media-ocr-asr-v2"
 RUN apk add --no-cache ca-certificates libstdc++ tesseract-ocr tesseract-ocr-data-eng
 COPY --from=speech /src/whisper/build/bin/whisper-cli /usr/local/bin/whisper-cli
 COPY --from=scanner /out/scarlet-media-inspector /usr/local/bin/scarlet-media-inspector

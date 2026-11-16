@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/mediaprobe"
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
 )
 
@@ -70,8 +71,11 @@ func run() error {
 	nodeID := flag.String("node-id", defaultNode, "stable controller-scoped node identifier")
 	cert := flag.String("tls-cert", "", "public HTTPS certificate")
 	key := flag.String("tls-key", "", "public HTTPS private key")
-	mediaURL := flag.String("media-inspector-url", "", "fixed private media inspection endpoint")
+	mediaURL := flag.String("media-inspector-url", os.Getenv("SCARLET_GATEWAY_MEDIA_INSPECTOR_URL"), "fixed private media inspection endpoint")
 	mediaTokenFile := flag.String("media-inspector-token-file", "", "private media inspection token")
+	mediaCA := flag.String("media-inspector-ca-file", os.Getenv("SCARLET_GATEWAY_MEDIA_INSPECTOR_CA_FILE"), "additional public CA for scanner TLS only")
+	healthListen := flag.String("health-listen", "127.0.0.1:8906", "private loopback health listener")
+	checkReady := flag.Bool("check-ready", false, "check existing gateway readiness without loading credentials or journals")
 	tesseract := flag.String("media-tesseract", "", "absolute Tesseract executable")
 	whisper := flag.String("media-whisper", "", "absolute whisper-cli executable")
 	whisperModel := flag.String("media-whisper-model", "", "private pinned speech model")
@@ -79,6 +83,15 @@ func run() error {
 	mediaLanguages := flag.String("media-languages", "eng", "installed OCR languages")
 	local := flag.Bool("local", false, "synthetic loopback HTTP test mode")
 	flag.Parse()
+	if flag.NArg() != 0 {
+		return errors.New("unexpected gateway arguments")
+	}
+	if readinessAddress(*healthListen) != nil {
+		return errors.New("private loopback health listener required")
+	}
+	if *checkReady {
+		return checkReadiness(*healthListen)
+	}
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$`).MatchString(*nodeID) {
 		return errors.New("valid node-id required")
 	}
@@ -200,7 +213,11 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		media, err = aisecurity.NewHTTPMediaProcessor(*mediaURL, strings.TrimSpace(string(token)), *local)
+		ca, caErr := mediaprobe.LoadCA(*mediaCA)
+		if caErr != nil {
+			return caErr
+		}
+		media, err = aisecurity.NewHTTPMediaProcessorWithCA(*mediaURL, strings.TrimSpace(string(token)), *local, ca)
 		if err != nil {
 			return err
 		}
@@ -278,8 +295,42 @@ func run() error {
 			return err
 		}
 	}
+	dependencies := &dependencyReadiness{}
+	checkDependencies := func(probeCtx context.Context) error {
+		for _, profile := range profiles {
+			if !bifrostHealthy(probeCtx, profile.Port) {
+				return errors.New("Bifrost dependency unavailable")
+			}
+		}
+		c, e := catalog(probeCtx)
+		if e != nil {
+			return errors.New("catalog dependency unavailable")
+		}
+		return mediaprobe.Check(probeCtx, media, mediaprobe.Formats(c))
+	}
+	probeCtx, cancelProbe := context.WithTimeout(ctx, 50*time.Second)
+	err = checkDependencies(probeCtx)
+	cancelProbe()
+	dependencies.record(err)
+	if err != nil {
+		return errors.New("gateway media/version or transport dependency not ready")
+	}
+	healthListener, err := net.Listen("tcp", *healthListen)
+	if err != nil {
+		return errors.New("private health listener unavailable")
+	}
+	healthServer := &http.Server{Handler: readinessHandler(dependencies), ReadHeaderTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 16384}
+	defer healthServer.Close()
+	monitorCtx, cancelMonitor := context.WithCancel(ctx)
+	monitorDone := make(chan struct{})
+	go func() {
+		defer close(monitorDone)
+		monitorDependencies(monitorCtx, dependencies, checkDependencies, 30*time.Second)
+	}()
+	defer func() { cancelMonitor(); <-monitorDone }()
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 180 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16384}
-	serverExit := make(chan error, 1)
+	serverExit := make(chan error, 2)
+	go func() { serverExit <- healthServer.Serve(healthListener) }()
 	go func() {
 		if *local {
 			serverExit <- server.ListenAndServe()
@@ -297,7 +348,7 @@ func run() error {
 			failures := 0
 			for {
 				status := "healthy"
-				healthy := true
+				healthy := dependencies.healthy()
 				for _, profile := range profiles {
 					if !bifrostHealthy(heartbeatCtx, profile.Port) {
 						healthy = false

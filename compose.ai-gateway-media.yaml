@@ -1,0 +1,17 @@
+# Combine with compose.ai-gateway.yaml and compose.media-inspector.yaml.
+# Private files contain deployment configuration, never working demo secrets.
+services:
+  ai-gateway:
+    environment:
+      SCARLET_GATEWAY_MEDIA_INSPECTOR_URL: ${SCARLET_GATEWAY_MEDIA_INSPECTOR_URL:-https://media-inspector:8912/v1/inspect}
+      SCARLET_GATEWAY_MEDIA_INSPECTOR_CA_FILE: /config/scanner-ca.crt
+    volumes:
+      - ${SCARLET_GATEWAY_SCANNER_CA_FILE:?set the reviewed public scanner CA}:/config/scanner-ca.crt:ro
+    networks: [default, media-inspection]
+    depends_on:
+      media-inspector:
+        condition: service_healthy
+networks:
+  media-inspection:
+    name: ${SCARLET_MEDIA_INSPECTOR_NETWORK:-scarlet-media-inspection}
+    internal: true

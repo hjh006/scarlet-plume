@@ -195,9 +195,13 @@ const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 })
 
-export function formatDate(value: string) {
+const preciseDateFormat = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'medium', hour12: false,
+})
+
+export function formatDate(value: string, precise = false) {
   const date = new Date(value)
-  return Number.isNaN(date.valueOf()) ? '—' : dateFormat.format(date)
+  return Number.isNaN(date.valueOf()) ? '—' : (precise ? preciseDateFormat : dateFormat).format(date)
 }
 
 export function providerLabel(provider: string): string {

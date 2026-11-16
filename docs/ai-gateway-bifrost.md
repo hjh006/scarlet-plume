@@ -183,7 +183,8 @@ See [enterprise governance](ai-gateway-enterprise.md) for controller configurati
 `docker/bifrost/Dockerfile` builds Scarlet from this workspace and copies it into
 the fixed official Bifrost image. It does not add Bifrost dependencies to the root
 Go module. The CLI starts and supervises `/app/main` with a private generated
-configuration, waits for bounded HTTP readiness, then opens the external HTTPS
+configuration, waits for bounded HTTP readiness and authenticated current-version
+media probes required by the enabled catalog, then opens the external HTTPS
 listener. Bifrost binds only loopback and has no published management/proxy port.
 The CLI sends workspace-scoped heartbeats every 15 seconds after HTTP readiness.
 `-node-id` defaults to the validated hostname; use distinct explicit IDs for
@@ -191,6 +192,17 @@ multiple processes on one host. Healthy means process/dependency readiness,
 not model quality, provider SLA or a successful customer inference test.
 Controller outages leave the node stale instead of manufacturing new health;
 shutdown sends degraded best effort.
+The private loopback health listener defaults to `127.0.0.1:8906`. `/healthz`
+is process liveness; `/readyz` is a fresh dependency result (204 or 503).
+`ai-gateway -check-ready` reads this result without opening bindings, credentials
+or the nonce journal. It does not scan content or reserve budget. Do not publish
+this port. Native instances on one host need separate `-health-listen` ports.
+Media probes use fixed blank pixels and silent PCM, have a 50-second deadline,
+and run serially with a 30-second interval after each completion. Results older
+than 90 seconds are unready. Busy scanner slots can conservatively degrade the
+node; recovery never deletes the journal or releases unresolved charges.
+See [media operations](ai-gateway-media.md) for the synchronized v2 compose
+overlay, scanner-only CA trust, historical v1 metadata and acceptance boundaries.
 Its child environment contains only the provider credential and required PATH/CA
 settings, not controller credentials, database DSNs or unrelated application secrets.
 
@@ -211,7 +223,7 @@ python3 docker/bifrost/e2e-media.py \
   --tesseract "$TESSERACT" --whisper "$WHISPER" \
   --whisper-model "$WHISPER_MODEL" \
   --whisper-model-sha256 "$WHISPER_MODEL_SHA256" --wav "$SYNTHETIC_WAV"
-docker build -f docker/bifrost/Dockerfile -t scarlet-ai-gateway:bifrost-2.5.1 .
+docker build -f docker/bifrost/Dockerfile -t scarlet-ai-gateway:bifrost-2.5.1-media-v2 .
 ```
 
 The Docker test uses the real pinned OSS image with a synthetic local provider;

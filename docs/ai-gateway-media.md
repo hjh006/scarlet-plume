@@ -32,8 +32,9 @@ v2取每个非空OCR词或真实ASR文字token的最低置信度，不能让大�
 | `SCARLET_MEDIA_INSPECTOR_TLS_DIR` | TLS 目录，默认 `./var/media-inspector/tls` |
 | `SCARLET_MEDIA_INSPECTOR_MODEL_DIR` | 模型目录，默认 `./var/media-inspector/models` |
 | `SCARLET_MEDIA_INSPECTOR_NETWORK` | 私网名称，默认 `scarlet-media-inspection` |
+| `SCARLET_GATEWAY_SCANNER_CA_FILE` | 网关同步部署使用的扫描器公共 CA 文件，建议绝对路径 |
 
-TLS 目录需包含 `tls.crt`、`tls.key`；模型目录需包含 `ggml-model.bin`。随后在仓库根目录执行：
+TLS 目录需包含 `tls.crt`、`tls.key`、`ca.crt`；模型目录需包含 `ggml-model.bin`。`ca.crt` 是健康检查使用的公共 CA，不能包含私钥。随后在仓库根目录执行：
 
 ```sh
 docker compose -f compose.media-inspector.yaml --profile media-inspector build
@@ -45,6 +46,31 @@ docker compose -f compose.media-inspector.yaml --profile media-inspector up -d
 服务提供 `POST /v1/inspect`，要求 Bearer token 与媒体摘要绑定。`GET /healthz` 仅返回 `204`，不返回配置、模型路径或秘密；进程健康不证明某种媒体扫描成功。启动默认监听 `127.0.0.1:8912`；生产示例显式监听容器私网并配置 TLS。
 
 本地测试可显式使用 `--local --listen 127.0.0.1:8912` 允许 loopback 明文，不用于容器跨主机通信或生产部署。默认禁止非 TLS 的非 loopback 监听。CLI 支持 `--tls-cert`、`--tls-key`、`--tesseract`、`--whisper`、`--whisper-model`、`--whisper-model-sha256`、`--languages` 和 `--token-env`；不把 token 放进命令行参数。
+
+## 同步升级与就绪
+
+同时部署网关与扫描器时，在原网关所需环境变量之外提供上表的扫描器变量，以及 `SCARLET_GATEWAY_SCANNER_CA_FILE`。网关私有配置目录需有与扫描器环境相同的 `media-inspector.token`（0600）。使用同步覆盖文件：
+
+```sh
+docker compose -f compose.ai-gateway.yaml -f compose.media-inspector.yaml \
+  -f compose.ai-gateway-media.yaml --profile media-inspector build
+docker compose -f compose.ai-gateway.yaml -f compose.media-inspector.yaml \
+  -f compose.ai-gateway-media.yaml --profile media-inspector up -d
+```
+
+升级保留 `/state` 的审计和独占 nonce journal、控制面数据库、既有预算与未决费用；不要通过删除状态文件或重放已消费请求恢复健康。镜像标签包含 `media-v2`，实际检测还须通过就绪探针与真实业务媒体验收，标签本身不证明协议兼容。
+
+实际媒体请求仍受应用预算、RPM、TPM 和输出上限约束。控制面按输入字节与识别投影做保守预留，不能用模型供应商的文字 token 估算替代；WAV 的 base64 请求可能超过为短文本设置的 TPM。应在保留安全策略的前提下通过受审计的配置更新设定明确额度，不清空计数或跳过准入来使验收通过。
+
+扫描器 healthcheck 使用 `--check-url` 发起认证后的真实 PNG OCR 与静音 WAV ASR，要求返回当前 v2 协议，并验证摘要绑定。该模式不启动服务，也不调用模型。可使用 `--check-formats image/png` 检查只启用 OCR 的独立部署；默认组合要求 OCR 和 ASR 都可用。`--scanner-ca-file` 为探针追加专用 CA，保留系统根证书和证书主机名校验；错误 CA、主机名不符、旧 v1 回执、认证错误、工具故障或超时均失败。单轮最多 50 秒，没有并行重试队列。
+
+网关在开放 HTTPS 入口前，对已启用目录要求的媒体格式运行同类真实探针，JPEG 对应规范化 PNG；每轮完成后间隔 30 秒复查。探针仅含固定白色像素与静音 PCM，不提交模型请求、不进行预算准入、不向控制面发送媒体正文。就绪结果超过 90 秒或依赖失败时变为不可用，节点 heartbeat 反映 `degraded`。网络或 DNS 故障可能耗尽单轮截止，状态不会承诺在停机瞬间更新。恢复成功后重新变为就绪，不清理 journal 或预算。无媒体模型的网关不要求媒体探针。
+
+网关 `-health-listen` 默认为容器内 `127.0.0.1:8906`，不得映射为公网服务；同一宿主运行多个原生进程时各自分配不同端口。该私有监听上 `/healthz` 只证明进程存活，`/readyz` 只返回 204 或 503。`ai-gateway -check-ready` 查询已有就绪结果，在读取目录、凭据、bindings 或 journal 前退出，不重启运行时或执行真实请求。每次健康检查只读已有结果，不产生额外扫描。
+
+扫描器自身的定时 healthcheck 和网关探针可能与业务竞争 CLI 的两个扫描槽位；繁忙时保守地报告不可用或 `degraded`，不会绕过检查。健康状态不是接入流量的唯一授权门禁，执行中的请求仍逐次完成真实检查，扫描器故障时媒体请求失败关闭。就绪成功不证明 OCR/ASR 识别质量、供应商可达、客户请求成功或输出安全。
+
+网关 `-media-inspector-ca-file`（或 `SCARLET_GATEWAY_MEDIA_INSPECTOR_CA_FILE`）只为扫描器客户端追加公共 CA，不改变控制面或模型供应商的系统信任。若私有控制面另用专用 CA，应独立配置完整的系统根加私有 CA 信任包，不可用扫描器 CA 覆盖系统根。
 
 ## 验收
 

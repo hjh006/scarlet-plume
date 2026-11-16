@@ -20,13 +20,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hjh006/scarlet-plume/backend/internal/mediaprobe"
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
 )
 
 type options struct {
-	listen, cert, key, tokenEnv string
-	local                       bool
-	command                     aisecurity.CommandMediaOptions
+	listen, cert, key, tokenEnv       string
+	local                             bool
+	command                           aisecurity.CommandMediaOptions
+	checkURL, checkFormats, scannerCA string
 }
 
 func parseOptions(args []string) (o options, err error) {
@@ -42,8 +44,20 @@ func parseOptions(args []string) (o options, err error) {
 	f.StringVar(&o.command.WhisperModel, "whisper-model", "", "absolute read-only speech model path")
 	f.StringVar(&o.command.WhisperModelSHA256, "whisper-model-sha256", "", "pinned speech model SHA-256")
 	f.StringVar(&o.command.Languages, "languages", "eng", "installed tesseract languages")
+	f.StringVar(&o.checkURL, "check-url", "", "authenticated real scanner readiness probe URL")
+	f.StringVar(&o.checkFormats, "check-formats", "image/png,audio/wav", "required normalized scanner formats")
+	f.StringVar(&o.scannerCA, "scanner-ca-file", "", "additional public CA for the scanner probe only")
 	if e := f.Parse(args); e != nil || f.NArg() != 0 {
 		return o, errors.New("invalid media inspector options")
+	}
+	if !regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,95}$`).MatchString(o.tokenEnv) {
+		return o, errors.New("invalid authentication environment reference")
+	}
+	if o.checkURL != "" {
+		if o.command.Tesseract != "" || o.command.Whisper != "" || o.cert != "" || o.key != "" {
+			return o, errors.New("readiness probe cannot start a scanner")
+		}
+		return o, nil
 	}
 	host, port, e := net.SplitHostPort(o.listen)
 	if e != nil || port == "" {
@@ -120,6 +134,19 @@ func run(ctx context.Context, args []string) error {
 	o, e := parseOptions(args)
 	if e != nil {
 		return e
+	}
+	if o.checkURL != "" {
+		ca, e := mediaprobe.LoadCA(o.scannerCA)
+		if e != nil {
+			return e
+		}
+		client, e := aisecurity.NewHTTPMediaProcessorWithCA(o.checkURL, os.Getenv(o.tokenEnv), o.local, ca)
+		if e != nil {
+			return errors.New("scanner readiness configuration invalid")
+		}
+		bounded, cancel := context.WithTimeout(ctx, 50*time.Second)
+		defer cancel()
+		return mediaprobe.Check(bounded, client, strings.Split(o.checkFormats, ","))
 	}
 	processor, e := aisecurity.NewCommandMediaProcessor(o.command)
 	if e != nil {

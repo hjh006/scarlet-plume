@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -52,7 +53,7 @@ func run() error {
 	mode := flag.String("mode", "serve", "serve, migrate, bootstrap, or add-reviewer")
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	web := flag.String("web", "", "path to built Vue dist (optional)")
-	allowLoopback := flag.Bool("allow-insecure-loopback", false, "allow plaintext PostgreSQL on literal loopback only")
+	allowLoopback := flag.Bool("allow-insecure-loopback", false, "allow a localhost HTTP origin and plaintext PostgreSQL on literal loopback only")
 	localDocker := flag.Bool("local-docker", false, "use the loopback-published Docker preview and its private database")
 	flag.Parse()
 	switch *mode {
@@ -65,7 +66,7 @@ func run() error {
 	var secure bool
 	var err error
 	if *mode == "serve" || *localDocker {
-		secure, err = validateOrigin(origin, *addr, *localDocker)
+		secure, err = validateOrigin(origin, *addr, *localDocker, *allowLoopback)
 		if err != nil {
 			return err
 		}
@@ -167,14 +168,26 @@ func addReviewer(ctx context.Context, st *store.Store) error {
 	return nil
 }
 
-func validateOrigin(origin, addr string, localDocker bool) (bool, error) {
+func validateOrigin(origin, addr string, localDocker, allowLoopback bool) (bool, error) {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" ||
-		u.ForceQuery || u.Fragment != "" || (u.Scheme != "https" && (u.Scheme != "http" || !loopback(u.Hostname()))) {
+		u.ForceQuery || u.Fragment != "" {
 		return false, errors.New("SCARLET_ORIGIN must be a single HTTPS origin or a literal loopback development origin")
 	}
-	if localDocker && (u.Scheme != "http" || u.Hostname() != "127.0.0.1") {
-		return false, errors.New("local Docker requires an HTTP origin on 127.0.0.1")
+	// Keep localhost canonical: browsers lowercase DNS names in Origin headers,
+	// while the configured origin is also used for an exact CSRF comparison.
+	localhost := u.Hostname() == "localhost" && (localDocker || allowLoopback)
+	if u.Scheme != "https" && (u.Scheme != "http" || !loopback(u.Hostname()) && !localhost) {
+		return false, errors.New("HTTP origins require literal loopback, or canonical localhost with an explicit development flag")
+	}
+	if u.Scheme == "http" && localhost && u.Host != "localhost" {
+		port, err := strconv.Atoi(u.Port())
+		if err != nil || port < 1 || port > 65535 || u.Host != "localhost:"+strconv.Itoa(port) {
+			return false, errors.New("localhost origin requires a canonical TCP port")
+		}
+	}
+	if localDocker && (u.Scheme != "http" || u.Hostname() != "127.0.0.1" && !localhost) {
+		return false, errors.New("local Docker requires an HTTP origin on 127.0.0.1 or canonical localhost")
 	}
 	if u.Scheme == "http" {
 		host, _, err := net.SplitHostPort(addr)

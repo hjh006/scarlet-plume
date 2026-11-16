@@ -169,7 +169,10 @@ func respond(w http.ResponseWriter, status int, v any) {
 type runtimeAttemptKey struct{}
 
 func (h *runtimeHandler) audit(ctx context.Context, r Request, d Decision, stage string, x Execution) error {
-	if ctx.Err() != nil {
+	// An already observed terminal fact must survive cancellation arriving while
+	// its receipt is in flight. This context only records/settles the original
+	// execution; the caller context still controls dispatch and output release.
+	if stage == "completed" || ctx.Err() != nil {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()

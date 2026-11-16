@@ -75,6 +75,9 @@ JSON-RPC ID 只用于协议关联，不作为批准或防重放依据。`tools/c
 通过 `_meta["org.scarletplume/control"].requestId` 或 `Idempotency-Key` 提供；两者同时存在
 必须相等。未提供时服务器生成随机值，响应头 `X-Scarlet-Request-ID` 返回该值。
 改变 RPC ID 不能绕过相同执行 nonce 的防重放。
+`Idempotency-Key` 若提供，必须恰有一个非空值；重复值即使相同也会被拒绝。
+nonce 为 16—80 字符的有效运行时 ID。重试有副作用的调用时，应保留原 nonce 并先核对实际
+执行记录，不能因响应丢失而省略 nonce 或请求服务器重新生成。
 
 ```json
 {
@@ -105,6 +108,9 @@ JSON-RPC ID 只用于协议关联，不作为批准或防重放依据。`tools/c
 控制元数据对象只允许准确拼写的 `requestId`、`issuedAt`、`expiresAt`、`approvalId`；
 `RequestID` 等大小写别名或其他字段会被拒绝。绑定任务通过 `X-Scarlet-Task-Id` 提供，
 要求任务的应用必须显式绑定有效任务；任务标识不能代替原祖先租约的 epoch、范围与预算检查。
+这些显式字段必须是 JSON 字符串，不能是 null；显式 `requestId` 不能为空，显式时间必须
+为非零 RFC3339 时间。省略字段或空控制对象可采用服务器默认值，显式无效值不会被悄悄换成
+新 nonce 或新有效期。`approvalId` 的空字符串仍表示没有独立批准，不会授予执行权限。
 
 工具调用映射到注册的 toolId/action；目标由显式参数提取，不从提示词推断。
 执行复用现有精确参数白名单、完整工具定义 pin、持久 nonce、调用前与输出前撤权复核、
@@ -115,6 +121,11 @@ JSON-RPC ID 只用于协议关联，不作为批准或防重放依据。`tools/c
 
 上游响应只接受单个匹配执行 nonce 的最终 JSON-RPC 结果。响应可以是 JSON，或先完整缓冲
 有界 SSE 后解析；允许的进度、日志通知被丢弃，不向客户端提前释放正文，也不自动重连。
+SSE 识别 LF、CRLF 和裸 CR 行尾；数据事件须以空行结束，只有一行末尾换行或直接 EOF 都
+不能结束该事件。EOF 仍有待处理
+数据时整个响应被拒绝，即使前面已有完整结果，也不会忽略截断的尾事件后宣称成功。
+这与 [SSE 事件解释规则](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation)
+一致。未闭合工具响应按已尝试、结果未知保留审计及已消费的持久 nonce，不会自动重试工具。
 重复最终响应、JSON-RPC error、ID 不匹配、字段大小写别名及未知字段均被拒绝。
 上游必须提供唯一的 JSON 或 event-stream `Content-Type`，不能带会话头或非空内容编码；
 若提供协议版本头，必须唯一且等于当前支持版本。

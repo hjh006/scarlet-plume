@@ -39,6 +39,24 @@ type gatewayMCPControl struct {
 	ApprovalID string    `json:"approvalId,omitempty"`
 }
 
+func gatewayMCPExecutionControl(raw json.RawMessage) (gatewayMCPControl, error) {
+	var control gatewayMCPControl
+	if err := mcpObject(raw, &control, "requestId", "issuedAt", "expiresAt", "approvalId"); err != nil {
+		return control, err
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	for name, value := range fields {
+		value = bytes.TrimSpace(value)
+		// Explicit null/zero values must not become a fresh server-generated
+		// nonce or lifetime. Defaults apply only when the field was omitted.
+		if len(value) == 0 || value[0] != '"' || name == "requestId" && control.RequestID == "" || name == "issuedAt" && control.IssuedAt.IsZero() || name == "expiresAt" && control.ExpiresAt.IsZero() {
+			return control, errors.New("invalid explicit execution metadata")
+		}
+	}
+	return control, nil
+}
+
 func gatewayMCPID(raw json.RawMessage) bool {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return false
@@ -364,11 +382,20 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 			return
 		}
 		var control gatewayMCPControl
-		if raw, exists := p.Meta[gatewayMCPControlMeta]; exists && mcpObject(raw, &control, "requestId", "issuedAt", "expiresAt", "approvalId") != nil {
-			gatewayMCPError(w, 400, rpc.ID, -32602, "Invalid execution metadata", nil)
-			return
+		if raw, exists := p.Meta[gatewayMCPControlMeta]; exists {
+			var err error
+			control, err = gatewayMCPExecutionControl(raw)
+			if err != nil {
+				gatewayMCPError(w, 400, rpc.ID, -32602, "Invalid execution metadata", nil)
+				return
+			}
 		}
-		if header := in.Header.Get("Idempotency-Key"); header != "" {
+		if values := in.Header.Values("Idempotency-Key"); len(values) != 0 {
+			if len(values) != 1 || values[0] == "" {
+				gatewayMCPError(w, 400, rpc.ID, -32602, "Ambiguous execution nonce header", nil)
+				return
+			}
+			header := values[0]
 			if control.RequestID != "" && control.RequestID != header {
 				gatewayMCPError(w, 400, rpc.ID, -32602, "Execution nonce mismatch", nil)
 				return

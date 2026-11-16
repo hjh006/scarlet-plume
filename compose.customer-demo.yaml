@@ -1,0 +1,142 @@
+name: scarlet-customer-webui
+
+services:
+  open-webui-init:
+    image: ghcr.io/open-webui/open-webui:v0.13.3-slim@sha256:8faf917243afee55e042b10ddc08ed6ae6fa9c62522c7e14d81e7cf2922325ae
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        test -s /source/gateway-ca.pem
+        mkdir -p /data/certs /data/cache /socket
+        cp /source/gateway-ca.pem /data/certs/gateway-ca.pem
+        chown -R 10001:10001 /data /socket
+        chmod 700 /data /data/certs /socket
+        chmod 600 /data/certs/gateway-ca.pem
+    volumes:
+      - open-webui-data:/data
+      - open-webui-socket:/socket
+      - type: bind
+        source: ${CUSTOMER_GATEWAY_CA_FILE:?Set CUSTOMER_GATEWAY_CA_FILE to the private gateway CA file}
+        target: /source/gateway-ca.pem
+        read_only: true
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.13.3-slim@sha256:8faf917243afee55e042b10ddc08ed6ae6fa9c62522c7e14d81e7cf2922325ae
+    container_name: scarlet-customer-open-webui
+    depends_on:
+      open-webui-init:
+        condition: service_completed_successfully
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    env_file:
+      - path: ${CUSTOMER_OPENWEBUI_ENV_FILE:-./var/customer-demo/secrets/open-webui.env}
+        format: raw
+    environment:
+      WEBUI_AUTH: "true"
+      ENABLE_SIGNUP: "false"
+      DEFAULT_USER_ROLE: pending
+      ENABLE_PERSISTENT_CONFIG: "false"
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URLS: https://ai-gateway:8905/v1
+      OPENAI_API_CONFIGS: '{"0":{"enable":true,"model_ids":["synthetic-media-model"]}}'
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_DIRECT_CONNECTIONS: "false"
+      ENABLE_DIRECT_INTEGRATIONS: "false"
+      ENABLE_OPENAI_API_PASSTHROUGH: "false"
+      ENABLE_FORWARD_USER_INFO_HEADERS: "false"
+      USER_PERMISSIONS_CHAT_PARAMS: "false"
+      USER_PERMISSIONS_CHAT_FILE_UPLOAD: "true"
+      USER_PERMISSIONS_CHAT_WEB_UPLOAD: "false"
+      USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS: "false"
+      USER_PERMISSIONS_FEATURES_CODE_INTERPRETER: "false"
+      USER_PERMISSIONS_FEATURES_WEB_SEARCH: "false"
+      ENABLE_PLUGINS: "false"
+      ENABLE_CODE_EXECUTION: "false"
+      ENABLE_CODE_INTERPRETER: "false"
+      ENABLE_WEB_SEARCH: "false"
+      ENABLE_TITLE_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      DEFAULT_MODEL_PARAMS: '{}'
+      DEFAULT_MODEL_METADATA: '{"capabilities":{"builtin_tools":false,"usage":false,"vision":true,"file_upload":true,"file_context":false,"web_search":false,"image_generation":false,"code_interpreter":false}}'
+      RAG_ALLOWED_FILE_EXTENSIONS: png,jpg,jpeg
+      RAG_FILE_MAX_SIZE: "4"
+      ENABLE_VERSION_UPDATE_CHECK: "false"
+      USE_SLIM_DOCKER: "true"
+      OFFLINE_MODE: "true"
+      HF_HUB_OFFLINE: "1"
+      DO_NOT_TRACK: "true"
+      SCARF_NO_ANALYTICS: "true"
+      ANONYMIZED_TELEMETRY: "false"
+      AIOHTTP_CLIENT_SESSION_SSL: /app/backend/data/certs/gateway-ca.pem
+      SSL_CERT_FILE: /app/backend/data/certs/gateway-ca.pem
+      REQUESTS_CA_BUNDLE: /app/backend/data/certs/gateway-ca.pem
+      REQUESTS_VERIFY: "true"
+      DATA_DIR: /app/backend/data
+      STATIC_DIR: /app/backend/data/static
+      HOME: /app/backend/data
+      XDG_CACHE_HOME: /app/backend/data/cache
+      PYTHONDONTWRITEBYTECODE: "1"
+      GLOBAL_LOG_LEVEL: WARNING
+      WEBUI_URL: http://127.0.0.1:8908
+      CORS_ALLOW_ORIGIN: http://127.0.0.1:8908
+    entrypoint: [python, /run/start-open-webui.py]
+    command: []
+    volumes:
+      - open-webui-data:/app/backend/data
+      - open-webui-socket:/run/open-webui
+      - ./docker/customer-demo/start-open-webui.py:/run/start-open-webui.py:ro
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=128m,mode=1777
+    networks: [customer-demo]
+    mem_limit: 1536m
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --unix-socket, /run/open-webui/webui.sock, http://localhost/health]
+      interval: 20s
+      timeout: 8s
+      start_period: 90s
+      retries: 5
+
+  open-webui-entry:
+    image: nginx:stable-alpine3.24@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6
+    container_name: scarlet-customer-open-webui-entry
+    depends_on:
+      open-webui:
+        condition: service_healthy
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    entrypoint: [nginx, -c, /etc/nginx/nginx.conf, -g, "daemon off;"]
+    ports:
+      - "127.0.0.1:8908:8080"
+    volumes:
+      - open-webui-socket:/run/open-webui:ro
+      - ./docker/customer-demo/open-webui-nginx.conf:/etc/nginx/nginx.conf:ro
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=32m,mode=1777
+    networks: [customer-webui-entry]
+    mem_limit: 128m
+
+volumes:
+  open-webui-data:
+    name: scarlet-customer-openwebui-data
+  open-webui-socket:
+    name: scarlet-customer-openwebui-socket
+
+networks:
+  customer-demo:
+    external: true
+    name: scarlet-customer-demo
+  customer-webui-entry:
+    name: scarlet-customer-webui-entry

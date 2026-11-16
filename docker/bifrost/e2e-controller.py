@@ -132,7 +132,7 @@ def main():
                     time.sleep(.2)
             node_env = dict(env,SCARLET_GATEWAY_PROVIDER_KEY='synthetic-provider-key-000000001',SCARLET_GATEWAY_E2E_ENDPOINT=profile['baseUrl'])
             for label, number in [('node1',first_port),('node2',second_port)]:
-                node = launch([str(tmp/'ai-gateway'),'-local','-listen',f'127.0.0.1:{number}','-catalog',str(tmp/'catalog.json'),'-bindings',str(tmp/'bindings.json'),'-bifrost-profile',str(tmp/'profile.json'),'-audit',str(tmp/(label+'.audit.jsonl')),'-journal',str(tmp/(label+'.journal.jsonl')),'-control-url',control,'-control-token-file',str(tmp/'node.token'),'-workspace',args.workspace,'-node-id',label],label,node_env)
+                node = launch([str(tmp/'ai-gateway'),'-local','-health-listen',f'127.0.0.1:{port()}','-listen',f'127.0.0.1:{number}','-catalog',str(tmp/'catalog.json'),'-bindings',str(tmp/'bindings.json'),'-bifrost-profile',str(tmp/'profile.json'),'-audit',str(tmp/(label+'.audit.jsonl')),'-journal',str(tmp/(label+'.journal.jsonl')),'-control-url',control,'-control-token-file',str(tmp/'node.token'),'-workspace',args.workspace,'-node-id',label],label,node_env)
                 wait_port(number,node)
             until=time.monotonic()+3
             while True:

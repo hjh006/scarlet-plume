@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
@@ -209,10 +211,27 @@ func verifyWhisperModel(o CommandMediaOptions) error {
 }
 
 func NewHTTPMediaProcessor(endpoint, token string, allowLoopback bool) (MediaProcessor, error) {
+	return NewHTTPMediaProcessorWithCA(endpoint, token, allowLoopback, nil)
+}
+
+// NewHTTPMediaProcessorWithCA appends a deployment-approved private CA only to
+// the scanner client. Controller/provider clients and system roots are unchanged.
+func NewHTTPMediaProcessorWithCA(endpoint, token string, allowLoopback bool, caPEM []byte) (MediaProcessor, error) {
 	if !validTarget(endpoint, allowLoopback) || len(token) < 32 || len(token) > 512 || strings.ContainsAny(token, "\r\n") {
 		return nil, errors.New("invalid media inspector endpoint or credential")
 	}
-	client := &http.Client{Timeout: 50 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Transport: &http.Transport{Proxy: nil, DisableCompression: true, ResponseHeaderTimeout: 45 * time.Second}}
+	var roots *x509.CertPool
+	if len(caPEM) > 0 {
+		var err error
+		roots, err = x509.SystemCertPool()
+		if err != nil {
+			return nil, errors.New("scanner system trust unavailable")
+		}
+		if len(caPEM) > 1<<20 || !roots.AppendCertsFromPEM(caPEM) {
+			return nil, errors.New("scanner CA invalid")
+		}
+	}
+	client := &http.Client{Timeout: 50 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Transport: &http.Transport{Proxy: nil, DisableCompression: true, ResponseHeaderTimeout: 45 * time.Second, MaxResponseHeaderBytes: 16384, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}}}
 	return func(ctx context.Context, a MediaAsset) (MediaReport, error) {
 		var out MediaReport
 		raw, _ := json.Marshal(a)

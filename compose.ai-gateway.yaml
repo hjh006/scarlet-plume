@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/bifrost/Dockerfile
-    image: scarlet-ai-gateway:bifrost-2.5.1
+    image: scarlet-ai-gateway:bifrost-2.5.1-media-v2
     restart: unless-stopped
     ports:
       - "${SCARLET_GATEWAY_BIND:-127.0.0.1}:8905:8905"
@@ -15,6 +15,13 @@ services:
       SCARLET_GATEWAY_ENDPOINT: ${SCARLET_GATEWAY_ENDPOINT:?set the fixed HTTPS provider base URL}
       SCARLET_GATEWAY_FALLBACK_PROVIDER_KEY: ${SCARLET_GATEWAY_FALLBACK_PROVIDER_KEY:-}
       SCARLET_GATEWAY_FALLBACK_ENDPOINT: ${SCARLET_GATEWAY_FALLBACK_ENDPOINT:-}
+      SCARLET_GATEWAY_MEDIA_INSPECTOR_URL: ${SCARLET_GATEWAY_MEDIA_INSPECTOR_URL:-}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ai-gateway", "-check-ready", "-health-listen", "127.0.0.1:8906"]
+      interval: 15s
+      timeout: 5s
+      start_period: 70s
+      retries: 2
     command:
       - -bifrost-binary
       - /app/main
@@ -32,8 +39,6 @@ services:
       - "${SCARLET_GATEWAY_DOCUMENT_SOURCE_URL:-}"
       - -document-source-token-file
       - "${SCARLET_GATEWAY_DOCUMENT_SOURCE_URL:+/config/document-source.token}"
-      - -media-inspector-url
-      - ${SCARLET_GATEWAY_MEDIA_INSPECTOR_URL:-}
       - -media-inspector-token-file
       - /config/media-inspector.token
       - -audit

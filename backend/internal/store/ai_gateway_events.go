@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
@@ -27,7 +28,7 @@ func gatewayDeniedMetadata(a *aisecurity.AuditRecord) error {
 			return ErrInvalid
 		}
 	}
-	for _, values := range [][]string{d.Rules, d.Coverage, d.Categories, d.AllowedDocumentIDs} {
+	for _, values := range [][]string{d.Rules, d.Categories, d.AllowedDocumentIDs} {
 		if len(values) > 64 {
 			return ErrInvalid
 		}
@@ -35,6 +36,21 @@ func gatewayDeniedMetadata(a *aisecurity.AuditRecord) error {
 			if !gatewayRuntimeID.MatchString(v) {
 				return ErrInvalid
 			}
+		}
+	}
+	if len(d.Coverage) > 64 {
+		return ErrInvalid
+	}
+	for _, value := range d.Coverage {
+		// The actual engine binds its classification profile with this named
+		// SHA-256 marker. Check the known prefix first so a short malformed
+		// digest cannot fall through to the generic identifier grammar.
+		if profile, ok := strings.CutPrefix(value, "versioned_classification_profile:"); ok {
+			if !gatewayHash.MatchString(profile) {
+				return ErrInvalid
+			}
+		} else if !gatewayRuntimeID.MatchString(value) {
+			return ErrInvalid
 		}
 	}
 	raw, e := json.Marshal(a)

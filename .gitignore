@@ -21,6 +21,7 @@ __pycache__/
 
 /var/ai-gateway/
 /var/media-inspector/
+/var/customer-demo/
 
 # Local design, delivery evidence and deployment records are not source releases.
 /artifacts/

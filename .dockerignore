@@ -43,6 +43,9 @@
 !backend/internal/**
 !backend/pkg/
 !backend/pkg/**
+!docker/
+!docker/customer-demo/
+!docker/customer-demo/fixture.go
 !web/
 !web/package.json
 !web/package-lock.json
@@ -86,4 +89,5 @@ web/node_modules
 web/dist
 /.scarlet-runtime-tls/
 **/.scarlet-validation/
+/var/customer-demo/
 web/src/plume-flow.webp.json

@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: docker/media/Dockerfile
-    image: scarlet-media-inspector:whisper-1.9.5
+    image: scarlet-media-inspector:whisper-1.9.5-media-v2
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -20,6 +20,12 @@ services:
     volumes:
       - ${SCARLET_MEDIA_INSPECTOR_TLS_DIR:-./var/media-inspector/tls}:/certs:ro
       - ${SCARLET_MEDIA_INSPECTOR_MODEL_DIR:-./var/media-inspector/models}:/models:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/scarlet-media-inspector", "--check-url", "https://media-inspector:8912/v1/inspect", "--scanner-ca-file", "/certs/ca.crt"]
+      interval: 60s
+      timeout: 55s
+      start_period: 60s
+      retries: 2
     command:
       - --listen
       - 0.0.0.0:8912

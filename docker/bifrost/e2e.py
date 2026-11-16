@@ -157,7 +157,7 @@ def main():
             print('synthetic Bifrost envelope keys',list(json.loads(probe)), 'reported model',json.loads(probe).get('model'))
             Provider.hits=0
             env = dict(os.environ, SCARLET_GATEWAY_PROVIDER_KEY=PROVIDER_TOKEN)
-            process = subprocess.Popen([str(tmp/'ai-gateway'),'-local','-listen',f'127.0.0.1:{gateway_port}',
+            process = subprocess.Popen([str(tmp/'ai-gateway'),'-local','-health-listen',f'127.0.0.1:{port()}','-listen',f'127.0.0.1:{gateway_port}',
                                         '-catalog',str(tmp/'catalog.json'),'-bindings',str(tmp/'bindings.json'),
                                         '-bifrost-profile',str(tmp/'profile.json'),'-audit',str(tmp/'audit.jsonl'),
                                         '-journal',str(tmp/'replay.jsonl')],env=env,stdout=log,stderr=log)

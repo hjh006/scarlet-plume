@@ -1,0 +1,188 @@
+name: scarlet-customer-gateway
+
+# Isolated, synthetic customer environment. No paid or external model is used.
+services:
+  db:
+    image: postgres:18.6-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395
+    restart: unless-stopped
+    env_file: ./var/customer-demo/secrets/db.env
+    volumes: [customer-db:/var/lib/postgresql]
+    networks:
+      customer-db:
+        aliases: [db]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  controlplane:
+    image: ${CUSTOMER_CONTROLPLANE_IMAGE:-scarlet-plume-local:dev}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777']
+    env_file: ./var/customer-demo/secrets/controlplane.env
+    command: [-local-docker, -addr, '0.0.0.0:8080', -web, /app/web]
+    ports: ['127.0.0.1:18912:8080']
+    networks: [controller, customer-db]
+    depends_on:
+      db: {condition: service_healthy}
+
+  controller:
+    build:
+      context: .
+      dockerfile: docker/customer-demo/Dockerfile
+    image: scarlet-customer-fixture:local
+    user: '${CUSTOMER_UID:-10001}:${CUSTOMER_GID:-10001}'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [-mode, controller-proxy, -listen, ':9443']
+    volumes: [./var/customer-demo/tls/controller:/certs:ro]
+    networks: [backend, controller]
+    depends_on: [controlplane]
+
+  synthetic-provider:
+    image: scarlet-customer-fixture:local
+    user: '${CUSTOMER_UID:-10001}:${CUSTOMER_GID:-10001}'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file: ./var/customer-demo/secrets/gateway.env
+    command: [-mode, provider, -listen, ':9444', -fixture-image, /fixtures/synthetic-email.png, -fixture-audio, /fixtures/synthetic-speech.wav]
+    volumes:
+      - ./var/customer-demo/tls/provider:/certs:ro
+      - ./var/customer-demo/fixtures:/fixtures:ro
+    networks: [backend]
+
+  media-inspector:
+    build:
+      context: .
+      dockerfile: docker/media/Dockerfile
+    image: scarlet-media-inspector:whisper-1.9.5-media-v2
+    user: '${CUSTOMER_UID:-10001}:${CUSTOMER_GID:-10001}'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2
+    tmpfs: ['/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777']
+    env_file: ./var/customer-demo/secrets/scanner.env
+    volumes:
+      - ./var/customer-demo/tls/scanner:/certs:ro
+      - ./var/customer-demo/models:/models:ro
+    command:
+      - --listen
+      - 0.0.0.0:8912
+      - --tls-cert
+      - /certs/tls.crt
+      - --tls-key
+      - /certs/tls.key
+      - --tesseract
+      - /usr/bin/tesseract
+      - --whisper
+      - /usr/local/bin/whisper-cli
+      - --whisper-model
+      - /models/ggml-model.bin
+      - --whisper-model-sha256
+      - 921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f
+      - --languages
+      - eng
+    healthcheck:
+      test: [CMD, /usr/local/bin/scarlet-media-inspector, --check-url, 'https://media-inspector:8912/v1/inspect', --scanner-ca-file, /certs/ca.crt]
+      interval: 60s
+      timeout: 55s
+      start_period: 60s
+      retries: 2
+    networks: [media]
+
+  ai-gateway:
+    build:
+      context: .
+      dockerfile: docker/bifrost/Dockerfile
+    image: scarlet-ai-gateway:bifrost-2.5.1-media-v2
+    user: '${CUSTOMER_UID:-10001}:${CUSTOMER_GID:-10001}'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+      - /app/data:rw,nosuid,nodev,noexec,size=16m,mode=1777
+    ports: ['127.0.0.1:8905:8905']
+    env_file: ./var/customer-demo/secrets/gateway.env
+    volumes:
+      - ./var/customer-demo/gateway:/config:ro
+      - ./var/customer-demo/state:/state
+      - ./var/customer-demo/tls/gateway:/certs:ro
+      - ./var/customer-demo/tls/scanner/ca.crt:/scanner-ca/ca.crt:ro
+      - ./var/customer-demo/tls/gateway-roots.pem:/trust/gateway-roots.pem:ro
+      - ./var/customer-demo/secrets/scanner-token.txt:/scanner-token.txt:ro
+    command:
+      - -bifrost-binary
+      - /app/main
+      - -listen
+      - 0.0.0.0:8905
+      - -catalog
+      - /config/catalog.json
+      - -bindings
+      - /config/bindings.json
+      - -bifrost-profile
+      - /config/bifrost.json
+      - -audit
+      - /state/audit.jsonl
+      - -journal
+      - /state/replay.jsonl
+      - -control-url
+      - https://controller:9443
+      - -control-token-file
+      - /config/controller.token
+      - -workspace
+      - customer-demo
+      - -node-id
+      - customer-demo-gateway
+      - -media-inspector-token-file
+      - /scanner-token.txt
+      - -tls-cert
+      - /certs/tls.crt
+      - -tls-key
+      - /certs/tls.key
+    healthcheck:
+      test: [CMD, /usr/local/bin/ai-gateway, -check-ready, -health-listen, '127.0.0.1:8906']
+      interval: 15s
+      timeout: 5s
+      start_period: 70s
+      retries: 2
+    depends_on:
+      media-inspector: {condition: service_healthy}
+      controller: {condition: service_started}
+      synthetic-provider: {condition: service_started}
+    networks: [customer-demo, edge, backend, media]
+
+volumes:
+  customer-db:
+    name: scarlet-customer-db-data
+
+networks:
+  customer-db:
+    name: scarlet-customer-db
+    internal: true
+  controller:
+    name: scarlet-customer-controller
+  backend:
+    name: scarlet-customer-backend
+    internal: true
+  media:
+    name: scarlet-customer-media
+    internal: true
+  edge:
+    name: scarlet-customer-edge
+  customer-demo:
+    external: true
+    name: scarlet-customer-demo
