@@ -49,6 +49,7 @@ const applicationLoading = ref(false)
 const applicationError = ref('')
 const sourceActionBusy = ref(false)
 const sourceActionError = ref('')
+const sourceActionNotice = ref('')
 const registrationName = ref('')
 const registrationNameInput = ref<HTMLInputElement | null>(null)
 const setupSourceId = ref<string>('')
@@ -56,8 +57,11 @@ const visibleApplicationSources = computed(() => applicationSources.value.filter
 const setupSource = computed(() => visibleApplicationSources.value.find(item => String(item.id) === setupSourceId.value && !item.revokedAt && item.status !== 'revoked'))
 const collectorExample = computed(() => setupSource.value?.assetIds[0] ? JSON.stringify({ items: [{ assetId: setupSource.value.assetIds[0], facts: { application_model: '<模型配置>' } }] }, null, 2) : '')
 const tokenDialog = ref<HTMLDialogElement | null>(null)
-let tokenReturnFocus: HTMLElement | undefined
-let pendingTokenFocus = false
+const revokeDialog = ref<HTMLDialogElement | null>(null)
+const revokePlan = ref<{ id: string; name: string; assetIds: number[]; scope: string } | null>(null)
+const sourceScope = computed(() => JSON.stringify([props.workspace.slug, registrationAssetId.value, selectedActivityId.value, currentScenario.value, currentTask.value]))
+let sourceReturnFocus: HTMLElement | undefined
+let pendingSourceFocus = false
 const oneTimeToken = ref('')
 const issuedSourceName = ref('')
 const copied = ref(false)
@@ -203,13 +207,14 @@ async function loadApplicationSources() {
 async function registerSource() {
   const assetId = registrationAssetId.value
   if (!owner.value || sourceActionBusy.value || !assetId || !registrationName.value.trim()) return
-  tokenReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
-  pendingTokenFocus = false
+  sourceReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+  pendingSourceFocus = false
   actionController?.abort()
   const operation = new AbortController()
   actionController = operation
   sourceActionBusy.value = true
   sourceActionError.value = ''
+  sourceActionNotice.value = ''
   clearToken()
   try {
     const result = await request<{ source: ApplicationSource; token: string }>(api + '/application-sources', {
@@ -236,16 +241,44 @@ async function registerSource() {
 
 async function revokeSource(source: ApplicationSource) {
   if (!owner.value || sourceActionBusy.value || source.revokedAt || source.status === 'revoked') return
-  if (!window.confirm(`撤销后，此来源令牌将无法继续上报。确认撤销“${source.name}”？`)) return
+  sourceReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+  pendingSourceFocus = false
+  sourceActionError.value = ''
+  sourceActionNotice.value = ''
+  revokePlan.value = { id: String(source.id), name: source.name, assetIds: [...source.assetIds], scope: sourceScope.value }
+  await nextTick()
+  if (revokePlan.value?.scope === sourceScope.value) revokeDialog.value?.showModal()
+}
+
+function closeRevoke() {
+  if (!sourceActionBusy.value) revokeDialog.value?.close()
+}
+
+function revokeClosed() {
+  revokePlan.value = null
+  if (sourceActionBusy.value) { pendingSourceFocus = true; return }
+  restoreSourceFocus()
+}
+
+async function confirmRevoke() {
+  const plan = revokePlan.value
+  if (!owner.value || sourceActionBusy.value || !plan || plan.scope !== sourceScope.value) return
+  const source = visibleApplicationSources.value.find(item => String(item.id) === plan.id)
+  if (!source || source.revokedAt || source.status === 'revoked') {
+    sourceActionError.value = '来源状态已变化，请关闭弹窗并刷新来源后重新核对。'
+    return
+  }
   actionController?.abort()
   const operation = new AbortController()
   actionController = operation
   sourceActionBusy.value = true
   sourceActionError.value = ''
   try {
-    await request<void>(api + '/application-sources/' + encodeURIComponent(String(source.id)), { method: 'DELETE', signal: operation.signal })
+    await request<void>(api + '/application-sources/' + encodeURIComponent(plan.id), { method: 'DELETE', signal: operation.signal })
     if (operation.signal.aborted) return
     setupSourceId.value = ''
+    sourceActionNotice.value = `来源“${plan.name}”已撤销，不能继续上报。已有采集与检查记录保留。`
+    revokeDialog.value?.close()
     await Promise.all([loadApplicationSources(), loadData()])
   } catch (cause) {
     if (!operation.signal.aborted) sourceActionError.value = handleError(cause)
@@ -268,25 +301,25 @@ function closeToken() {
 
 function tokenClosed() {
   clearToken()
-  if (sourceActionBusy.value) { pendingTokenFocus = true; return }
-  restoreTokenFocus()
+  if (sourceActionBusy.value) { pendingSourceFocus = true; return }
+  restoreSourceFocus()
 }
 
-function restoreTokenFocus() {
-  pendingTokenFocus = false
-  const target = tokenReturnFocus
-  tokenReturnFocus = undefined
-  if (!target || !tokenDialog.value?.isConnected || tokenDialog.value.open) return
+function restoreSourceFocus() {
+  pendingSourceFocus = false
+  const target = sourceReturnFocus
+  sourceReturnFocus = undefined
+  if (!target || !tokenDialog.value?.isConnected || tokenDialog.value.open || revokeDialog.value?.open) return
   const active = document.activeElement
-  if (active instanceof HTMLElement && active !== document.body && active !== tokenDialog.value && active.isConnected && !active.matches(':disabled')) return
+  if (active instanceof HTMLElement && active !== document.body && active !== tokenDialog.value && active !== revokeDialog.value && active.isConnected && !active.matches(':disabled')) return
   if (target?.isConnected && !target.matches(':disabled')) target.focus({ preventScroll: true })
   else registrationNameInput.value?.focus({ preventScroll: true })
 }
 
 watch(sourceActionBusy, async value => {
-  if (value || !pendingTokenFocus) return
+  if (value || !pendingSourceFocus) return
   await nextTick()
-  if (pendingTokenFocus) restoreTokenFocus()
+  if (pendingSourceFocus) restoreSourceFocus()
 })
 
 async function copyToken() {
@@ -318,9 +351,12 @@ watch(() => [context.value.assetId, context.value.activityId, props.assetId, pro
   const actionPending = sourceActionBusy.value
   actionController?.abort()
   sourceActionBusy.value = false
-  pendingTokenFocus = false
-  tokenReturnFocus = undefined
+  pendingSourceFocus = false
+  sourceReturnFocus = undefined
   closeToken()
+  revokePlan.value = null
+  revokeDialog.value?.close()
+  sourceActionNotice.value = ''
   if (actionPending) sourceActionError.value = '范围已切换。上一次来源操作可能已提交，请回到原范围核对结果；不要直接重复创建。'
   selectedAssetId.value = props.assetId ?? context.value.assetId
   selectedActivityId.value = props.activityId ?? context.value.activityId
@@ -339,9 +375,11 @@ onBeforeUnmount(() => {
   activityController?.abort()
   applicationController?.abort()
   actionController?.abort()
-  pendingTokenFocus = false
-  tokenReturnFocus = undefined
+  pendingSourceFocus = false
+  sourceReturnFocus = undefined
   closeToken()
+  revokePlan.value = null
+  revokeDialog.value?.close()
 })
 </script>
 
@@ -380,13 +418,20 @@ onBeforeUnmount(() => {
 
     </template>
 
-    <details v-if="!compact" class="scenario-technical-details"><summary>应用 API 来源与采集设置</summary><section class="scenario-application-sources" aria-labelledby="scenario-application-title"><div class="scenario-application-heading"><div><h3 id="scenario-application-title">应用 API 采集来源</h3><p>客户侧采集器按批准范围读取应用配置与服务清单，再将允许的事实字段上报赤翎。</p></div><button class="button button-secondary" type="button" :disabled="applicationLoading || sourceActionBusy" @click="loadApplicationSources">刷新来源</button></div><p v-if="applicationLoading" role="status">正在读取应用采集来源…</p><div v-else-if="applicationError"><p role="alert">{{ applicationError }}</p><button class="button button-secondary" type="button" @click="loadApplicationSources">重试读取来源</button></div><ul v-else-if="visibleApplicationSources.length" class="scenario-application-list"><li v-for="source in visibleApplicationSources" :key="source.id"><div><strong>{{ source.name }}</strong><span>{{ source.revokedAt ? '已撤销' : statusLabels[source.status] || '状态待确认' }} · 记录有效期 {{ source.maxAgeMinutes }} 分钟</span><time v-if="source.lastObservedAt" :datetime="source.lastObservedAt">最近观察 {{ formatDate(source.lastObservedAt) }}</time><span v-else>尚无应用 API 上报记录</span></div><div class="scenario-source-actions"><button v-if="!source.revokedAt && source.status !== 'revoked'" class="button button-secondary" type="button" :aria-expanded="setupSourceId === String(source.id)" @click="setupSourceId = setupSourceId === String(source.id) ? '' : String(source.id)">采集配置说明</button><button v-if="owner && !source.revokedAt && source.status !== 'revoked'" class="button button-secondary" type="button" :disabled="sourceActionBusy" @click="revokeSource(source)">撤销来源</button></div></li></ul><p v-else class="scenario-collection-empty">{{ registrationAssetId ? '此资产尚未配置应用 API 采集来源。' : '当前没有应用 API 采集来源。选择已有资产后，可由工作区负责人创建来源。' }}</p>
+    <details v-if="!compact" class="scenario-technical-details"><summary>应用 API 来源与采集设置</summary><section class="scenario-application-sources" aria-labelledby="scenario-application-title"><div class="scenario-application-heading"><div><h3 id="scenario-application-title">应用 API 采集来源</h3><p>客户侧采集器按批准范围读取应用配置与服务清单，再将允许的事实字段上报赤翎。</p></div><button class="button button-secondary" type="button" :disabled="applicationLoading || sourceActionBusy" @click="loadApplicationSources">刷新来源</button></div><p v-if="sourceActionNotice" class="message message-success" role="status">{{ sourceActionNotice }}</p><p v-if="applicationLoading" role="status">正在读取应用采集来源…</p><div v-else-if="applicationError"><p role="alert">{{ applicationError }}</p><button class="button button-secondary" type="button" @click="loadApplicationSources">重试读取来源</button></div><ul v-else-if="visibleApplicationSources.length" class="scenario-application-list"><li v-for="source in visibleApplicationSources" :key="source.id"><div><strong>{{ source.name }}</strong><span>{{ source.revokedAt ? '已撤销' : statusLabels[source.status] || '状态待确认' }} · 记录有效期 {{ source.maxAgeMinutes }} 分钟</span><time v-if="source.lastObservedAt" :datetime="source.lastObservedAt">最近观察 {{ formatDate(source.lastObservedAt) }}</time><span v-else>尚无应用 API 上报记录</span></div><div class="scenario-source-actions"><button v-if="!source.revokedAt && source.status !== 'revoked'" class="button button-secondary" type="button" :aria-expanded="setupSourceId === String(source.id)" @click="setupSourceId = setupSourceId === String(source.id) ? '' : String(source.id)">采集配置说明</button><button v-if="owner && !source.revokedAt && source.status !== 'revoked'" class="button button-secondary" type="button" :disabled="sourceActionBusy" @click="revokeSource(source)">撤销来源</button></div></li></ul><p v-else class="scenario-collection-empty">{{ registrationAssetId ? '此资产尚未配置应用 API 采集来源。' : '当前没有应用 API 采集来源。选择已有资产后，可由工作区负责人创建来源。' }}</p>
 
       <div v-if="setupSource" class="scenario-collector-setup"><h4>{{ setupSource.name }} · 客户侧采集配置</h4><p>允许上报的资产 ID：<code>{{ setupSource.assetIds.join('、') }}</code>。请按已批准的资产映射上报，不能凭名称自动匹配。</p><p>在能访问获准业务 API 的客户侧环境中设置下列变量。业务 API 的认证凭据只在客户侧配置，不提交到赤翎。HTTPS 地址不能包含账号、查询参数或片段。</p><pre>{{ collectorSetup }}</pre><p>运行采集器，每分钟读取并上报一次：</p><pre>scarlet-application-agent -interval 1m</pre><p>单次读取与上报核验可使用 <code>scarlet-application-agent -once</code>。</p><h4 class="scenario-response-example-title">响应格式示例（不是已采集结果）</h4><p>来源接口需返回 <code>application/json</code>，事实字段使用字符串。现有厂商 API 若不符合约定格式，需要在客户侧配置获批的只读适配接口与字段映射；填写任意 API 地址不会自动完成适配。</p><pre v-if="collectorExample">{{ collectorExample }}</pre><p>只上报允许的配置字段，不包含用户记录、对话正文或凭据。来源令牌仅在创建时显示一次；已有来源无法再次读取令牌，需要替换时由负责人撤销旧来源并创建新来源。</p></div>
 
       <form v-if="owner" class="scenario-source-registration" @submit.prevent="registerSource"><h4>接入应用 API 采集</h4><p v-if="!registrationAssetId">先选择已有资产或处理活动，来源将绑定其关联资产。</p><template v-else><p>绑定资产：{{ selectedActivity?.assetName || selectedAsset?.name || '所选资产' }}。上报事实按该范围核对，有效期 60 分钟。</p><label class="field" for="scenario-application-name">来源名称<input id="scenario-application-name" ref="registrationNameInput" v-model="registrationName" maxlength="80" placeholder="例如，客服 AI 配置 API" autocomplete="off" required :disabled="sourceActionBusy"></label><button class="button button-primary" type="submit" :disabled="sourceActionBusy || !registrationName.trim()">{{ sourceActionBusy ? '正在处理…' : '创建来源与一次性令牌' }}</button></template><p v-if="sourceActionError" class="message message-error" role="alert">{{ sourceActionError }}</p></form><p v-else class="scenario-source-readonly">当前账号可读取来源与事实；创建和撤销来源由工作区负责人办理。</p>
     </section></details>
 
+    <dialog ref="revokeDialog" class="app-dialog" aria-labelledby="scenario-revoke-title" aria-describedby="scenario-revoke-description" @keydown="containDialogTab" @cancel="event => sourceActionBusy && event.preventDefault()" @close="revokeClosed">
+      <form v-if="revokePlan" class="dialog-content" @submit.prevent="confirmRevoke">
+        <header class="dialog-heading"><h2 id="scenario-revoke-title">撤销应用采集来源</h2><button class="icon-button" type="button" aria-label="返回核对采集来源" :disabled="sourceActionBusy" @click="closeRevoke"><Icon name="close" /></button></header>
+        <div class="dialog-body"><p id="scenario-revoke-description" class="dialog-description">撤销后，此来源令牌将不能继续上报任何授权资产。已有采集事实、检查与采用记录保留。此操作不能恢复；重新接入需创建新来源。</p><dl class="detail-list"><div><dt>来源名称</dt><dd>{{ revokePlan.name }}</dd></div><div><dt>来源标识</dt><dd class="mono">#{{ revokePlan.id }}</dd></div><div><dt>全部授权资产</dt><dd>{{ revokePlan.assetIds.map(id => '#' + id).join('、') || '未记录，请先核对来源' }}</dd></div></dl><p v-if="sourceActionError" class="message message-error" role="alert">{{ sourceActionError }}</p><p v-if="sourceActionBusy" role="status">正在提交撤销并核对来源事实，请稍候…</p></div>
+        <footer class="dialog-actions"><button class="button button-secondary" type="button" :disabled="sourceActionBusy" autofocus @click="closeRevoke">返回核对</button><button class="button button-danger" type="submit" :disabled="sourceActionBusy || revokePlan.scope !== sourceScope">{{ sourceActionBusy ? '正在撤销…' : '确认撤销此来源' }}</button></footer>
+      </form>
+    </dialog>
     <dialog @keydown="containDialogTab" ref="tokenDialog" class="app-dialog scenario-token-dialog" aria-labelledby="scenario-token-title" aria-describedby="scenario-token-description" @cancel="clearToken" @close="tokenClosed">
       <header class="dialog-heading"><h2 id="scenario-token-title">保存一次性采集令牌</h2><button class="icon-button" type="button" aria-label="关闭并清除一次性令牌" @click="closeToken"><Icon name="close" /></button></header>
       <div class="dialog-body"><p id="scenario-token-description" class="dialog-description">{{ issuedSourceName }} 已创建。令牌只显示本次，关闭后将从当前页面清除。</p><label class="field" for="scenario-one-time-token">来源令牌<input id="scenario-one-time-token" :value="oneTimeToken" type="password" readonly autocomplete="off" spellcheck="false"></label><p v-if="copied" class="message message-success" role="status">令牌已复制。请仅在客户侧采集器环境中配置。</p><p v-if="copyError" class="message message-error" role="alert">{{ copyError }}</p></div>

@@ -111,11 +111,11 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .desktop-design .page-crumb { font-size: 12px; white-space: nowrap; }
 .page-crumb-current { font-size: 12px; white-space: nowrap; }
 .desktop-design .breadcrumb-divider { width: 12px; }
-.desktop-design .topbar-account { gap: 8px; font-size: 12px; }
+.desktop-design .topbar-account { flex-shrink: 0; gap: 8px; font-size: 12px; }
 .desktop-design .account-name { font-size: 12px; }
 .desktop-design .account-name small { font-size: 12px; }
-.desktop-design .icon-button { width: 36px; height: 38px; }
-.navigation-trigger { display: flex; align-items: center; gap: 9px; height: 38px; min-width: 210px; margin-left: auto; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--secondary); background: var(--paper); font-size: 12px; }
+.desktop-design .icon-button { flex: none; width: 44px; height: 44px; }
+.navigation-trigger { display: flex; align-items: center; gap: 9px; height: 44px; min-width: 210px; margin-left: auto; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--secondary); background: var(--paper); font-size: 12px; }
 .navigation-trigger .icon { width: 16px; height: 16px; }
 .navigation-trigger kbd { margin-left: auto; font: 12px inherit; }
 .desktop-design .main-content { width: 100%; max-width: 1920px; padding: 25px 24px 32px; }
@@ -136,6 +136,8 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .desktop-design .button-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .desktop-design .button-secondary { color: var(--ink); background: #fff; border-color: #c6d6ea; }
 .desktop-design .button-secondary:hover { background: var(--surface-subtle); }
+.desktop-design .button-danger { color: #fff; background: var(--danger); border-color: var(--danger); }
+.desktop-design .button-danger:hover:not(:disabled) { filter: brightness(.94); }
 .desktop-design .button:disabled { opacity: .5; cursor: default; }
 .app-shell.desktop-design .main-content table { width: 100%; border-collapse: collapse; border-spacing: 0; color: var(--ink); font-size: 14px; line-height: 1.65; text-align: start; font-variant-numeric: tabular-nums; }
 .app-shell.desktop-design .main-content table:not(.api-table) :is(th,td) { padding: 13px 16px; vertical-align: top; overflow-wrap: anywhere; word-break: normal; }
@@ -151,8 +153,10 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .app-shell.desktop-design .main-content .api-table thead th { color: var(--secondary); font-size: 13px; font-weight: 600; line-height: 1.5; }
 .app-shell.desktop-design .main-content .api-table :is(.api-secondary,.api-muted,.api-cell-label) { font-size: 13px; line-height: 1.65; }
 .app-shell.desktop-design .main-content table :is(code,.mono) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-.app-shell.desktop-design .main-content table :is(th,td).table-number { text-align: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.app-shell.desktop-design .main-content table :is(th,td).table-date { min-width: 10rem; white-space: nowrap; }
+.app-shell.desktop-design .main-content table :is(th,td).table-number,
+.app-shell.desktop-design .main-content table:not(.api-table) thead th.table-number { text-align: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.app-shell.desktop-design .main-content table .table-date,
+.app-shell.desktop-design .main-content table:not(.api-table) thead th.table-date { min-width: 10rem; white-space: nowrap; }
 .app-shell.desktop-design .main-content table td.actions { display: table-cell; }
 .app-shell.desktop-design .main-content table td.actions > .button { margin: 0 6px 6px 0; }
 .app-shell.desktop-design .main-content table .button { vertical-align: top; }
@@ -276,7 +280,7 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 @media (max-width: 1100px) {
   .workbench-grid, .form-workbench { grid-template-columns: minmax(0,1fr); }
   .desktop-design .workspace-crumb { max-width: 140px; }
-  .desktop-design .navigation-trigger { width: 38px; min-width: 38px; justify-content: center; }
+  .desktop-design .navigation-trigger { flex: none; width: 44px; min-width: 44px; justify-content: center; }
   .desktop-design .navigation-trigger :is(span,kbd) { display: none; }
 }
 @media (max-width: 860px) {
@@ -326,7 +330,7 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
   .desktop-design .workspace-name { flex: 1; }
   .desktop-design .workspace-name > :not(.page-crumb-current) { display: none; }
   .desktop-design .page-crumb-current { max-width: none; }
-  .desktop-design .navigation-trigger { min-width: 38px; width: 38px; margin-left: 0; justify-content: center; }
+  .desktop-design .navigation-trigger { min-width: 44px; width: 44px; margin-left: 0; justify-content: center; }
   .desktop-design .navigation-trigger :is(span, kbd), .desktop-design .topbar-account > .account-avatar { display: none; }
   .desktop-design .main-content { padding: 20px 12px 32px; }
   .desktop-design .page-header h1 { font-size: 24px; }

@@ -27,7 +27,9 @@ func TestPostgreSQLTransportRealSourceSnapshotFreshness(t *testing.T) {
 					t.Fatal(e)
 				}
 			}
-			cfg := ManagedPostgresInput{Host: "127.0.0.1", Port: 54834, Database: "transport_fixture", User: "postgres", Schemas: []string{"transport_fixture"}, IntervalMinutes: 5, Enabled: true, EncryptedPassword: []byte("isolated-local-trust-fixture")}
+			connection, e := pgx.ParseConfig(tc.dsn)
+			must(e)
+			cfg := ManagedPostgresInput{Host: connection.Host, Port: int(connection.Port), Database: connection.Database, User: connection.User, Schemas: []string{"transport_fixture"}, IntervalMinutes: 5, Enabled: true, EncryptedPassword: []byte("isolated-local-trust-fixture")}
 			job, e := f.repo.CreateManagedPostgresJob(ctx, f.ws.ID, f.user.ID, "Actual transport "+tc.name, discoveryDigest(f.ws.Slug), cfg)
 			must(e)
 			must(f.repo.QueueManagedPostgresJob(ctx, f.ws.ID, f.user.ID, job.ID))

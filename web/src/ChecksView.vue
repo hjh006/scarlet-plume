@@ -100,7 +100,7 @@ onBeforeUnmount(() => {active?.abort();detailRequest?.abort()})
     <div v-if="selectedDetail && !detailLoading" class="check-evidence-grid">
       <section class="panel"><div class="panel-heading"><div><h2>{{ selectedDetail.template?.item.title || selectedDetail.requirement.title }}</h2><p>{{ selectedDetail.assetName }} · {{ selectedDetail.requirement.code }}</p></div><span class="badge">{{ checkStatusLabels[selectedDetail.status] }}</span></div>
         <div class="check-evidence-body"><div class="check-comparison"><section><span>采用要求与基线</span><h3>{{ selectedDetail.requirement.citation }}</h3><p>{{ selectedDetail.template?.item.acceptanceCriteria || selectedDetail.requirement.summary }}</p><a :href="selectedDetail.requirement.sourceUrl" target="_blank" rel="noopener noreferrer">查看采用依据</a></section><span class="comparison-vs">VS</span><section><span>实际来源观察</span><h3>{{ observation?.sourceSystem || '尚无原始观察' }}</h3><p>{{ observation?.summary || '先登记实际观察；缺少来源时保留未知。' }}</p><small v-if="observation">{{ observation.sourceRecord }} · {{ formatDate(observation.observedAt) }}</small></section></div>
-          <div class="check-evidence-ledger"><h3>采用证据台账</h3><div v-if="selectedDetail.evidence.length" class="table-scroll" role="region" tabindex="0" aria-label="采用证据台账"><table class="data-table"><thead><tr><th>证据阶段</th><th>来源与摘要</th><th>观察时间</th></tr></thead><tbody><tr v-for="entry in selectedDetail.evidence" :key="entry.id"><td>{{ {observation:'原始观察',remediation:'整改记录',retest:'复测记录'}[entry.kind] }}</td><td>{{ entry.summary }}<small>{{ entry.sourceSystem }} · {{ entry.sourceRecord }}</small></td><td>{{ formatDate(entry.observedAt) }}</td></tr></tbody></table></div><p v-else class="field-hint">尚未登记可采用证据；未观察不能视为符合。</p></div>
+          <div class="check-evidence-ledger"><h3>采用证据台账</h3><div v-if="selectedDetail.evidence.length" class="table-scroll" role="region" tabindex="0" aria-label="采用证据台账"><table class="data-table"><thead><tr><th scope="col">证据阶段</th><th scope="col">来源与摘要</th><th scope="col" class="table-date">观察时间</th></tr></thead><tbody><tr v-for="entry in selectedDetail.evidence" :key="entry.id"><th scope="row">{{ {observation:'原始观察',remediation:'整改记录',retest:'复测记录'}[entry.kind] }}</th><td>{{ entry.summary }}<small>{{ entry.sourceSystem }} · {{ entry.sourceRecord }}</small></td><td class="table-date">{{ formatDate(entry.observedAt) }}</td></tr></tbody></table></div><p v-else class="field-hint">尚未登记可采用证据；未观察不能视为符合。</p></div>
         </div>
       </section><aside class="panel check-dossier"><h2><Icon name="reports" />证据档案</h2><dl><div><dt>检查记录</dt><dd>#{{ selectedDetail.id }}</dd></div><div><dt>实际对象</dt><dd>{{ selectedDetail.assetName }}</dd></div><div><dt>模板采用</dt><dd>{{ selectedDetail.template ? selectedDetail.template.title + ' · v' + selectedDetail.template.version : '采用监管要求登记' }}</dd></div><div><dt>来源记录</dt><dd>{{ observation?.sourceRecord || '尚未取得' }}</dd></div><div><dt>更新时间</dt><dd>{{ formatDate(selectedDetail.updatedAt) }}</dd></div></dl><p>整改依据、复测记录与独立复核分别留存；措施效果和未覆盖条件以详情中的实际证据为准。</p><a class="button button-primary" :href="href('checks/'+selectedDetail.id)">进入取证与独立复核</a></aside>
     </div>
@@ -128,7 +128,7 @@ onBeforeUnmount(() => {active?.abort();detailRequest?.abort()})
     <div v-if="visibleItems.length" class="table-scroll" tabindex="0" role="region" aria-label="检查台账">
       <table class="data-table check-table">
         <thead>
-          <tr><th scope="col">监管要求与资产</th><th scope="col">责任团队</th><th scope="col">当前阶段</th><th scope="col" class="wide-date">更新时间</th></tr>
+          <tr><th scope="col">监管要求与资产</th><th scope="col">责任团队</th><th scope="col">当前阶段</th><th scope="col" class="wide-date table-date">更新时间</th></tr>
         </thead>
         <tbody>
           <tr v-for="check in visibleItems" :key="check.id" :class="{ selected: selected?.id === check.id }">
@@ -140,7 +140,7 @@ onBeforeUnmount(() => {active?.abort();detailRequest?.abort()})
             </th>
             <td>{{ check.ownerTeam }}</td>
             <td><span class="badge status" :class="'status-' + check.status">{{ checkStatusLabels[check.status] }}</span></td>
-            <td class="wide-date"><time :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time><button class="check-select" type="button" :aria-pressed="selected?.id === check.id" @click="selectedId = check.id">查看摘要</button></td>
+            <td class="wide-date table-date"><time :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time><button class="check-select" type="button" :aria-pressed="selected?.id === check.id" @click="selectedId = check.id">查看摘要</button></td>
           </tr>
         </tbody>
       </table>

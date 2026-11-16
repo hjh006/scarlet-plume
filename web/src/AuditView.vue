@@ -202,10 +202,10 @@ onBeforeUnmount(() => active.abort())
         <details v-if="timelineRecords.length" class="rw-ledger rw-audit-ledger"><summary>完整记录台账（{{ runtime?.items.length ?? actions?.items.length ?? 0 }} 条）</summary>
         <div v-if="runtime?.items.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="audit-title">
           <table class="data-table audit-table">
-            <thead><tr><th scope="col">观测时间</th><th scope="col">来源与服务</th><th scope="col">方法</th><th scope="col">路由模板</th><th scope="col">状态码</th></tr></thead>
+            <thead><tr><th scope="col" class="table-date">观测时间</th><th scope="col">来源与服务</th><th scope="col">方法</th><th scope="col">路由模板</th><th scope="col">状态码</th></tr></thead>
             <tbody>
               <tr v-for="(entry,index) in runtime.items" :key="entry.id" :class="{selected: selectedRequest?.id === entry.id}">
-                <td><time :datetime="entry.observedAt">{{ formatDate(entry.observedAt) }}</time></td>
+                <td class="table-date"><time :datetime="entry.observedAt">{{ formatDate(entry.observedAt) }}</time></td>
                 <th scope="row">{{ entry.source }}<span class="table-secondary">{{ kindLabels[entry.kind] }} · {{ entry.service }}</span></th>
                 <td class="mono">{{ entry.method }}</td>
                 <td class="mono"><button class="audit-record-link" @click="selectedIndex = index">{{ entry.route }}</button></td>
@@ -216,10 +216,10 @@ onBeforeUnmount(() => active.abort())
         </div>
         <div v-else-if="actions?.items.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="audit-title">
           <table class="data-table audit-table audit-actions-table">
-            <thead><tr><th scope="col">操作时间</th><th scope="col">经办人</th><th scope="col">操作</th><th scope="col">对象</th></tr></thead>
+            <thead><tr><th scope="col" class="table-date">操作时间</th><th scope="col">经办人</th><th scope="col">操作</th><th scope="col">对象</th></tr></thead>
             <tbody>
               <tr v-for="(entry, index) in actions.items" :key="index" :class="{selected: selectedAction === entry}">
-                <td><time :datetime="entry.at">{{ formatDate(entry.at) }}</time></td>
+                <td class="table-date"><time :datetime="entry.at">{{ formatDate(entry.at) }}</time></td>
                 <th scope="row">{{ entry.actor }}</th>
                 <td>
                   <button class="audit-record-link" @click="selectedIndex = index">{{ actionLabels[entry.action] || entry.action }}</button>

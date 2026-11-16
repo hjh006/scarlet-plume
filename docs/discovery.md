@@ -56,6 +56,12 @@ docker compose --env-file .env.scarlet-discovery -f docker/compose.discovery-sam
 
 Go测试使用客户环境变量 `SCARLET_MYSQL_TEST_DSN`、`SCARLET_MARIADB_TEST_DSN`、`SCARLET_MONGO_TEST_DSN`、`SCARLET_DISCOVERY_PG_TEST_DSN`；持久化测试用独立 `PLUME_STORE_TEST_DSN`。运行 `go test -race -p 1 ./internal/collector ./internal/store -run 'TestDiscovery|TestCatalogDiscovery' -count=1 -v`。不得把DSN明文提交到仓库。
 
+原生 `*Live` 测试仅应指向合成样例库：MySQL、MariaDB、MongoDB使用 `discovery_sample`，PostgreSQL使用 `discovery_test` 数据库及 `catalog_sample` schema。四个测试需要各自真实服务和只读账号；缺少环境变量时的 `SKIP` 不表示已验证。宿主机明文开发连接必须使用字面回环地址，不能将任意容器名或私网地址当作回环连接。
+
+`TestDiscoveryLocalDockerRealFixtures` 是另外的固定网络边界测试，需要在专用样例Docker网络内运行，并显式设置 `SCARLET_DISCOVERY_DOCKER_LIVE=1`。服务名及端口必须是 `mysql:3306`、`mariadb:3306`、`mongodb:27017`，且均绑定 `discovery_sample`；使用前先启动真实样例数据库，只有采集侧车在线不足以满足前提。该测试的MongoDB变量是 `SCARLET_MONGODB_TEST_DSN`，与原生 `TestDiscoveryMongoLive` 使用的 `SCARLET_MONGO_TEST_DSN` 不同；两者均须按各自运行环境配置。容器内固定名称的DSN不能直接用于宿主机的回环Live测试。隔离测试结束后清理新建容器及卷，不停止其他项目或共用服务。
+
+`TestDiscoveryOpenMetadataLiveMetadataCoverage` 需要已经由官方连接器采集的真实合成目录。设置 `SCARLET_OPENMETADATA_TEST_URL` 为实际API基址（本地示例 `http://127.0.0.1:8585/api`），并通过受保护环境注入 `SCARLET_OPENMETADATA_TEST_TOKEN`。令牌应属于受限元数据只读身份；测试还会确认读取服务连接资源返回403，不能用管理员令牌代替。服务、表、字段与约束的准备方式见[OpenMetadata接入](openmetadata-live.md)。
+
 官方依据：[Go MySQL driver](https://pkg.go.dev/github.com/go-sql-driver/mysql)、[MongoDB Go Driver](https://www.mongodb.com/docs/drivers/go/current/get-started/)、[OpenMetadata Table schema](https://github.com/open-metadata/OpenMetadata/blob/main/openmetadata-spec/src/main/resources/json/schema/entity/data/table.json)、[Lineage schema](https://github.com/open-metadata/OpenMetadata/blob/main/openmetadata-spec/src/main/resources/json/schema/type/entityLineage.json)、[Table API Resource](https://github.com/open-metadata/OpenMetadata/blob/main/openmetadata-service/src/main/java/org/openmetadata/service/resources/databases/TableResource.java)。
 
 ## 与数据流、检查和报告的绑定

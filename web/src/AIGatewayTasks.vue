@@ -173,7 +173,7 @@ onUnmounted(()=>{controller.abort();window.removeEventListener('hashchange',open
       <form v-if="statusPlan" class="dialog-content" @submit.prevent="submitStatus">
         <header class="dialog-heading"><h2 id="task-status-dialog-title">{{ statusPlan.payload.status==='cancelled'?'停止任务及后续委托':'关闭任务，结束后续执行' }}</h2><button type="button" class="icon-button" aria-label="返回核对任务" :disabled="busy==='status'" @click="closeStatusDialog"><Icon name="close"/></button></header>
         <div class="dialog-body"><p id="task-status-dialog-description">操作将阻止此任务及全部后续委托继续执行。任务不能恢复为活动状态，已经发生的动作和未决费用保留。</p><dl class="task-status-facts"><div><dt>任务</dt><dd class="mono">{{ statusPlan.id }}</dd></div><div><dt>采用修订</dt><dd>{{ statusPlan.payload.expectedRevision }}</dd></div><div><dt>结束原因</dt><dd>{{ statusPlan.payload.reason }}</dd></div></dl><p v-if="statusError" class="message message-error" role="alert">{{ statusError }}</p></div>
-        <footer class="dialog-actions"><button type="button" class="button button-secondary" :disabled="busy==='status'" @click="closeStatusDialog">返回核对</button><button type="submit" class="button task-stop-confirm" :disabled="!!busy || !detail || detail.task.id!==statusPlan.id || detail.task.revision!==statusPlan.payload.expectedRevision">{{ busy==='status'?'正在提交…':statusPlan.payload.status==='cancelled'?'确认停止后续执行':'确认关闭任务' }}</button></footer>
+        <footer class="dialog-actions"><button type="button" class="button button-secondary" :disabled="busy==='status'" @click="closeStatusDialog">返回核对</button><button type="submit" class="button button-danger" :disabled="!!busy || !detail || detail.task.id!==statusPlan.id || detail.task.revision!==statusPlan.payload.expectedRevision">{{ busy==='status'?'正在提交…':statusPlan.payload.status==='cancelled'?'确认停止后续执行':'确认关闭任务' }}</button></footer>
       </form>
     </dialog>
   </div>
@@ -200,8 +200,6 @@ onUnmounted(()=>{controller.abort();window.removeEventListener('hashchange',open
 .task-status-facts>div {display:grid;grid-template-columns:88px minmax(0,1fr);gap:16px;padding:14px 0;border-top:1px solid var(--line)}
 .task-status-facts dt {color:var(--secondary)}
 .task-status-facts dd {margin:0;overflow-wrap:anywhere}
-.task-stop-confirm {color:white;background:var(--danger);border-color:var(--danger)}
-.task-stop-confirm:hover:not(:disabled) {filter:brightness(.94)}
 .ai-gateway-tasks .ai-security-note {margin:0}
 .ai-gateway-tasks .field textarea {min-height:100px}
 </style>
