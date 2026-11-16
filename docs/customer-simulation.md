@@ -210,6 +210,18 @@ OpenAI-compatible 合成模型端点和私网 MCP 服务。入口为回环 `8907
 保持独立。共享客户网络仍只接客户应用与获批网关节点，模型、MCP、scanner、控制面和数据库
 分别留在后端网络。MCP 服务没有宿主端口。
 
+每个网关分别配对一个 scanner：原节点使用 `scarlet-customer-media`，两个 depth 节点分别
+使用 `scarlet-customer-media-depth`、`scarlet-customer-media-other`。各网络均为 internal，
+只连接对应网关和 scanner；`media-inspector` DNS 别名在每个网络内只指向该唯一实例，
+depth 网关不同时连接原 scanner 网络。三个 scanner 复用已核验的只读模型、证书和 token，
+均无宿主端口，分别保持 2 CPU、2 GiB 和最多两个 CLI 扫描槽位的有界资源。
+
+网关每轮完成后间隔 30 秒执行真实媒体探针，scanner 另有 60 秒的真实 self-health。
+把多个网关和 self-health 都汇聚到单个两槽实例，空闲时也可能发生探针竞争并返回
+`503 inspection_busy`。增加网关时应同步提供独立 worker 及网络配对，不能用随机 DNS
+分摊代替明确绑定，也不能通过延长 stale 或忽略失败制造健康。单实例的默认并发仍为二，
+繁忙时业务请求和探针继续失败关闭并返回 `Retry-After`；此拓扑不承诺超额负载下始终就绪。
+
 由操作员先完成两个新工作区的原生迁移、身份、真实回归与独立发布，并准备
 `var/customer-demo/depth/` 下的私有配置。两个工作区使用相同的功能目录 digest，才能让跨租户
 缓存用例检验租户边界。`primary/`、`other/` 分别保存 `config/`、`state/`、`metadata.json` 和

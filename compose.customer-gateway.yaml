@@ -59,7 +59,7 @@ services:
       - ./var/customer-demo/fixtures:/fixtures:ro
     networks: [backend]
 
-  media-inspector:
+  media-inspector: &customer-media-inspector
     build:
       context: .
       dockerfile: docker/media/Dockerfile
@@ -197,6 +197,20 @@ services:
     command: [-mode, mcp, -listen, ':9445', -tool-delay, 3s]
     volumes: [./var/customer-demo/depth/tls/mcp:/certs:ro]
 
+  media-inspector-depth:
+    <<: *customer-media-inspector
+    profiles: [depth]
+    networks:
+      media-depth:
+        aliases: [media-inspector]
+
+  media-inspector-other:
+    <<: *customer-media-inspector
+    profiles: [depth]
+    networks:
+      media-other:
+        aliases: [media-inspector]
+
   ai-gateway-depth: &depth-gateway
     profiles: [depth]
     build:
@@ -232,12 +246,12 @@ services:
       start_period: 70s
       retries: 2
     depends_on:
-      media-inspector: {condition: service_healthy}
+      media-inspector-depth: {condition: service_healthy}
       controller: {condition: service_started}
       depth-primary-provider: {condition: service_started}
       depth-secondary-provider: {condition: service_started}
       depth-mcp: {condition: service_started}
-    networks: [customer-demo, edge, backend, media]
+    networks: [customer-demo, edge, backend, media-depth]
 
   ai-gateway-other:
     <<: *depth-gateway
@@ -254,6 +268,13 @@ services:
       -journal, /state/replay.jsonl, -control-url, 'https://controller:9443', -control-token-file, /config/controller.token,
       -workspace, customer-depth-other, -node-id, customer-depth-other-gateway, -media-inspector-token-file, /scanner-token.txt,
       -tls-cert, /certs/tls.crt, -tls-key, /certs/tls.key]
+    depends_on:
+      media-inspector-other: {condition: service_healthy}
+      controller: {condition: service_started}
+      depth-primary-provider: {condition: service_started}
+      depth-secondary-provider: {condition: service_started}
+      depth-mcp: {condition: service_started}
+    networks: [customer-demo, edge, backend, media-other]
 
 volumes:
   customer-db:
@@ -270,6 +291,12 @@ networks:
     internal: true
   media:
     name: scarlet-customer-media
+    internal: true
+  media-depth:
+    name: scarlet-customer-media-depth
+    internal: true
+  media-other:
+    name: scarlet-customer-media-other
     internal: true
   edge:
     name: scarlet-customer-edge
