@@ -131,19 +131,26 @@ export function validateAIAuthorizationExpiry(value:unknown):void {
   if(month<1 || month>12 || day<1 || day>days[month-1]! || Number(parts[4])>23 || Number(parts[5])>59 || Number(parts[6])>59 || Number(parts[9] || 0)>23 || Number(parts[10] || 0)>59 || !Number.isFinite(time) || (time===-62135596800000 && !/[1-9]/.test(parts[7] || ''))) throw new Error('授权租约时间无效，不能采用零时间。')
 }
 export const aiMediaMimeTypes=['image/png','image/jpeg','audio/wav']
+export const aiMediaInspectionVersion='scarlet-media-ocr-asr-v2'
+export const aiLegacyMediaInspectionVersion='scarlet-media-ocr-asr-v1'
+export function aiMediaVersionLabel(value:unknown):string {
+  if(value===aiMediaInspectionVersion)return aiMediaInspectionVersion+' · 最低有效片段置信度契约'
+  if(value===aiLegacyMediaInspectionVersion)return aiLegacyMediaInspectionVersion+' · 历史版本，不作为 v2 最低片段置信度证据'
+  return '未提供已识别的媒体检测版本'
+}
 export function aiMediaDraft(value:unknown):AIRecord {
   const media=value && typeof value==='object' && !Array.isArray(value)?value as AIRecord:{}
-  return {allowedMimeTypes:Array.isArray(media.allowedMimeTypes)?[...media.allowedMimeTypes]:[],maxAssetBytes:media.maxAssetBytes ?? 4194304,maxTotalBytes:media.maxTotalBytes ?? 8388608,maxPixels:media.maxPixels ?? 16000000,inspectionVersion:media.inspectionVersion ?? 'scarlet-media-ocr-asr-v1'}
+  return {allowedMimeTypes:Array.isArray(media.allowedMimeTypes)?[...media.allowedMimeTypes]:[],maxAssetBytes:media.maxAssetBytes ?? 4194304,maxTotalBytes:media.maxTotalBytes ?? 8388608,maxPixels:media.maxPixels ?? 16000000,inspectionVersion:media.inspectionVersion ?? aiMediaInspectionVersion}
 }
 export function validateAIMedia(value:unknown):void {
   if(value===undefined || value===null)return
   if(typeof value!=='object' || Array.isArray(value))throw new Error('多模态配置应为明确的检测配置对象。')
   const media=value as AIRecord
   if(Object.keys(media).some(key=>!['allowedMimeTypes','maxAssetBytes','maxTotalBytes','maxPixels','inspectionVersion'].includes(key)))throw new Error('多模态配置包含未受支持的字段。')
-  if(!Array.isArray(media.allowedMimeTypes) || !media.allowedMimeTypes.length || media.allowedMimeTypes.length>3 || new Set(media.allowedMimeTypes).size!==media.allowedMimeTypes.length || media.allowedMimeTypes.some(type=>!aiMediaMimeTypes.includes(String(type))))throw new Error('多模态 MIME 仅支持 image/png、image/jpeg、audio/wav，并需要明确选择。')
+  if(!Array.isArray(media.allowedMimeTypes) || !media.allowedMimeTypes.length || media.allowedMimeTypes.length>3 || new Set(media.allowedMimeTypes).size!==media.allowedMimeTypes.length || media.allowedMimeTypes.some(type=>typeof type!=='string' || !aiMediaMimeTypes.includes(type)))throw new Error('多模态 MIME 仅支持 image/png、image/jpeg、audio/wav，并需要明确选择。')
   for(const [key,maximum] of [['maxAssetBytes',4194304],['maxTotalBytes',8388608],['maxPixels',16000000]] as const)if(!Number.isSafeInteger(media[key]) || Number(media[key])<1 || Number(media[key])>maximum)throw new Error('多模态限制应为正整数：单体最多 4 MiB、总量最多 8 MiB、像素最多 1600 万。')
   if(Number(media.maxTotalBytes)<Number(media.maxAssetBytes))throw new Error('请求媒体总量限制不能小于单体限制。')
-  if(media.inspectionVersion!=='scarlet-media-ocr-asr-v1')throw new Error('多模态检测器版本仅支持 scarlet-media-ocr-asr-v1。')
+  if(media.inspectionVersion!==aiMediaInspectionVersion && media.inspectionVersion!==aiLegacyMediaInspectionVersion)throw new Error('媒体配置仅支持 v2，或保留待迁移的历史 v1 配置；实际执行要求配套 v2 检测器。')
 }
 export const aiMaxModelWireBytes=16777216
 const aiScopeIdentifier=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/

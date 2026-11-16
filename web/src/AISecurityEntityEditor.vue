@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { aiFieldValue, aiMediaDraft, aiMediaMimeTypes, aiRecordDraft, aiRecordLabel, aiText, type AIEditorSection, type AIRecord } from './ai-security-editor'
+import { aiFieldValue, aiMediaDraft, aiMediaMimeTypes, aiMediaInspectionVersion, aiLegacyMediaInspectionVersion, aiRecordDraft, aiRecordLabel, aiText, type AIEditorSection, type AIRecord } from './ai-security-editor'
 
 const props = defineProps<{ section:AIEditorSection; records:AIRecord[]; disabled:boolean; singleton?:boolean; references?:Record<string,AIRecord[]> }>()
 const emit = defineEmits<{ update:[records:AIRecord[]]; validation:[valid:boolean] }>()
@@ -68,6 +68,7 @@ function listValue(value:unknown) { return Array.isArray(value) ? value.map(Stri
               <label class="field">请求媒体总字节数<input type="number" :value="aiMediaDraft(record.media).maxTotalBytes" required min="1" max="8388608" step="1" @input="updateMedia('maxTotalBytes',Number(value($event)))"></label>
               <label class="field">最大像素数<input type="number" :value="aiMediaDraft(record.media).maxPixels" required min="1" max="16000000" step="1" @input="updateMedia('maxPixels',Number(value($event)))"></label>
               <label class="field">固定媒体检测版本<input :value="aiMediaDraft(record.media).inspectionVersion" readonly><small>scanner 是否可用及实际检测结果需独立核对。</small></label>
+              <div v-if="aiMediaDraft(record.media).inspectionVersion===aiLegacyMediaInspectionVersion" class="field-wide"><p class="message message-warning">当前保留历史 v1 配置。实际媒体执行要求 v2 检测器；历史平均置信度记录不能当作最低片段置信度证据。升级草稿后仍需保存、回归、独立发布并部署配套检测器。</p><button class="button button-secondary" type="button" @click="updateMedia('inspectionVersion',aiMediaInspectionVersion)">将此模型草稿升级为 v2</button></div>
             </div><p class="table-secondary">{{ field.help }}</p>
           </div>
           <label v-else class="field" :class="{'field-wide':['textarea','json','lines'].includes(field.type||'')}">

@@ -7,12 +7,30 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"slices"
 	"strings"
 )
 
 // MCPVersion is the supported stateless protocol revision. No legacy handshake,
 // session, automatic discovery, MRTR, reconnection or arbitrary proxy is provided.
 const MCPVersion = "2026-07-28"
+
+// JSON-RPC field names are case-sensitive. encoding/json accepts case aliases
+// for struct fields, so check the exact object keys before typed decoding.
+func mcpObject(raw []byte, dst any, fields ...string) error {
+	var object map[string]json.RawMessage
+	if err := strictJSON(bytes.NewReader(raw), &object); err != nil || object == nil {
+		return errors.New("invalid MCP object")
+	}
+	for name := range object {
+		if !slices.Contains(fields, name) {
+			return errors.New("unsupported MCP field")
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(dst)
+}
 
 func mcpRequestBody(r Request, t Tool) []byte {
 	args := map[string]string{}
@@ -40,7 +58,7 @@ func mcpRequestBody(r Request, t Tool) []byte {
 type mcpEnvelope struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
-	Method  string          `json:"method,omitempty"`
+	Method  json.RawMessage `json:"method,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   json.RawMessage `json:"error,omitempty"`
@@ -48,10 +66,10 @@ type mcpEnvelope struct {
 
 func mcpResponseMessage(raw []byte, headers http.Header, requestID string) ([]byte, error) {
 	invalid := errors.New("unsupported or malformed MCP response")
-	if headers.Get("Mcp-Session-Id") != "" || headers.Get("Content-Encoding") != "" {
+	if len(headers.Values("Mcp-Session-Id")) != 0 || headers.Get("Content-Encoding") != "" || len(headers.Values("Content-Encoding")) > 1 || len(headers.Values("Content-Type")) != 1 {
 		return nil, invalid
 	}
-	if version := headers.Get("MCP-Protocol-Version"); version != "" && version != MCPVersion {
+	if versions := headers.Values("MCP-Protocol-Version"); len(versions) > 1 || len(versions) == 1 && versions[0] != MCPVersion {
 		return nil, invalid
 	}
 	typ, _, err := mime.ParseMediaType(headers.Get("Content-Type"))
@@ -119,17 +137,18 @@ func mcpResponseMessage(raw []byte, headers http.Header, requestID string) ([]by
 	var result []byte
 	for _, message := range messages {
 		var envelope mcpEnvelope
-		if strictJSON(bytes.NewReader(message), &envelope) != nil || envelope.JSONRPC != "2.0" {
+		if mcpObject(message, &envelope, "jsonrpc", "id", "method", "params", "result", "error") != nil || envelope.JSONRPC != "2.0" {
 			return nil, invalid
 		}
-		if len(envelope.ID) == 0 && envelope.Method != "" {
-			if envelope.Method != "notifications/progress" && envelope.Method != "notifications/message" || len(envelope.Result) > 0 || len(envelope.Error) > 0 {
+		if len(envelope.ID) == 0 {
+			var method string
+			if json.Unmarshal(envelope.Method, &method) != nil || method != "notifications/progress" && method != "notifications/message" || len(envelope.Result) > 0 || len(envelope.Error) > 0 {
 				return nil, invalid
 			}
 			continue
 		}
 		var responseID string
-		if json.Unmarshal(envelope.ID, &responseID) != nil || responseID != requestID || envelope.Method != "" || len(envelope.Params) > 0 || len(envelope.Error) > 0 || len(envelope.Result) == 0 || result != nil {
+		if json.Unmarshal(envelope.ID, &responseID) != nil || responseID != requestID || len(envelope.Method) != 0 || len(envelope.Params) > 0 || len(envelope.Error) > 0 || len(envelope.Result) == 0 || result != nil {
 			return nil, invalid
 		}
 		result = message
@@ -151,22 +170,31 @@ func mcpResultBody(raw []byte, headers http.Header, requestID string) ([]byte, e
 	}
 	var envelope mcpEnvelope
 	_ = json.Unmarshal(message, &envelope)
-	type textContent struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
 	var payload struct {
-		ResultType        string          `json:"resultType"`
-		Content           []textContent   `json:"content,omitempty"`
-		StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
-		IsError           bool            `json:"isError,omitempty"`
-		Meta              json.RawMessage `json:"_meta,omitempty"`
+		ResultType        string            `json:"resultType"`
+		Content           []json.RawMessage `json:"content"`
+		StructuredContent json.RawMessage   `json:"structuredContent,omitempty"`
+		IsError           json.RawMessage   `json:"isError,omitempty"`
+		Meta              json.RawMessage   `json:"_meta,omitempty"`
 	}
-	if strictJSON(bytes.NewReader(envelope.Result), &payload) != nil || payload.ResultType != "complete" || payload.IsError {
+	if mcpObject(envelope.Result, &payload, "resultType", "content", "structuredContent", "isError", "_meta") != nil || payload.ResultType != "complete" || payload.Content == nil {
 		return nil, errors.New("unsupported MCP tool result")
 	}
-	for _, part := range payload.Content {
-		if part.Type != "text" {
+	if len(payload.IsError) > 0 && !bytes.Equal(bytes.TrimSpace(payload.IsError), []byte("false")) {
+		return nil, errors.New("MCP tool result failed or error flag invalid")
+	}
+	if len(payload.Meta) > 0 {
+		var meta map[string]json.RawMessage
+		if strictJSON(bytes.NewReader(payload.Meta), &meta) != nil || meta == nil {
+			return nil, errors.New("invalid MCP result metadata")
+		}
+	}
+	for _, rawPart := range payload.Content {
+		var part struct {
+			Type string  `json:"type"`
+			Text *string `json:"text"`
+		}
+		if mcpObject(rawPart, &part, "type", "text") != nil || part.Type != "text" || part.Text == nil {
 			return nil, errors.New("unsupported MCP content")
 		}
 	}

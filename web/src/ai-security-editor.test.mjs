@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { aiConfigHasDuplicateIds, aiFieldValue, aiList, aiRecordDraft, buildAIRequest, buildAIWireRequest, validateAIModelPayload, validateAIToolProtocol, validateAIToolRequest, validateAIAuthorizationExpiry, validateAIConfigurationExtensions, aiMediaDraft, validateAIMedia, aiMaxModelWireBytes, validateAIDataUse, validateAIDataHandling } from './ai-security-editor.ts'
+import { aiConfigHasDuplicateIds, aiFieldValue, aiList, aiRecordDraft, buildAIRequest, buildAIWireRequest, validateAIModelPayload, validateAIToolProtocol, validateAIToolRequest, validateAIAuthorizationExpiry, validateAIConfigurationExtensions, aiMediaDraft, validateAIMedia, aiMaxModelWireBytes, validateAIDataUse, validateAIDataHandling, aiMediaInspectionVersion, aiLegacyMediaInspectionVersion, aiMediaVersionLabel } from './ai-security-editor.ts'
 
 test('versioned classification requires adopted detector version and bounded supported rules',()=>{
   const inspection={version:'scarlet-detectors-v1',builtinPacks:['credential-v1','cn-business-v1'],rules:[{id:'invoice-code',version:'v1',category:'business',pattern:'INV-[0-9]{6}'}]}
@@ -179,4 +179,16 @@ test('destination handling requires bounded approved declarations and real expir
   assert.doesNotThrow(()=>validateAIConfigurationExtensions({documents:[{usePolicy:{allowedPurposes:[],maxRetentionHours:0,allowTraining:false}}],models:[{handling}],tools:[{handling}],applications:[{requireTask:true}],policy:{requirePinnedSourceContent:true,requireDataHandling:true}}))
   for(const key of ['requirePinnedSourceContent','requireDataHandling'])assert.throws(()=>validateAIConfigurationExtensions({policy:{[key]:'true'}}))
   assert.throws(()=>validateAIConfigurationExtensions({applications:[{requireTask:'true'}]}))
+})
+
+
+test('media v2 is explicit and legacy evidence never silently changes interpretation',()=>{
+  assert.equal(aiMediaDraft(undefined).inspectionVersion,aiMediaInspectionVersion)
+  assert.equal(aiMediaDraft(media).inspectionVersion,aiLegacyMediaInspectionVersion)
+  assert.doesNotThrow(()=>validateAIMedia({...media,inspectionVersion:aiMediaInspectionVersion}))
+  assert.match(aiMediaVersionLabel(aiLegacyMediaInspectionVersion),/历史版本/)
+  assert.match(aiMediaVersionLabel(aiMediaInspectionVersion),/最低有效片段/)
+  assert.equal(aiMediaVersionLabel('future'), '未提供已识别的媒体检测版本')
+  assert.throws(()=>validateAIMedia({...media,allowedMimeTypes:[['image/png']]}))
+  assert.throws(()=>validateAIMedia({...media,inspectionVersion:[aiMediaInspectionVersion]}))
 })

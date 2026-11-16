@@ -207,9 +207,9 @@ func TestTaskLeaseSSEReplayUsesExecutionPinWithPartialDecision(t *testing.T) {
 	changeTestTaskLease(tasks)
 	in := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
 	out := httptest.NewRecorder()
-	// executeAttempt returns a catalog-only Decision. Its SSE replay must still
-	// respect the original execution pin instead of accepting a new grant.
-	g.(*gatewayHandler).replayModelStream(out, in, wire(r), Identity{ApplicationID: "app", PrincipalID: "alice"}, c, Decision{CatalogDigest: ConfigDigest(c)}, "private stream output", "stop", r.ModelID, r.RequestID)
+	// A held checked result must retain its original execution pin rather than
+	// accepting a new grant when the gateway converts it to SSE.
+	g.(*gatewayHandler).replayModelStream(out, in, &gatewayBuffer{checkedOutput: &gatewayCheckedOutput{values: ctx, request: r, decision: Decision{CatalogDigest: ConfigDigest(c)}}}, "private stream output", "stop", r.ModelID, r.RequestID)
 	if out.Code != 403 || strings.Contains(out.Body.String(), "private stream output") || strings.Contains(out.Body.String(), "[DONE]") {
 		t.Fatal("SSE replay adopted a new lease", out.Code, out.Body.String())
 	}

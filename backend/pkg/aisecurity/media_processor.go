@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -108,7 +109,7 @@ func NewCommandMediaProcessor(o CommandMediaOptions) (MediaProcessor, error) {
 			reader.FieldsPerRecord = -1
 			reader.LazyQuotes = true
 			var text []string
-			sum, weight := 0.0, 0.0
+			minimum, recognized := 100.0, false
 			for {
 				row, e := reader.Read()
 				if e == io.EOF {
@@ -121,18 +122,22 @@ func NewCommandMediaProcessor(o CommandMediaOptions) (MediaProcessor, error) {
 					continue
 				}
 				confidence, e := strconv.ParseFloat(row[10], 64)
-				if e != nil || confidence < 0 || confidence > 100 {
+				if e != nil || math.IsNaN(confidence) || math.IsInf(confidence, 0) {
 					return r, errors.New("OCR confidence invalid")
 				}
-				word := row[11]
+				word := strings.TrimSpace(row[11])
+				if word == "" {
+					continue
+				}
+				if confidence < 0 || confidence > 100 {
+					return r, errors.New("OCR confidence invalid")
+				}
 				text = append(text, word)
-				w := float64(len(word))
-				sum += confidence * w
-				weight += w
+				minimum, recognized = min(minimum, confidence), true
 			}
 			r.Text = strings.Join(text, " ")
-			if weight > 0 {
-				r.Confidence = sum / weight
+			if recognized {
+				r.Confidence = minimum
 			}
 		} else {
 			file, e := os.Open(filepath.Join(dir, "transcript.json"))
@@ -157,24 +162,23 @@ func NewCommandMediaProcessor(o CommandMediaOptions) (MediaProcessor, error) {
 				return r, errors.New("speech result invalid")
 			}
 			var text []string
-			sum, weight := 0.0, 0.0
+			minimum, recognized := 100.0, false
 			for _, segment := range result.Transcription {
 				text = append(text, segment.Text)
 				for _, token := range segment.Tokens {
-					if token.P < 0 || token.P > 1 {
+					if math.IsNaN(token.P) || math.IsInf(token.P, 0) || token.P < 0 || token.P > 1 {
 						return r, errors.New("speech confidence invalid")
 					}
-					if strings.HasPrefix(token.Text, "[_") {
+					text := strings.TrimSpace(token.Text)
+					if text == "" || strings.HasPrefix(text, "[_") && strings.HasSuffix(text, "]") {
 						continue
 					}
-					w := float64(len(token.Text))
-					sum += 100 * token.P * w
-					weight += w
+					minimum, recognized = min(minimum, 100*token.P), true
 				}
 			}
 			r.Text = strings.TrimSpace(strings.Join(text, " "))
-			if weight > 0 {
-				r.Confidence = sum / weight
+			if recognized {
+				r.Confidence = minimum
 			}
 		}
 		if !bounded(r.Text, 1<<20) {
@@ -227,11 +231,15 @@ func NewHTTPMediaProcessor(endpoint, token string, allowLoopback bool) (MediaPro
 			return out, errors.New("media inspector rejected content")
 		}
 		raw, e = io.ReadAll(io.LimitReader(response.Body, (2<<20)+1))
-		if e != nil || len(raw) > 2<<20 || strictJSON(bytes.NewReader(raw), &out) != nil || !out.Complete || out.Digest != a.Digest || out.MIMEType != a.MIMEType || out.InspectionVersion != MediaInspectionVersion {
+		if e != nil || len(raw) > 2<<20 || strictJSON(bytes.NewReader(raw), &out) != nil || !validMediaInspectionReport(out, a) {
 			return out, errors.New("media inspection receipt invalid")
 		}
 		return out, nil
 	}, nil
+}
+
+func validMediaInspectionReport(out MediaReport, a MediaAsset) bool {
+	return out.Complete && out.Digest == a.Digest && out.MIMEType == a.MIMEType && out.InspectionVersion == MediaInspectionVersion && bounded(out.Text, 1<<20) && !math.IsNaN(out.Confidence) && !math.IsInf(out.Confidence, 0) && out.Confidence >= 0 && out.Confidence <= 100
 }
 
 // NewMediaInspectionHandler is for a dedicated private scanner service, never
@@ -240,6 +248,7 @@ func NewMediaInspectionHandler(processor MediaProcessor, token string) (http.Han
 	if processor == nil || len(token) < 32 || len(token) > 512 {
 		return nil, errors.New("scanner processor and credential required")
 	}
+	slots := make(chan struct{}, 4)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.URL.Path != "/v1/inspect" || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Content-Encoding") != "" {
 			respond(w, 400, map[string]string{"code": "inspection_protocol_invalid"})
@@ -247,6 +256,18 @@ func NewMediaInspectionHandler(processor MediaProcessor, token string) (http.Han
 		}
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			respond(w, 401, map[string]string{"code": "inspection_authentication_required"})
+			return
+		}
+		if r.Context().Err() != nil {
+			respond(w, http.StatusRequestTimeout, map[string]string{"code": "inspection_cancelled"})
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		default:
+			w.Header().Set("Retry-After", "1")
+			respond(w, http.StatusTooManyRequests, map[string]string{"code": "inspection_busy"})
 			return
 		}
 		var asset MediaAsset
@@ -260,9 +281,17 @@ func NewMediaInspectionHandler(processor MediaProcessor, token string) (http.Han
 			respond(w, 400, map[string]string{"code": "inspection_media_not_canonical"})
 			return
 		}
+		if r.Context().Err() != nil {
+			respond(w, http.StatusRequestTimeout, map[string]string{"code": "inspection_cancelled"})
+			return
+		}
 		out, e := processor(r.Context(), asset)
 		if e != nil {
 			respond(w, 422, map[string]string{"code": "inspection_incomplete"})
+			return
+		}
+		if !validMediaInspectionReport(out, asset) {
+			respond(w, 422, map[string]string{"code": "inspection_receipt_invalid"})
 			return
 		}
 		respond(w, 200, out)

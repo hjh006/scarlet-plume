@@ -2,7 +2,8 @@
 """Real pinned Bifrost media interoperability with actual OCR/ASR, no paid calls.
 Usage: python3 e2e-media.py --tesseract /absolute/tesseract --whisper /absolute/whisper-cli
  --whisper-model /private/ggml-tiny.en.bin --whisper-model-sha256 SHA256 --wav /private/synthetic.wav
-The WAV fixture must contain the synthetic word 'confidential' for the ASR denial case.
+The WAV fixture must contain the synthetic word 'confidential' and at least one
+recognized speech token below 90% confidence for the v2 uncertainty denial case.
 """
 import argparse
 import base64
@@ -57,7 +58,7 @@ def main():
         helper=tmp/'config.go';helper.write_text('package main\nimport("os";"encoding/json";"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity")\nfunc main(){raw,_:=os.ReadFile(os.Args[1]);var p aisecurity.BifrostProfile;json.Unmarshal(raw,&p);out,err:=aisecurity.BifrostConfig(p,true);if err!=nil{panic(err)};os.Stdout.Write(out)}')
         (data/'config.json').write_bytes(subprocess.check_output(['go','-C',str(ROOT/'backend'),'run',str(helper),str(tmp/'profile.json')]));(data/'config.json').chmod(0o600)
         allowed=['image','audio','email','unclassified_media']
-        catalog={'version':'media-e2e-v1','applications':[{'id':'app','name':'app','enabled':True,'principalIds':['alice'],'documentIds':[],'modelIds':['enterprise'],'toolIds':[]}],'principals':[{'id':'alice','name':'alice','enabled':True,'applicationIds':['app']}],'documents':[],'models':[{'id':'enterprise','name':'media','enabled':True,'provider':'openai','endpointRef':'model','region':'CN','upstreamModel':'approved-model','responseFormat':'openai_chat','allowedApplicationIds':['app'],'allowedInputCategories':list(allowed),'allowedOutputCategories':list(allowed),'media':{'allowedMimeTypes':['image/png','audio/wav'],'maxAssetBytes':1048576,'maxTotalBytes':2097152,'maxPixels':2000000,'inspectionVersion':'scarlet-media-ocr-asr-v1'}}],'tools':[],'approvals':[],'policy':{'version':'media-policy-v1','maxRequestAgeSeconds':300,'maxInputBytes':1048576,'maxOutputBytes':1048576,'allowedInputCategories':list(allowed),'allowedOutputCategories':list(allowed),'allowedModelRegions':['CN'],'blockedInputPatterns':[],'blockedOutputPatterns':[]}}
+        catalog={'version':'media-e2e-v1','applications':[{'id':'app','name':'app','enabled':True,'principalIds':['alice'],'documentIds':[],'modelIds':['enterprise'],'toolIds':[]}],'principals':[{'id':'alice','name':'alice','enabled':True,'applicationIds':['app']}],'documents':[],'models':[{'id':'enterprise','name':'media','enabled':True,'provider':'openai','endpointRef':'model','region':'CN','upstreamModel':'approved-model','responseFormat':'openai_chat','allowedApplicationIds':['app'],'allowedInputCategories':list(allowed),'allowedOutputCategories':list(allowed),'media':{'allowedMimeTypes':['image/png','audio/wav'],'maxAssetBytes':1048576,'maxTotalBytes':2097152,'maxPixels':2000000,'inspectionVersion':'scarlet-media-ocr-asr-v2'}}],'tools':[],'approvals':[],'policy':{'version':'media-policy-v1','maxRequestAgeSeconds':300,'maxInputBytes':1048576,'maxOutputBytes':1048576,'allowedInputCategories':list(allowed),'allowedOutputCategories':list(allowed),'allowedModelRegions':['CN'],'blockedInputPatterns':[],'blockedOutputPatterns':[]}}
         write(tmp/'catalog.json',catalog);write(tmp/'bindings.json',{'credentials':[{'tokenHash':hashlib.sha256(TOKEN.encode()).hexdigest(),'applicationId':'app','principalId':'alice'}],'targets':{'model':{'url':f'http://127.0.0.1:{bf_port}/openai/v1/chat/completions'}},'tools':[]})
         subprocess.run(['go','-C',str(ROOT/'backend'),'build','-o',str(tmp/'ai-gateway'),'./cmd/ai-gateway'],check=True)
         log=(tmp/'gateway.log').open('w')
@@ -77,6 +78,13 @@ def main():
             check('media-audio-voice-pii-projection-blocked',wire,{403},0,endpoint=f'http://127.0.0.1:{gateway_port}/v1/execute')
             check('facade-media-audio-voice-pii-blocked',dict(voice_payload,model='enterprise'),{403},0)
             check('real-asr-wav-through-bifrost',audio_request,{200},1);assert Provider.seen['audio']==1
+            for scope in (catalog['policy'],catalog['models'][0]):
+                for key in ('allowedInputCategories','allowedOutputCategories'):scope[key]=[x for x in scope[key] if x!='unclassified_media']
+            write(tmp/'catalog.json',catalog)
+            check('asr-lowest-token-confidence-not-averaged-away',audio_request,{403},0)
+            for scope in (catalog['policy'],catalog['models'][0]):
+                for key in ('allowedInputCategories','allowedOutputCategories'):scope[key]=list(allowed)
+            write(tmp/'catalog.json',catalog)
             Provider.mode='image';out=check('provider-png-output-checked-standard-content',text,{200},1);message=json.loads(out)['choices'][0]['message'];assert isinstance(message['content'],list) and any(p['type']=='image_url' for p in message['content'])
             Provider.mode='audio';audio_output_request=dict(text,modalities=['text','audio'],audio={'voice':'alloy','format':'wav'});out=check('provider-wav-output-checked-standard-audio',audio_output_request,{200},1);message=json.loads(out)['choices'][0]['message'];assert message.get('audio',{}).get('data') and base64.b64decode(message['audio']['data'])[:4]==b'RIFF'
             for mode in ('empty-null','empty-array'):
@@ -88,7 +96,7 @@ def main():
             Provider.mode='text';check('ocr-pii-input-blocked-before-bifrost',image_request,{403},0)
             Provider.mode='image';check('ocr-pii-provider-output-suppressed',text,{403},1)
             Provider.mode='text';catalog['policy']['blockedInputPatterns']=['(?i)confidential'];write(tmp/'catalog.json',catalog);check('asr-projection-input-pattern-before-bifrost',audio_request,{403},0)
-            rows=[json.loads(line) for line in (tmp/'audit.jsonl').read_text().splitlines()];assert any(row['decision'].get('mediaInspectionVersion')=='scarlet-media-ocr-asr-v1' for row in rows);assert all(Provider.image not in json.dumps(row) and Provider.audio not in json.dumps(row) for row in rows)
+            rows=[json.loads(line) for line in (tmp/'audit.jsonl').read_text().splitlines()];assert any(row['decision'].get('mediaInspectionVersion')=='scarlet-media-ocr-asr-v2' for row in rows);assert all(Provider.image not in json.dumps(row) and Provider.audio not in json.dumps(row) for row in rows)
             print(json.dumps({'image':IMAGE,'tests':results,'mediaSeenByRealProvider':Provider.seen,'auditEvents':len(rows)},indent=2))
         except Exception:
             log.flush();print('gateway metadata log', (tmp/'gateway.log').read_text()[-3000:])

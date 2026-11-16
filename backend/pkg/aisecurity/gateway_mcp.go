@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"slices"
@@ -95,25 +96,62 @@ func gatewayMCPHeader(raw string) (string, error) {
 // are intentionally not advertised. Browser Origins are denied by default;
 // authenticated server-to-server clients do not send an Origin header.
 func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, identity Identity) {
-	if in.Header.Get("Origin") != "" {
+	if len(in.Header.Values("Origin")) != 0 {
 		gatewayMCPError(w, 403, nil, -32000, "Browser origin is not enabled", nil)
 		return
 	}
+	if len(in.Header.Values("Mcp-Session-Id")) != 0 || len(in.Header.Values("Last-Event-ID")) != 0 {
+		gatewayMCPError(w, 400, nil, -32600, "Sessions and resumption are not supported", nil)
+		return
+	}
 	var rpc gatewayMCPRequest
-	if strictJSON(in.Body, &rpc) != nil || rpc.JSONRPC != "2.0" || !gatewayMCPID(rpc.ID) {
+	raw, readErr := io.ReadAll(io.LimitReader(in.Body, (16<<20)+1))
+	if readErr != nil || mcpObject(raw, &rpc, "jsonrpc", "id", "method", "params") != nil || rpc.JSONRPC != "2.0" || !gatewayMCPID(rpc.ID) {
 		gatewayMCPError(w, 400, nil, -32600, "Invalid JSON-RPC request", nil)
 		return
 	}
 	var p gatewayMCPParams
-	if strictJSON(bytes.NewReader(rpc.Params), &p) != nil {
+	fields := []string{"_meta", "name", "arguments", "cursor"}
+	if rpc.Method == "server/discover" {
+		fields = []string{"_meta"}
+	}
+	if rpc.Method == "tools/list" {
+		fields = []string{"_meta", "cursor"}
+	}
+	if rpc.Method == "tools/call" {
+		fields = []string{"_meta", "name", "arguments"}
+	}
+	if mcpObject(rpc.Params, &p, fields...) != nil {
 		gatewayMCPError(w, 400, rpc.ID, -32602, "Invalid MCP parameters", nil)
 		return
+	}
+	var parameterFields map[string]json.RawMessage
+	_ = json.Unmarshal(rpc.Params, &parameterFields)
+	if arguments, exists := parameterFields["arguments"]; exists {
+		var values map[string]json.RawMessage
+		if strictJSON(bytes.NewReader(arguments), &values) != nil || values == nil {
+			gatewayMCPError(w, 400, rpc.ID, -32602, "Arguments must be a string-valued object", nil)
+			return
+		}
+		for _, value := range values {
+			value = bytes.TrimSpace(value)
+			if len(value) == 0 || value[0] != '"' {
+				gatewayMCPError(w, 400, rpc.ID, -32602, "Arguments must contain strings", nil)
+				return
+			}
+		}
 	}
 	accept := map[string]bool{}
 	for _, part := range strings.Split(in.Header.Get("Accept"), ",") {
 		typ, params, e := mime.ParseMediaType(strings.TrimSpace(part))
-		if e == nil && params["q"] != "0" {
-			accept[typ] = true
+		if e == nil {
+			quality := 1.0
+			if raw, exists := params["q"]; exists {
+				quality, e = strconv.ParseFloat(raw, 64)
+			}
+			if e == nil && quality > 0 && quality <= 1 {
+				accept[typ] = true
+			}
 		}
 	}
 	if !accept["application/json"] || !accept["text/event-stream"] {
@@ -147,13 +185,14 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 		gatewayMCPError(w, 503, rpc.ID, -32603, "Security catalog unavailable", nil)
 		return
 	}
+	catalogDigest := ConfigDigest(c)
 	tools, ok := g.mcpVisibleTools(c, identity)
 	if !ok {
 		gatewayMCPError(w, 403, rpc.ID, -32000, "Identity not authorized", nil)
 		return
 	}
 	if g.discoverTools != nil {
-		allowed, err := g.discoverTools(in.Context(), identity, tokenHash(strings.TrimPrefix(in.Header.Get("Authorization"), "Bearer ")), ConfigDigest(c))
+		allowed, err := g.discoverTools(in.Context(), identity, tokenHash(strings.TrimPrefix(in.Header.Get("Authorization"), "Bearer ")), catalogDigest)
 		if err != nil {
 			gatewayMCPError(w, 503, rpc.ID, -32603, "Tool authorization unavailable", nil)
 			return
@@ -175,13 +214,17 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 		gatewayMCPError(w, 403, rpc.ID, -32000, "Task required", nil)
 		return
 	}
+	var discoveryRequest Request
+	var discoveryDecision Decision
 	if taskID != "" {
 		r := Request{TaskID: taskID, RequestID: "discovery-" + hash(taskID), Kind: "discovery", ApplicationID: identity.ApplicationID, PrincipalID: identity.PrincipalID}
-		_, grant, err := g.runtime.task(in.Context(), r, Decision{CatalogDigest: ConfigDigest(c)}, "check", nil)
+		updated, grant, err := g.runtime.task(in.Context(), r, Decision{CatalogDigest: catalogDigest}, "check", nil)
 		if err != nil {
 			gatewayMCPError(w, 403, rpc.ID, -32000, "Task discovery denied", nil)
 			return
 		}
+		discoveryRequest = updated
+		discoveryDecision = Decision{CatalogDigest: catalogDigest, TaskID: taskID, TaskScopeDigest: grant.ScopeDigest, LeaseChainDigest: grant.LeaseChainDigest, LeaseProtocolVersion: grant.LeaseProtocolVersion}
 		tools = slices.DeleteFunc(tools, func(v gatewayMCPVisibleTool) bool { return !slices.Contains(grant.ToolIDs, v.tool.ID) })
 		for i := range tools {
 			foundScope := false
@@ -200,10 +243,53 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 		}
 		tools = slices.DeleteFunc(tools, func(v gatewayMCPVisibleTool) bool { return len(v.tool.Targets) == 0 })
 	}
+	// Directory metadata has the same live visibility boundary as the invocation.
+	// Recheck the original catalog/task lease, rather than blessing an old schema
+	// with a newly acquired grant immediately before it is exposed to the client.
+	discoveryCurrent := func() bool {
+		if in.Context().Err() != nil {
+			return false
+		}
+		current, err := g.runtime.options.Catalog(in.Context())
+		if err != nil || ConfigDigest(current) != catalogDigest {
+			return false
+		}
+		if _, allowed := g.mcpVisibleTools(current, identity); !allowed {
+			return false
+		}
+		hash := tokenHash(strings.TrimPrefix(in.Header.Get("Authorization"), "Bearer "))
+		if g.runtime.options.Authenticate != nil {
+			live, err := g.runtime.authenticate(in.Context(), hash)
+			if err != nil || live != identity {
+				return false
+			}
+		}
+		if g.discoverTools != nil {
+			allowed, err := g.discoverTools(in.Context(), identity, hash, catalogDigest)
+			if err != nil {
+				return false
+			}
+			for _, tool := range tools {
+				if !slices.Contains(allowed, tool.tool.ID) {
+					return false
+				}
+			}
+		}
+		if taskID != "" {
+			if _, _, err := g.runtime.task(in.Context(), discoveryRequest, discoveryDecision, "check", nil); err != nil {
+				return false
+			}
+		}
+		return true
+	}
 	switch rpc.Method {
 	case "server/discover":
 		if p.Name != "" || len(p.Arguments) != 0 || p.Cursor != "" {
 			gatewayMCPError(w, 400, rpc.ID, -32602, "Unexpected discovery parameters", nil)
+			return
+		}
+		if !discoveryCurrent() {
+			gatewayMCPError(w, 403, rpc.ID, -32000, "Discovery authorization changed", nil)
 			return
 		}
 		gatewayMCPResult(w, rpc.ID, map[string]any{"supportedVersions": []string{MCPVersion}, "capabilities": map[string]any{"tools": map[string]any{}}, "instructions": "Registered string-argument tools only. High-impact actions require a separate digest-bound approval.", "ttlMs": 0, "cacheScope": "private"})
@@ -222,6 +308,10 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 			required := append([]string{tool.TargetArgument}, tool.RequiredArguments...)
 			sort.Strings(required)
 			definitions = append(definitions, map[string]any{"name": binding.binding.Name, "description": tool.Name, "inputSchema": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}, "annotations": map[string]any{"destructiveHint": tool.HighImpact}})
+		}
+		if !discoveryCurrent() {
+			gatewayMCPError(w, 403, rpc.ID, -32000, "Discovery authorization changed", nil)
+			return
 		}
 		gatewayMCPResult(w, rpc.ID, map[string]any{"tools": definitions, "ttlMs": 0, "cacheScope": "private"})
 	case "tools/call":
@@ -274,7 +364,7 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 			return
 		}
 		var control gatewayMCPControl
-		if raw, exists := p.Meta[gatewayMCPControlMeta]; exists && strictJSON(bytes.NewReader(raw), &control) != nil {
+		if raw, exists := p.Meta[gatewayMCPControlMeta]; exists && mcpObject(raw, &control, "requestId", "issuedAt", "expiresAt", "approvalId") != nil {
 			gatewayMCPError(w, 400, rpc.ID, -32602, "Invalid execution metadata", nil)
 			return
 		}
@@ -333,6 +423,10 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 		}
 		// Upstream metadata is untrusted and need not be exposed to clients.
 		result["_meta"] = map[string]any{"io.modelcontextprotocol/serverInfo": map[string]string{"name": "scarlet-ai-gateway", "version": RuntimeProtocolVersion}, gatewayMCPControlMeta: map[string]string{"requestId": control.RequestID}}
+		if !g.checkedOutputCurrent(in.Context(), buffer) {
+			gatewayMCPError(w, 403, rpc.ID, -32000, "Tool authorization changed before result release", nil)
+			return
+		}
 		gatewayMCPResult(w, rpc.ID, result)
 	default:
 		gatewayMCPError(w, 404, rpc.ID, -32601, "Method not supported by this stateless profile", nil)

@@ -428,6 +428,7 @@ func (h *runtimeHandler) rag(w http.ResponseWriter, in *http.Request, r Request,
 		respond(w, 403, map[string]string{"code": "task_or_source_changed_before_release"})
 		return
 	}
+	captureGatewayCheckedOutput(w, in.Context(), r, out)
 	respond(w, 200, struct {
 		Decision  Decision    `json:"decision"`
 		Documents []outputDoc `json:"documents"`
@@ -580,6 +581,7 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 				return
 			}
 			w.Header().Set("X-Scarlet-Cache", "hit")
+			captureGatewayCheckedOutput(w, in.Context(), r, output)
 			w.WriteHeader(200)
 			_, _ = w.Write(cached)
 			return
@@ -731,6 +733,7 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	captureGatewayCheckedOutput(w, in.Context(), r, outputD)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(raw)
 }

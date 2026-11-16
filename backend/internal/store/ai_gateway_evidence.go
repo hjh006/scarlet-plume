@@ -48,6 +48,9 @@ func gatewayTaskMetadata(d aisecurity.Decision) bool {
 	return true
 }
 
+// Metadata shape is version-neutral for historical and unverified reports.
+// New execution uses gatewayCurrentMediaMetadata; settlement additionally
+// requires the original server-pinned reservation contract.
 func gatewayMediaMetadata(digests []string, version string) bool {
 	if len(digests) > 32 || version != "" && !gatewayRuntimeID.MatchString(version) || len(digests) > 0 && version == "" || len(digests) == 0 && version != "" {
 		return false

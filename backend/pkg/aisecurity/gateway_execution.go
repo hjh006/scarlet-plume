@@ -84,33 +84,28 @@ func newGatewayCallID() string {
 	return hex.EncodeToString(nonce[:])
 }
 
-// replayModelStream exposes only the fully checked normalized text. Fresh live
-// authorization is checked before each released event and before [DONE].
-func (g *gatewayHandler) replayModelStream(w http.ResponseWriter, in *http.Request, wire RuntimeRequest, identity Identity, c Config, d Decision, output, finish, publicModel, publicRequestID string) {
-	r := requestFromWire(wire, identity)
-	var taskErr error
-	r, _, taskErr = g.runtime.task(in.Context(), r, d, "check", nil)
-	if taskErr != nil {
-		gatewayError(w, 403, "task_scope_changed")
-		return
+type gatewayReleaseContext struct {
+	context.Context
+	values context.Context
+}
+
+func (c gatewayReleaseContext) Value(key any) any { return c.values.Value(key) }
+func (g *gatewayHandler) checkedOutputCurrent(ctx context.Context, b *gatewayBuffer) bool {
+	if b == nil || b.checkedOutput == nil || b.checkedOutput.values == nil || ctx.Err() != nil {
+		return false
 	}
-	for _, m := range c.Models {
-		if m.ID == r.ModelID {
-			prepared, err := PrepareMediaRequest(in.Context(), r, m, g.runtime.options.MediaProcessor)
-			if err != nil {
-				gatewayError(w, 403, "media_scope_changed")
-				return
-			}
-			r = prepared
-		}
-	}
-	var sourceErr error
-	r, sourceErr = g.runtime.prepareSources(in.Context(), r, c)
-	if sourceErr != nil {
-		gatewayError(w, 403, "source_scope_changed")
-		return
-	}
-	fresh := func() bool { return in.Context().Err() == nil && g.runtime.fresh(in.Context(), r, d) }
+	// Internal task-watch cancellation ends with ServeHTTP, but its trusted
+	// values belong to the held result. Only the current outer request controls
+	// cancellation/deadlines while rechecking that original execution identity.
+	release := gatewayReleaseContext{Context: ctx, values: b.checkedOutput.values}
+	return g.runtime.fresh(release, b.checkedOutput.request, b.checkedOutput.decision) && ctx.Err() == nil
+}
+
+// replayModelStream releases the held checked text under its original execution
+// context. Recheck before every event and [DONE]; never acquire new source or
+// media observations to authorize an older output.
+func (g *gatewayHandler) replayModelStream(w http.ResponseWriter, in *http.Request, b *gatewayBuffer, output, finish, publicModel, publicRequestID string) {
+	fresh := func() bool { return g.checkedOutputCurrent(in.Context(), b) }
 	if !fresh() {
 		gatewayError(w, 403, "authorization_changed_before_stream_release")
 		return
@@ -209,7 +204,6 @@ func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identi
 	}
 	var buffer *gatewayBuffer
 	var actual RuntimeRequest
-	var decision Decision
 	for attempt, modelID := range attempts {
 		if openModels[modelID] && attempt < len(attempts)-1 {
 			continue
@@ -227,7 +221,7 @@ func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identi
 		}
 		attemptIn := in.WithContext(context.WithValue(in.Context(), gatewayCallIDKey{}, callID))
 		buffer = &gatewayBuffer{header: http.Header{}}
-		decision = g.executeAttempt(buffer, attemptIn, identity, actual, c)
+		g.executeAttempt(buffer, attemptIn, identity, actual, c)
 		// Keep the actual call context for fresh credential checks during replay.
 		in = attemptIn
 		if buffer.status == 200 || wire.Kind != "model" || !retryableGatewayResult(buffer) {
@@ -237,6 +231,15 @@ func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identi
 	if !chat {
 		for name, values := range buffer.header {
 			w.Header()[name] = values
+		}
+		if buffer.status >= 200 && buffer.status < 300 {
+			if !g.checkedOutputCurrent(in.Context(), buffer) {
+				gatewayError(w, 403, "authorization_changed_before_output_release")
+				return
+			}
+			if outer, ok := w.(*gatewayBuffer); ok {
+				outer.checkedOutput = buffer.checkedOutput
+			}
 		}
 		w.WriteHeader(buffer.status)
 		_, _ = w.Write(buffer.body.Bytes())
@@ -264,7 +267,7 @@ func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identi
 			gatewayError(w, 422, "stream_media_output_unsupported")
 			return
 		}
-		g.replayModelStream(w, in, actual, identity, c, decision, response.Output, response.FinishReason, root.ModelID, root.RequestID)
+		g.replayModelStream(w, in, buffer, response.Output, response.FinishReason, root.ModelID, root.RequestID)
 		return
 	}
 	message := map[string]any{"role": "assistant", "content": response.Output}
@@ -288,6 +291,13 @@ func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identi
 	}
 	if len(parts) > 1 {
 		message["content"] = parts
+	}
+	if !g.checkedOutputCurrent(in.Context(), buffer) {
+		gatewayError(w, 403, "authorization_changed_before_output_release")
+		return
+	}
+	if outer, ok := w.(*gatewayBuffer); ok {
+		outer.checkedOutput = buffer.checkedOutput
 	}
 	respond(w, 200, map[string]any{"id": "chatcmpl-" + root.RequestID, "object": "chat.completion", "created": g.runtime.options.Now().Unix(), "model": root.ModelID, "choices": []any{map[string]any{"index": 0, "message": message, "finish_reason": response.FinishReason}}})
 }

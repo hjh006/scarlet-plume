@@ -204,7 +204,7 @@ func tokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (g *gatewayHandler) executeAttempt(w http.ResponseWriter, in *http.Request, identity Identity, wire RuntimeRequest, c Config) Decision {
+func (g *gatewayHandler) executeAttempt(w http.ResponseWriter, in *http.Request, identity Identity, wire RuntimeRequest, c Config) {
 	d := Decision{CatalogDigest: ConfigDigest(c)}
 	body, _ := json.Marshal(wire)
 	ctx := context.WithValue(context.WithValue(in.Context(), gatewayCatalogDigestKey{}, d.CatalogDigest), gatewayIdentityKey{}, identity)
@@ -217,7 +217,6 @@ func (g *gatewayHandler) executeAttempt(w http.ResponseWriter, in *http.Request,
 	forward.Body = io.NopCloser(bytes.NewReader(body))
 	forward.ContentLength = int64(len(body))
 	g.runtime.ServeHTTP(w, forward)
-	return d
 }
 
 func (g *gatewayHandler) chat(w http.ResponseWriter, in *http.Request, identity Identity) {
@@ -275,10 +274,25 @@ func (g *gatewayHandler) chat(w http.ResponseWriter, in *http.Request, identity 
 	g.execute(w, in, identity, RuntimeRequest{RequestID: id, Kind: "model", ModelID: logicalModel, Input: string(input), IssuedAt: issued, ExpiresAt: expires}, true)
 }
 
+// gatewayCheckedOutput holds the original successful execution context. It is
+// never serialized or reconstructed from caller-controlled response metadata.
+type gatewayCheckedOutput struct {
+	values   context.Context
+	request  Request
+	decision Decision
+}
+
+func captureGatewayCheckedOutput(w http.ResponseWriter, ctx context.Context, r Request, d Decision) {
+	if b, ok := w.(*gatewayBuffer); ok {
+		b.checkedOutput = &gatewayCheckedOutput{values: context.WithoutCancel(ctx), request: r, decision: d}
+	}
+}
+
 type gatewayBuffer struct {
-	header http.Header
-	status int
-	body   bytes.Buffer
+	checkedOutput *gatewayCheckedOutput
+	header        http.Header
+	status        int
+	body          bytes.Buffer
 }
 
 func (b *gatewayBuffer) Header() http.Header { return b.header }

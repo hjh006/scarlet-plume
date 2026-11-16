@@ -17,7 +17,8 @@ import (
 	"strings"
 )
 
-const MediaInspectionVersion = "scarlet-media-ocr-asr-v1"
+const MediaInspectionVersion = "scarlet-media-ocr-asr-v2"
+const LegacyMediaInspectionVersion = "scarlet-media-ocr-asr-v1"
 
 type MediaPolicy struct {
 	AllowedMIMETypes  []string `json:"allowedMimeTypes"`
@@ -84,7 +85,9 @@ func validateMediaPolicy(p *MediaPolicy) bool {
 	if p == nil {
 		return true
 	}
-	return p.InspectionVersion == MediaInspectionVersion && list(p.AllowedMIMETypes, 3, func(s string) bool { return slices.Contains([]string{"image/png", "image/jpeg", "audio/wav"}, s) }) && len(p.AllowedMIMETypes) > 0 && p.MaxAssetBytes > 0 && p.MaxAssetBytes <= 4<<20 && p.MaxTotalBytes >= p.MaxAssetBytes && p.MaxTotalBytes <= 8<<20 && p.MaxPixels > 0 && p.MaxPixels <= 16000000
+	// Legacy catalogs remain readable for explicit migration. Execution still
+	// requires the current processor version in inspectMediaAssets.
+	return (p.InspectionVersion == MediaInspectionVersion || p.InspectionVersion == LegacyMediaInspectionVersion) && list(p.AllowedMIMETypes, 3, func(s string) bool { return slices.Contains([]string{"image/png", "image/jpeg", "audio/wav"}, s) }) && len(p.AllowedMIMETypes) > 0 && p.MaxAssetBytes > 0 && p.MaxAssetBytes <= 4<<20 && p.MaxTotalBytes >= p.MaxAssetBytes && p.MaxTotalBytes <= 8<<20 && p.MaxPixels > 0 && p.MaxPixels <= 16000000
 }
 func mediaHash(data []byte) string { h := sha256.Sum256(data); return hex.EncodeToString(h[:]) }
 

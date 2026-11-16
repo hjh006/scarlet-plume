@@ -94,13 +94,13 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 	if !gatewayTaskMetadata(aisecurity.Decision{SourceDigests: in.SourceDigests}) {
 		return out, ErrInvalid
 	}
-	if !gatewayText(in.WorkspaceSlug, 128) || !gatewayHash.MatchString(in.TokenHash) || !gatewayRuntimeID.MatchString(in.ApplicationID) || !gatewayRuntimeID.MatchString(in.PrincipalID) || !gatewayText(in.RequestID, 200) || !gatewayHash.MatchString(in.RequestDigest) || !gatewayHash.MatchString(in.CatalogDigest) || !slices.Contains([]string{"model", "tool", "rag"}, in.Kind) || in.InputBytes < 0 || in.InputBytes > 16_777_216 || in.ProjectionBytes < 0 || in.ProjectionBytes > 1_048_576 || in.MediaBytes < 0 || in.MediaBytes > 8_388_608 || !gatewayMediaMetadata(in.MediaDigests, in.MediaInspectionVersion) || in.MaxOutputTokens < 0 || in.MaxOutputTokens > 1_000_000 || len(in.Target) > 2048 {
+	if !gatewayText(in.WorkspaceSlug, 128) || !gatewayHash.MatchString(in.TokenHash) || !gatewayRuntimeID.MatchString(in.ApplicationID) || !gatewayRuntimeID.MatchString(in.PrincipalID) || !gatewayText(in.RequestID, 200) || !gatewayHash.MatchString(in.RequestDigest) || !gatewayHash.MatchString(in.CatalogDigest) || !slices.Contains([]string{"model", "tool", "rag"}, in.Kind) || in.InputBytes < 0 || in.InputBytes > 16_777_216 || in.ProjectionBytes < 0 || in.ProjectionBytes > 1_048_576 || in.MediaBytes < 0 || in.MediaBytes > 8_388_608 || !gatewayCurrentMediaMetadata(in.MediaDigests, in.MediaInspectionVersion) || in.MaxOutputTokens < 0 || in.MaxOutputTokens > 1_000_000 || len(in.Target) > 2048 {
 		return out, ErrInvalid
 	}
 	if in.Kind == "model" && (!gatewayRuntimeID.MatchString(in.ModelID) || in.MaxOutputTokens == 0) || in.Kind == "tool" && (!gatewayRuntimeID.MatchString(in.ToolID) || !gatewayRuntimeID.MatchString(in.Action)) {
 		return out, ErrInvalid
 	}
-	if in.InputBytes > 1_048_576 && len(in.MediaDigests) == 0 && len(in.SourceDigests) == 0 || len(in.MediaDigests) > 0 && in.MediaInspectionVersion != "scarlet-media-ocr-asr-v1" || len(in.MediaDigests) == 0 && (in.MediaBytes != 0 || in.ProjectionBytes != 0) {
+	if in.InputBytes > 1_048_576 && len(in.MediaDigests) == 0 && len(in.SourceDigests) == 0 || len(in.MediaDigests) == 0 && (in.MediaBytes != 0 || in.ProjectionBytes != 0) {
 		return out, ErrInvalid
 	}
 	requestHash := gatewayDigest(in)
@@ -226,7 +226,7 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		out = GatewayAuthorization{ProjectionBytes: in.ProjectionBytes, MediaBytes: in.MediaBytes, MediaDigests: in.MediaDigests, MediaInspectionVersion: in.MediaInspectionVersion, ParentRequestID: in.ParentRequestID, RootModelID: in.RootModelID, PreviousReservationID: in.PreviousReservationID, Attempt: in.Attempt, FallbackModelIDs: append([]string{}, provider.FallbackModelIDs...), ConfigRevision: c.Revision, RequestID: in.RequestID, RequestDigest: in.RequestDigest, CatalogDigest: in.CatalogDigest, Kind: in.Kind, CredentialID: credID, ReservationID: id, ApplicationID: appID, PrincipalID: app.PrincipalID, ModelID: in.ModelID, ProviderID: provider.ID, Provider: provider.Provider, UpstreamModel: provider.UpstreamModel, EndpointRef: provider.EndpointRef, SecretRef: provider.SecretRef, Region: provider.Region, ResponseFormat: provider.ResponseFormat, MaxCostMicros: cost, MaxTokens: tokens}
 		out.TaskContext = in.TaskContext
 		out.SourceDigests = append([]string{}, in.SourceDigests...)
-		raw, e := json.Marshal(out)
+		raw, e := json.Marshal(gatewayReservationEvidence{GatewayAuthorization: out, RequiredMediaInspectionVersion: aisecurity.MediaInspectionVersion})
 		if e != nil {
 			return e
 		}
@@ -240,7 +240,7 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		if _, e = tx.Exec(ctx, `INSERT INTO plume.ai_gateway_windows(workspace_id,application_id,window_start,requests,tokens) VALUES($1,$2,$3,1,$4) ON CONFLICT(workspace_id,application_id,window_start) DO UPDATE SET requests=ai_gateway_windows.requests+1,tokens=ai_gateway_windows.tokens+EXCLUDED.tokens`, ws, appID, window, tokens); e != nil {
 			return e
 		}
-		return identityAudit(ctx, tx, ws, 0, "gateway.call_reserved", id, map[string]any{"requestId": in.RequestID, "requestDigest": in.RequestDigest, "catalogDigest": in.CatalogDigest, "applicationId": appID, "credentialId": credID, "modelId": in.ModelID, "toolId": in.ToolID, "kind": in.Kind, "reservedMicros": cost, "reservedTokens": tokens, "quoteBasis": "bounded_input_and_projection_bytes_and_max_output_tokens", "inputBytes": in.InputBytes, "projectionBytes": in.ProjectionBytes, "mediaBytes": in.MediaBytes, "mediaDigests": in.MediaDigests, "mediaInspectionVersion": in.MediaInspectionVersion, "sourceDigests": in.SourceDigests, "providerId": provider.ID, "configRevision": c.Revision, "parentRequestId": in.ParentRequestID, "rootModelId": in.RootModelID, "attempt": in.Attempt, "previousReservationId": in.PreviousReservationID})
+		return identityAudit(ctx, tx, ws, 0, "gateway.call_reserved", id, map[string]any{"requestId": in.RequestID, "requestDigest": in.RequestDigest, "catalogDigest": in.CatalogDigest, "applicationId": appID, "credentialId": credID, "modelId": in.ModelID, "toolId": in.ToolID, "kind": in.Kind, "reservedMicros": cost, "reservedTokens": tokens, "quoteBasis": "bounded_input_and_projection_bytes_and_max_output_tokens", "inputBytes": in.InputBytes, "projectionBytes": in.ProjectionBytes, "mediaBytes": in.MediaBytes, "mediaDigests": in.MediaDigests, "mediaInspectionVersion": in.MediaInspectionVersion, "requiredMediaInspectionVersion": aisecurity.MediaInspectionVersion, "sourceDigests": in.SourceDigests, "providerId": provider.ID, "configRevision": c.Revision, "parentRequestId": in.ParentRequestID, "rootModelId": in.RootModelID, "attempt": in.Attempt, "previousReservationId": in.PreviousReservationID})
 	})
 	return
 }
@@ -282,12 +282,16 @@ func (s *Store) SettleGateway(ctx context.Context, in GatewaySettlement) error {
 		var state, prior string
 		var window time.Time
 		var authorized []byte
-		var admission GatewayAuthorization
+		var saved gatewayReservationEvidence
 		if e := tx.QueryRow(ctx, `SELECT reserved_micros,reserved_tokens,state,settlement_hash,window_start,authorized FROM plume.ai_gateway_reservations WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, ws, in.ReservationID).Scan(&reserved, &tokens, &state, &prior, &window, &authorized); e != nil {
 			return e
 		}
-		if e := json.Unmarshal(authorized, &admission); e != nil {
+		if e := json.Unmarshal(authorized, &saved); e != nil {
 			return e
+		}
+		admission := saved.GatewayAuthorization
+		if !gatewayReservationMediaCompatible(saved, audit.Decision) {
+			return ErrForbidden
 		}
 		if admission.RequestDigest != in.RequestDigest || admission.RequestID != audit.RequestID || admission.CatalogDigest != audit.Decision.CatalogDigest || admission.ApplicationID != audit.Decision.ApplicationID || admission.PrincipalID != audit.Decision.PrincipalID || admission.Kind != audit.Decision.Kind {
 			return ErrForbidden

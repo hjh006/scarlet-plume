@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { aiText, type AIRecord } from './ai-security-editor'
+import { aiMediaVersionLabel, aiText, type AIRecord } from './ai-security-editor'
 import { aiDecision, aiDecisionLabel, aiString } from './ai-security'
 
 const props=defineProps<{record:AIRecord}>()
@@ -8,7 +8,7 @@ const decision=computed(()=>aiDecision(props.record))
 const hasDecision=computed(()=>typeof decision.value.outcome==='string')
 const mediaDigests=computed(()=>Array.isArray(decision.value.mediaDigests)?decision.value.mediaDigests.filter((value):value is string=>typeof value==='string' && /^[a-f0-9]{64}$/.test(value)):[])
 const sourceDigests=computed(()=>Array.isArray(decision.value.sourceDigests)?decision.value.sourceDigests.filter((value):value is string=>typeof value==='string' && /^[a-f0-9]{64}$/.test(value)):[])
-const mediaVersion=computed(()=>decision.value.mediaInspectionVersion==='scarlet-media-ocr-asr-v1'?'scarlet-media-ocr-asr-v1':'未提供已识别的媒体检测版本')
+const mediaVersion=computed(()=>aiMediaVersionLabel(decision.value.mediaInspectionVersion))
 const cases=computed(()=>Array.isArray(props.record.cases)?props.record.cases.filter((item):item is AIRecord=>typeof item==='object' && item!==null):[])
 function outcome(value:unknown) {
   if(typeof value==='object' && value!==null && !Array.isArray(value)) return aiDecisionLabel(value as AIRecord)
@@ -28,6 +28,8 @@ function outcome(value:unknown) {
       <div><dt>允许资料</dt><dd>{{ aiText(decision.allowedDocumentIds) || '无允许资料引用' }}</dd></div>
       <div><dt>采用类别</dt><dd>{{ aiText(decision.categories) || '本次未列出类别' }}</dd></div><div v-if="decision.taskId"><dt>绑定任务</dt><dd class="mono">{{ aiString(decision,'taskId') }}</dd></div><div v-if="decision.taskPurpose"><dt>可信任务用途</dt><dd>{{ aiString(decision,'taskPurpose') }}</dd></div>
       <div v-if="decision.taskScopeDigest"><dt>任务范围摘要</dt><dd class="mono">{{ aiString(decision,'taskScopeDigest') }}</dd></div>
+      <div v-if="decision.taskId"><dt>执行租约协议</dt><dd class="mono">{{ aiString(decision,'leaseProtocolVersion') || '未提供，不能据此证明当前租约有效' }}</dd></div>
+      <div v-if="decision.taskId"><dt>完整祖先租约摘要</dt><dd class="mono">{{ aiString(decision,'leaseChainDigest') || '未提供，不能以当前租约回填历史决策' }}</dd></div>
       <div v-if="sourceDigests.length"><dt>实际来源正文摘要</dt><dd><span v-for="digest in sourceDigests" :key="digest" class="table-secondary mono">{{ digest }}</span></dd></div>
       <div><dt>采用规则</dt><dd>{{ aiText(decision.rules) || '未列出' }}</dd></div>
       <div v-if="mediaDigests.length"><dt>媒体检测绑定摘要</dt><dd><span v-for="digest in mediaDigests" :key="digest" class="table-secondary mono">{{ digest }}</span></dd></div>
