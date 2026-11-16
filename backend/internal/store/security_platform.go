@@ -86,15 +86,16 @@ type SecurityNetworkChange struct {
 	ReviewedAt          *time.Time             `json:"reviewedAt,omitempty"`
 }
 type SecurityPlatform struct {
-	GeneratedAt     time.Time                  `json:"generatedAt"`
-	Counts          map[string]int64           `json:"counts"`
-	Capabilities    []SecurityCapability       `json:"capabilities"`
-	Findings        []SecurityPostureFinding   `json:"findings"`
-	NetworkBindings []SecurityNetworkBinding   `json:"networkBindings"`
-	NetworkChanges  []SecurityNetworkChange    `json:"networkChanges"`
-	Snapshots       []SecurityPlatformSnapshot `json:"snapshots"`
-	Truncated       bool                       `json:"truncated"`
-	Coverage        []string                   `json:"coverage"`
+	PreviewCoverage map[string]SecurityPlatformPreview `json:"previewCoverage"`
+	GeneratedAt     time.Time                          `json:"generatedAt"`
+	Counts          map[string]int64                   `json:"counts"`
+	Capabilities    []SecurityCapability               `json:"capabilities"`
+	Findings        []SecurityPostureFinding           `json:"findings"`
+	NetworkBindings []SecurityNetworkBinding           `json:"networkBindings"`
+	NetworkChanges  []SecurityNetworkChange            `json:"networkChanges"`
+	Snapshots       []SecurityPlatformSnapshot         `json:"snapshots"`
+	Truncated       bool                               `json:"truncated"`
+	Coverage        []string                           `json:"coverage"`
 }
 
 func securityPlatformMember(ctx context.Context, tx pgx.Tx, ws, actor int64, write bool) error {
@@ -162,7 +163,7 @@ func (s *Store) SecurityPlatform(ctx context.Context, ws, actor int64) (Security
 }
 
 func readSecurityPlatform(ctx context.Context, tx pgx.Tx, ws int64) (SecurityPlatform, error) {
-	out := SecurityPlatform{GeneratedAt: time.Now().UTC(), Counts: map[string]int64{}, Capabilities: []SecurityCapability{}, Findings: []SecurityPostureFinding{}, NetworkBindings: []SecurityNetworkBinding{}, NetworkChanges: []SecurityNetworkChange{}, Snapshots: []SecurityPlatformSnapshot{}, Coverage: []string{"DSPM使用当前资产及受控PostgreSQL权限来源；不推导完整IAM角色继承或互联网可达性。", "网络关联为授权人员登记，未伪装为设备实际观测；网络复核不修改线路或防火墙。", "AI策略评估与客户侧真实执行分别记录；仅有配置不能认定控制已生效。"}}
+	out := SecurityPlatform{GeneratedAt: time.Now().UTC(), Counts: map[string]int64{}, Capabilities: []SecurityCapability{}, Findings: []SecurityPostureFinding{}, NetworkBindings: []SecurityNetworkBinding{}, NetworkChanges: []SecurityNetworkChange{}, Snapshots: []SecurityPlatformSnapshot{}, PreviewCoverage: map[string]SecurityPlatformPreview{}, Coverage: []string{"DSPM使用当前资产及受控PostgreSQL权限来源；不推导完整IAM角色继承或互联网可达性。", "网络关联为授权人员登记，未伪装为设备实际观测；网络复核不修改线路或防火墙。", "AI策略评估与客户侧真实执行分别记录；仅有配置不能认定控制已生效。"}}
 	counts := []struct{ key, query string }{
 		{"assets", `SELECT count(*) FROM plume.assets WHERE workspace_id=$1`},
 		{"classifiedAssets", `SELECT count(*) FROM plume.assets WHERE workspace_id=$1 AND category<>'unknown' AND classification_revision>0`},
@@ -237,7 +238,7 @@ func readSecurityPlatform(ctx context.Context, tx pgx.Tx, ws int64) (SecurityPla
 	if err = readSecurityNetwork(ctx, tx, ws, &out); err != nil {
 		return out, err
 	}
-	rows, err = tx.Query(ctx, `SELECT id,digest,created_at,jsonb_array_length(snapshot->'findings') FROM plume.security_platform_snapshots WHERE workspace_id=$1 ORDER BY id DESC LIMIT 30`, ws)
+	rows, err = tx.Query(ctx, `SELECT id,digest,created_at,jsonb_array_length(snapshot->'findings') FROM plume.security_platform_snapshots WHERE workspace_id=$1 ORDER BY id DESC LIMIT 31`, ws)
 	if err != nil {
 		return out, err
 	}
@@ -254,6 +255,13 @@ func readSecurityPlatform(ctx context.Context, tx pgx.Tx, ws int64) (SecurityPla
 	if err != nil {
 		return out, err
 	}
+	snapshotMore := len(out.Snapshots) > 30
+	if snapshotMore {
+		out.Snapshots = out.Snapshots[:30]
+		out.Truncated = true
+	}
+	out.PreviewCoverage["snapshots"] = SecurityPlatformPreview{Limit: 30, Returned: len(out.Snapshots), HasMore: snapshotMore, Order: "id_desc", ListPath: "snapshots", Coverage: "概览仅预览最近30份快照摘要；完整保存历史通过独立分页列表读取。"}
+	out.Coverage = append(out.Coverage, "网络关联、变更复核与快照为独立有界预览，previewCoverage披露各自顺序与余量；分页列表各页按读取时点查询，不构成跨页快照。")
 	capabilities := []SecurityCapability{
 		{ID: "discovery", Name: "数据发现与分类", Records: out.Counts["assets"], Href: "classification", Coverage: "原生数据库、已授权文件与目录来源；分类候选、人工确认、发布和质量验证分别留证。"},
 		{ID: "dspm", Name: "数据安全态势管理", Records: int64(len(out.Findings)), Href: "security-platform", Coverage: "当前资产分类与有界PostgreSQL权限暴露；可冻结快照并进入现有整改复核。"},
@@ -295,7 +303,9 @@ func (s *Store) CaptureSecurityPlatform(ctx context.Context, ws, actor int64) (S
 		if err != nil {
 			return err
 		}
+		hadSnapshots := len(out.Snapshots) > 0
 		out.Snapshots = []SecurityPlatformSnapshot{}
+		out.PreviewCoverage["snapshots"] = SecurityPlatformPreview{Limit: 0, Returned: 0, HasMore: hadSnapshots, Order: "excluded", ListPath: "snapshots", Coverage: "冻结快照正文不嵌套其他快照；已保存快照历史通过独立分页列表读取。"}
 		body, err := json.Marshal(out)
 		if err != nil {
 			return err
@@ -314,49 +324,57 @@ func (s *Store) SecurityPlatformSnapshot(ctx context.Context, ws, actor, id int6
 }
 
 func readSecurityNetwork(ctx context.Context, tx pgx.Tx, ws int64, out *SecurityPlatform) error {
-	rows, err := tx.Query(ctx, `SELECT id,revision,configuration,updated_at FROM plume.security_network_bindings WHERE workspace_id=$1 ORDER BY id LIMIT 251`, ws)
+	if out.PreviewCoverage == nil {
+		out.PreviewCoverage = map[string]SecurityPlatformPreview{}
+	}
+	rows, err := tx.Query(ctx, `SELECT `+securityNetworkBindingColumns+` FROM plume.security_network_bindings WHERE workspace_id=$1 ORDER BY id LIMIT 251`, ws)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		var b SecurityNetworkBinding
-		var config json.RawMessage
-		if err = rows.Scan(&b.ID, &b.Revision, &config, &b.UpdatedAt); err != nil {
+		binding, e := scanSecurityNetworkBinding(rows)
+		if e != nil {
 			rows.Close()
-			return err
+			return e
 		}
-		if err = json.Unmarshal(config, &b.SecurityNetworkBindingInput); err != nil {
-			rows.Close()
-			return err
-		}
-		b.EvidenceType = "declared"
-		out.NetworkBindings = append(out.NetworkBindings, b)
+		out.NetworkBindings = append(out.NetworkBindings, binding)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return err
 	}
-	if len(out.NetworkBindings) > 250 {
+	bindingMore := len(out.NetworkBindings) > 250
+	if bindingMore {
 		out.NetworkBindings = out.NetworkBindings[:250]
 		out.Truncated = true
-		out.Coverage = append(out.Coverage, "网络关联仅展示前250项。")
+		out.Coverage = append(out.Coverage, "网络关联仅预览按ID升序的前250项，完整当前登记通过独立分页列表读取。")
 	}
-	rows, err = tx.Query(ctx, `SELECT id,binding_id,binding_revision,proposal,status,created_by,created_at,reviewed_by,review_note,reviewed_at FROM plume.security_network_changes WHERE workspace_id=$1 ORDER BY id DESC LIMIT 100`, ws)
+	out.PreviewCoverage["networkBindings"] = SecurityPlatformPreview{Limit: 250, Returned: len(out.NetworkBindings), HasMore: bindingMore, Order: "id_asc", ListPath: "network-bindings", Coverage: "概览保留ID升序前250项；独立列表采用ID倒序，需从列表第一页开始读取，不直接拼接为连续历史。"}
+	rows, err = tx.Query(ctx, `SELECT `+securityNetworkChangeColumns+` FROM plume.security_network_changes WHERE workspace_id=$1 ORDER BY id DESC LIMIT 101`, ws)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		c, err := scanSecurityNetworkChange(rows)
-		if err != nil {
+		change, e := scanSecurityNetworkChange(rows)
+		if e != nil {
 			rows.Close()
-			return err
+			return e
 		}
-		out.NetworkChanges = append(out.NetworkChanges, c)
+		out.NetworkChanges = append(out.NetworkChanges, change)
 	}
 	err = rows.Err()
 	rows.Close()
-	return err
+	if err != nil {
+		return err
+	}
+	changeMore := len(out.NetworkChanges) > 100
+	if changeMore {
+		out.NetworkChanges = out.NetworkChanges[:100]
+		out.Truncated = true
+	}
+	out.PreviewCoverage["networkChanges"] = SecurityPlatformPreview{Limit: 100, Returned: len(out.NetworkChanges), HasMore: changeMore, Order: "id_desc", ListPath: "network-changes", Coverage: "概览仅预览最近100条冻结提案与复核状态，完整保存记录通过独立分页列表读取；复核不表示实际设备执行。"}
+	return nil
 }
 
 func securityText(s string, max int, required bool) bool {

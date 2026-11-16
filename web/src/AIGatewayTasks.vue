@@ -4,6 +4,7 @@ import {ApiError,describeError,downloadFile,formatDate,request,workspacePath,typ
 import {gatewayDollars,gatewayCredentialActive,type GatewayConfiguration,type GatewayCredential} from './ai-gateway'
 import {type AISecurityBundle} from './ai-security'
 import {type AIRecord} from './ai-security-editor'
+import AIGatewayTaskCredentialStatus from './AIGatewayTaskCredentialStatus.vue'
 import {taskAvailableBudget,taskCreatePayload,taskDraft,taskHeaderTemplate,taskScope,taskStatusLabels,taskStatusPayload,type GatewayTask,type GatewayTaskDetail,type GatewayTaskPage,type GatewayTaskStepPage} from './ai-gateway-tasks'
 
 const props=defineProps<{workspace:Workspace;configuration:GatewayConfiguration;credentials:GatewayCredential[]}>()
@@ -113,6 +114,7 @@ onUnmounted(()=>{controller.abort();window.removeEventListener('hashchange',open
           <details class="ai-security-evidence-json"><summary>核对调用方如何绑定此任务</summary><pre class="ai-security-code">{{ taskHeaderTemplate(detail.task) }}</pre><p class="table-secondary">任务标识是授权范围选择符，不能代替应用凭证。用途取自本任务记录，调用者不能自报用途或可信来源。执行点从逻辑请求标识派生步骤；重试不能复用已消费执行许可。</p></details>
           <p v-if="canWrite && detail.task.status!=='active' && reason" class="ai-security-note">未提交的结束原因草稿：{{ reason }}</p><div v-if="canWrite && detail.task.status==='active'" class="ai-gateway-policy"><label class="field">结束原因<input v-model="reason" maxlength="240" :disabled="!!busy" placeholder="填写简短业务原因，不填写敏感正文"></label><div class="ai-security-actions"><button class="button button-secondary" :disabled="!!busy || !reason.trim()" @click="setStatus('cancelled')">停止此任务及后续委托执行</button><button class="button button-secondary" :disabled="!!busy || !reason.trim()" @click="setStatus('completed')">关闭任务，结束后续执行</button></div><p class="table-secondary">停止或关闭不会回滚此前的动作，也不释放未知执行结果的占额。运行中的输出会重新核对任务及祖先状态。</p></div>
         </div>
+        <AIGatewayTaskCredentialStatus :workspace="workspace" :task-id="detail.task.id" @session-expired="emit('sessionExpired')" @select-task="selectTask($event)" />
         <div v-if="detail.task.sources?.length" class="table-scroll" role="region" aria-label="任务累积的实际资料来源" tabindex="0"><table class="data-table"><thead><tr><th scope="col">实际来源资料</th><th scope="col">来源 / ACL 版本</th><th scope="col">实际正文摘要</th></tr></thead><tbody><tr v-for="source in detail.task.sources" :key="source.documentId"><th scope="row">{{ source.documentId }}</th><td>{{ source.version }} / {{ source.aclVersion }}</td><td class="mono">{{ source.contentDigest }}</td></tr></tbody></table></div>
         <div class="ai-security-heading"><div><h3>完整步骤历史，逐页核对</h3><p>每页最多 100 条，按受理顺序从新到旧。任务导出仍仅含最近 200 步，需保留其截断标记。</p></div><button class="button button-secondary" :disabled="stepsLoading" @click="loadSteps()">返回最新步骤</button></div>
         <p v-if="stepsLoading" class="ai-security-body" role="status">正在读取步骤历史…</p><p v-if="stepsError" class="message message-error" role="alert">{{ stepsError }}{{ stepsPage?' 当前保留上次读取的步骤页。':'' }}</p>

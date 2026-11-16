@@ -38,8 +38,9 @@ export interface GatewayCachePolicy {enabled:boolean;ttlSeconds:number;maxEntrie
 export interface GatewayApplication {id:string;name:string;enabled:boolean;allowRag:boolean;requireTask?:boolean;principalId:string;modelIds:string[];toolIds:string[];budgetMicros:number;requestsPerMinute:number;tokensPerMinute:number;cachePolicy?:GatewayCachePolicy}
 export interface GatewayProvider {id:string;name:string;provider:string;modelId:string;upstreamModel:string;region:string;responseFormat:string;endpointRef:string;secretRef:string;enabled:boolean;inputMicrosPerMillion:number;outputMicrosPerMillion:number;fallbackModelIds?:string[]}
 export interface GatewayConfiguration {revision:number;enabled:boolean;catalogDigest:string;applications:GatewayApplication[];providers:GatewayProvider[]}
-export interface GatewayCredential {id:number;applicationId:string;name:string;prefix:string;enabled:boolean;createdAt:string;expiresAt?:string;workloadBindingId?:number}
-export function gatewayCredentialActive(credential:GatewayCredential,now=Date.now()):boolean {return credential.enabled && (!credential.expiresAt || Number.isFinite(Date.parse(credential.expiresAt)) && Date.parse(credential.expiresAt)>now)}
+export interface GatewayCredential {id:number;applicationId:string;name:string;prefix:string;enabled:boolean;createdAt:string;expiresAt?:string;workloadBindingId?:number;workloadBindingRevision?:number;revokedAt?:string;revocationReason?:string}
+export function gatewayCredentialActive(credential:GatewayCredential,now=Date.now()):boolean {return credential.enabled && !credential.revokedAt && (!credential.expiresAt || Number.isFinite(Date.parse(credential.expiresAt)) && Date.parse(credential.expiresAt)>now)}
+export function gatewayRevocationLabel(reason?:string):string {return ({manual:'管理员明确撤销',binding_changed:'可信身份绑定已修改',binding_revoked:'可信身份绑定已撤销'} as Record<string,string>)[reason || ''] || '撤销原因未记录'}
 export interface GatewayCredentialPage {items:(GatewayCredential & {status:string})[];limit:number;hasMore:boolean;nextCursor:string;boundary:string}
 export interface GatewayCredentialFilters {state:string;applicationId:string}
 export function gatewayCredentialQuery(filters:GatewayCredentialFilters,before=''):string {

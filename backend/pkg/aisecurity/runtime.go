@@ -679,6 +679,8 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 		}
 		checked := r
 		checked.Output = string(raw)
+		// The normalized bytes are not yet inspected. This is the sole output
+		// recognition pass; Evaluate must use its bound projection and categories.
 		checked, normalizedErr = ApplyModelOutputInspection(in.Context(), checked, raw, selected, h.options.MediaProcessor)
 		if normalizedErr != nil {
 			h.finishError(w, in, r, d, "media_output_inspection_required_or_invalid", 422, Execution{Attempted: true, Outcome: "blocked_output", HTTPStatus: resp.StatusCode})

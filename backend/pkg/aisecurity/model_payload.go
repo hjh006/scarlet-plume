@@ -362,6 +362,11 @@ func PrepareMediaRequest(ctx context.Context, r Request, model Model, processor 
 	return r, nil
 }
 
+// normalizeModelOutputWithMedia validates the provider schema and canonicalizes
+// media bytes. It does not recognize content: ApplyModelOutputInspection must
+// inspect this exact normalized output before Evaluate and any release. Keeping
+// recognition in that single phase prevents an earlier positive report from
+// being discarded in favor of a second, potentially different OCR/ASR result.
 func normalizeModelOutputWithMedia(ctx context.Context, raw []byte, model Model, processor MediaProcessor) ([]byte, error) {
 	if model.Media == nil {
 		return normalizeModelOutput(raw, model)
@@ -454,8 +459,8 @@ func normalizeModelOutputWithMedia(ctx context.Context, raw []byte, model Model,
 		}
 		media = append(media, MediaOutput{Type: kind, MIMEType: a.MIMEType, Data: base64.StdEncoding.EncodeToString(a.Data), Digest: a.Digest})
 	}
-	if _, _, e := inspectMediaAssets(ctx, assets, processor); e != nil {
-		return nil, e
+	if len(assets) > 0 && processor == nil {
+		return nil, errors.New("media inspection unavailable")
 	}
 	return json.Marshal(struct {
 		Model        string        `json:"model"`
@@ -464,6 +469,10 @@ func normalizeModelOutputWithMedia(ctx context.Context, raw []byte, model Model,
 		Media        []MediaOutput `json:"media,omitempty"`
 	}{response.Model, strings.Join(texts, "\n"), choice.FinishReason, media})
 }
+
+// ApplyModelOutputInspection recognizes each canonical output asset once and
+// derives its policy projection, categories and digest bindings from that same
+// validated report. A normalized response alone is never proof of inspection.
 func ApplyModelOutputInspection(ctx context.Context, r Request, raw []byte, model Model, processor MediaProcessor) (Request, error) {
 	if model.Media == nil {
 		return r, nil

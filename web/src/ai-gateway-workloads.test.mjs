@@ -42,6 +42,7 @@ test('short-lived credentials must still be active at the exact expiry boundary'
   assert.equal(gatewayCredentialActive({...credential,expiresAt:'2026-11-16T01:00:00Z'},now),false)
   assert.equal(gatewayCredentialActive({...credential,expiresAt:'invalid'},now),false)
   assert.equal(gatewayCredentialActive({...credential,enabled:false},now),false)
+  assert.equal(gatewayCredentialActive({...credential,revokedAt:'2026-11-16T00:59:59Z'},now),false)
 })
 test('machine exchange example contains placeholders and one exact scoped binding selector',()=>{
   const example=workloadExchangeExample('space / a',12,'https://gateway.example')

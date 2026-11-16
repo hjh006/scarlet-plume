@@ -69,14 +69,17 @@ type GatewayUsage struct {
 }
 
 type GatewayCredential struct {
-	ExpiresAt         *time.Time `json:"expiresAt,omitempty"`
-	WorkloadBindingID *int64     `json:"workloadBindingId,omitempty"`
-	ID                int64      `json:"id"`
-	ApplicationID     string     `json:"applicationId"`
-	Name              string     `json:"name"`
-	Prefix            string     `json:"prefix"`
-	Enabled           bool       `json:"enabled"`
-	CreatedAt         time.Time  `json:"createdAt"`
+	WorkloadBindingRevision *int64     `json:"workloadBindingRevision,omitempty"`
+	RevokedAt               *time.Time `json:"revokedAt,omitempty"`
+	RevocationReason        string     `json:"revocationReason,omitempty"`
+	ExpiresAt               *time.Time `json:"expiresAt,omitempty"`
+	WorkloadBindingID       *int64     `json:"workloadBindingId,omitempty"`
+	ID                      int64      `json:"id"`
+	ApplicationID           string     `json:"applicationId"`
+	Name                    string     `json:"name"`
+	Prefix                  string     `json:"prefix"`
+	Enabled                 bool       `json:"enabled"`
+	CreatedAt               time.Time  `json:"createdAt"`
 }
 
 type GatewayNode struct {

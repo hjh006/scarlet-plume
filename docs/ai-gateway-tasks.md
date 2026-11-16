@@ -51,6 +51,7 @@ JSON body 与 header 同时选择任务时必须一致，不能重复或覆盖�
 | `GET/POST .../ai-gateway/tasks` | 当前工作区分页查询或创建任务/委托 |
 | `GET .../tasks/{id}` | 任务当前状态、来源元数据与最近步骤，附 `stepsTruncated` 预览标记 |
 | `GET .../tasks/{id}/steps?before=...&limit=50` | 完整步骤历史的倒序 keyset 分页，返回 `items/hasMore/nextCursor` |
+| `GET .../tasks/{id}/credential-status` | 当前任务与全部祖先的凭据、可信绑定修订和授权阻断原因；只读，不签发新授权 |
 | `POST .../tasks/{id}/status` | `expectedRevision` + `status` + `reason`，冲突不覆盖新状态 |
 | `POST /api/v1/internal/ai-gateway/task/check` | 已认证工作区节点查询当前范围、所有祖先和数据约束 |
 | `POST .../task/steps/admit` | 原子绑定逻辑步骤、防跨节点重放、检查祖先步数 |
@@ -69,3 +70,7 @@ JSON body 与 header 同时选择任务时必须一致，不能重复或覆盖�
 ## 短期工作负载凭据
 
 Owner 可通过[静态 JWKS 工作负载绑定](ai-gateway-enterprise.md#工作负载-jwt-与短期凭据)签发最长 300 秒的应用凭据。任务仍绑定具体 `credentialId`，每次检查、步骤准入、缓存和审批上下文都核对该凭据及祖先凭据的当前有效期。新兑换不会自动把旧任务迁移到另一枚凭据；到期或撤销会停止相关授权。选择任务期限时应同时考虑实际凭据有效期，不能据较长任务 `expiresAt` 推断凭据会自动续期。
+
+“任务凭据与祖先授权”逐层展示凭据状态及期限，分别列明已到期、明确撤销、可信绑定停用和修订变化；到期本身不证明历史停用原因。新兑换凭据保留签发时的 `workloadBindingRevision`；历史缺失保持未知，不用当前修订补填。管理员对已经自然到期或停用的凭据仍可记录明确撤销，首次撤销时间和原因保留。自然到期清理不会被记为管理员撤销。
+
+诊断返回 `renewalSupported:false`。`credentialChainStatus=current`只表示列明门槛未发现阻断，不替代模型、文档、工具、用途、来源、额度、独立批准及真实运行时校验。无法取得的事实保持`unknown`；单凭历史签发修订缺失，不把仍有效的旧凭据说成已被执行拒绝。任务原范围、步骤、审批与预算不会因读取诊断而改变。

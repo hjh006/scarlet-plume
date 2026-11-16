@@ -133,7 +133,7 @@ func (s *Store) SaveGatewayWorkload(ctx context.Context, ws, actor, id, expected
 			}
 			out, e = scanGatewayWorkload(tx.QueryRow(ctx, `UPDATE plume.ai_gateway_workload_bindings SET name=$3,application_id=$4,issuer=$5,audience=$6,subject=$7,jwks=$8,max_ttl_seconds=$9,enabled=$10,revision=revision+1,updated_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2 RETURNING `+gatewayWorkloadColumns, ws, id, in.Name, in.ApplicationID, in.Issuer, in.Audience, in.Subject, in.JWKS, in.MaxTTLSeconds, enabled))
 			if e == nil {
-				_, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false WHERE workspace_id=$1 AND workload_binding_id=$2 AND enabled`, ws, id)
+				_, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false,revoked_at=COALESCE(revoked_at,clock_timestamp()),revocation_reason=COALESCE(revocation_reason,'binding_changed') WHERE workspace_id=$1 AND workload_binding_id=$2 AND (enabled OR revoked_at IS NULL)`, ws, id)
 			}
 		}
 		if e != nil {
@@ -166,7 +166,7 @@ func (s *Store) RevokeGatewayWorkload(ctx context.Context, ws, actor, id, expect
 		if e != nil {
 			return e
 		}
-		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false WHERE workspace_id=$1 AND workload_binding_id=$2 AND enabled`, ws, id); e != nil {
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false,revoked_at=COALESCE(revoked_at,clock_timestamp()),revocation_reason=COALESCE(revocation_reason,'binding_revoked') WHERE workspace_id=$1 AND workload_binding_id=$2 AND (enabled OR revoked_at IS NULL)`, ws, id); e != nil {
 			return e
 		}
 		return identityAudit(ctx, tx, ws, actor, "gateway.workload_binding_revoked", fmt.Sprint(out.ID), gatewayWorkloadAudit(out))

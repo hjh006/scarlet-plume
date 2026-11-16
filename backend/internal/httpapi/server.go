@@ -78,6 +78,8 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 	s.browserAnnotationRoutes(mux)
 	s.dataFlowRoutes(mux)
 	s.securityPlatformRoutes(mux)
+	s.securityNetworkPageRoutes(mux)
+	s.gatewayTaskCredentialStatusRoutes(mux)
 	s.aiSecurityRuntimeRoutes(mux)
 	s.aiSecurityRoutes(mux)
 	s.identityRoutes(mux)

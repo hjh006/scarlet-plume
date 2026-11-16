@@ -141,13 +141,13 @@ func (s *Store) GatewayOverview(ctx context.Context, ws, actor int64) (out Gatew
 		if e != nil {
 			return e
 		}
-		rows, e = tx.Query(ctx, `SELECT id,application_id,name,prefix,enabled AND (expires_at IS NULL OR expires_at>statement_timestamp()),created_at,expires_at,workload_binding_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 ORDER BY (enabled AND (expires_at IS NULL OR expires_at>statement_timestamp())) DESC,id DESC LIMIT 1001`, ws)
+		rows, e = tx.Query(ctx, `SELECT id,application_id,name,prefix,enabled AND (expires_at IS NULL OR expires_at>statement_timestamp()),created_at,expires_at,workload_binding_id,workload_binding_revision,revoked_at,COALESCE(revocation_reason,'') FROM plume.ai_gateway_credentials WHERE workspace_id=$1 ORDER BY (enabled AND (expires_at IS NULL OR expires_at>statement_timestamp())) DESC,id DESC LIMIT 1001`, ws)
 		if e != nil {
 			return e
 		}
 		for rows.Next() {
 			var v GatewayCredential
-			if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Name, &v.Prefix, &v.Enabled, &v.CreatedAt, &v.ExpiresAt, &v.WorkloadBindingID); e != nil {
+			if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Name, &v.Prefix, &v.Enabled, &v.CreatedAt, &v.ExpiresAt, &v.WorkloadBindingID, &v.WorkloadBindingRevision, &v.RevokedAt, &v.RevocationReason); e != nil {
 				rows.Close()
 				return e
 			}
@@ -306,14 +306,12 @@ func (s *Store) RevokeGatewayCredential(ctx context.Context, ws, actor, id int64
 		if e := gatewayRole(ctx, tx, ws, actor, false); e != nil {
 			return e
 		}
-		tag, e := tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false WHERE workspace_id=$1 AND id=$2`, ws, id)
-		if e != nil {
-			return e
+		var revoked time.Time
+		var reason string
+		if e := tx.QueryRow(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false,revoked_at=COALESCE(revoked_at,clock_timestamp()),revocation_reason=COALESCE(revocation_reason,'manual') WHERE workspace_id=$1 AND id=$2 RETURNING revoked_at,revocation_reason`, ws, id).Scan(&revoked, &reason); e != nil {
+			return storeError(e)
 		}
-		if tag.RowsAffected() != 1 {
-			return ErrNotFound
-		}
-		return identityAudit(ctx, tx, ws, actor, "gateway.credential_revoked", fmt.Sprint(id), map[string]int64{"credentialId": id})
+		return identityAudit(ctx, tx, ws, actor, "gateway.credential_revoked", fmt.Sprint(id), map[string]any{"credentialId": id, "revokedAt": revoked, "revocationReason": reason, "requestedReason": "manual"})
 	})
 }
 

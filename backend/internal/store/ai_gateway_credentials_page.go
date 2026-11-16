@@ -44,14 +44,14 @@ func (s *Store) GatewayCredentials(ctx context.Context, ws, actor int64, before,
 		}
 		// Expired stays in the expired category after bounded exchange maintenance
 		// marks it disabled. No token_hash column enters this projection.
-		rows, e := tx.Query(ctx, `SELECT id,application_id,name,prefix,enabled AND (expires_at IS NULL OR expires_at>statement_timestamp()),created_at,expires_at,workload_binding_id,CASE WHEN expires_at<=statement_timestamp() THEN 'expired' WHEN NOT enabled THEN 'disabled' ELSE 'active' END FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND ($2::bigint=0 OR id<$2) AND ($3='' OR application_id=$3) AND ($4='' OR $4=CASE WHEN expires_at<=statement_timestamp() THEN 'expired' WHEN NOT enabled THEN 'disabled' ELSE 'active' END) ORDER BY id DESC LIMIT $5`, ws, cursor, applicationID, state, limit+1)
+		rows, e := tx.Query(ctx, `SELECT id,application_id,name,prefix,enabled AND (expires_at IS NULL OR expires_at>statement_timestamp()),created_at,expires_at,workload_binding_id,workload_binding_revision,revoked_at,COALESCE(revocation_reason,''),CASE WHEN expires_at<=statement_timestamp() THEN 'expired' WHEN NOT enabled THEN 'disabled' ELSE 'active' END FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND ($2::bigint=0 OR id<$2) AND ($3='' OR application_id=$3) AND ($4='' OR $4=CASE WHEN expires_at<=statement_timestamp() THEN 'expired' WHEN NOT enabled THEN 'disabled' ELSE 'active' END) ORDER BY id DESC LIMIT $5`, ws, cursor, applicationID, state, limit+1)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var v GatewayCredentialItem
-			if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Name, &v.Prefix, &v.Enabled, &v.CreatedAt, &v.ExpiresAt, &v.WorkloadBindingID, &v.Status); e != nil {
+			if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Name, &v.Prefix, &v.Enabled, &v.CreatedAt, &v.ExpiresAt, &v.WorkloadBindingID, &v.WorkloadBindingRevision, &v.RevokedAt, &v.RevocationReason, &v.Status); e != nil {
 				return e
 			}
 			out.Items = append(out.Items, v)

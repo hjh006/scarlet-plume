@@ -100,7 +100,7 @@ func (s *Store) ExchangeGatewayWorkloadToken(ctx context.Context, slug string, b
 			return ErrConflict
 		}
 		out.ExpiresAt = proof.ExpiresAt
-		e = tx.QueryRow(ctx, `INSERT INTO plume.ai_gateway_credentials(workspace_id,application_id,name,prefix,token_hash,expires_at,workload_binding_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,application_id,name,prefix,enabled,created_at,expires_at,workload_binding_id`, ws, current.ApplicationID, current.Name, token[:12], hex.EncodeToString(hash[:]), out.ExpiresAt, bindingID).Scan(&out.Credential.ID, &out.Credential.ApplicationID, &out.Credential.Name, &out.Credential.Prefix, &out.Credential.Enabled, &out.Credential.CreatedAt, &out.Credential.ExpiresAt, &out.Credential.WorkloadBindingID)
+		e = tx.QueryRow(ctx, `INSERT INTO plume.ai_gateway_credentials(workspace_id,application_id,name,prefix,token_hash,expires_at,workload_binding_id,workload_binding_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,application_id,name,prefix,enabled,created_at,expires_at,workload_binding_id,workload_binding_revision`, ws, current.ApplicationID, current.Name, token[:12], hex.EncodeToString(hash[:]), out.ExpiresAt, bindingID, current.Revision).Scan(&out.Credential.ID, &out.Credential.ApplicationID, &out.Credential.Name, &out.Credential.Prefix, &out.Credential.Enabled, &out.Credential.CreatedAt, &out.Credential.ExpiresAt, &out.Credential.WorkloadBindingID, &out.Credential.WorkloadBindingRevision)
 		if e != nil {
 			return e
 		}
