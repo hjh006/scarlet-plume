@@ -95,12 +95,22 @@ func (s *server) saveIdentitySettings(w http.ResponseWriter, r *http.Request, u 
 	respond(w, 200, out)
 }
 func (s *server) getIdentityUsers(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
-	out, e := s.store.IdentityUsers(r.Context(), ws.ID, u.ID)
+	q := r.URL.Query()
+	limit := 1000 // Preserve the existing unfiltered overview contract.
+	if raw := q.Get("limit"); raw != "" {
+		var err error
+		limit, err = strconv.Atoi(raw)
+		if err != nil || limit < 1 || limit > 200 {
+			fail(w, 400, "每页账号数量须为1至200。")
+			return
+		}
+	}
+	out, e := s.store.IdentityUserPage(r.Context(), ws.ID, u.ID, store.IdentityUserFilter{Query: q.Get("q"), Active: q.Get("active"), Group: q.Get("group")}, q.Get("cursor"), limit)
 	if e != nil {
 		identityFailure(w, e)
 		return
 	}
-	respond(w, 200, map[string]any{"items": out, "limit": 1000, "truncated": len(out) == 1000})
+	respond(w, 200, out)
 }
 func (s *server) rotateIdentityToken(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
 	var empty struct{}

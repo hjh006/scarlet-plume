@@ -2,6 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { aiConfigHasDuplicateIds, aiFieldValue, aiList, aiRecordDraft, buildAIRequest, buildAIWireRequest, validateAIModelPayload, validateAIToolProtocol, validateAIToolRequest, validateAIAuthorizationExpiry, validateAIConfigurationExtensions, aiMediaDraft, validateAIMedia, aiMaxModelWireBytes, validateAIDataUse, validateAIDataHandling } from './ai-security-editor.ts'
 
+test('versioned classification requires adopted detector version and bounded supported rules',()=>{
+  const inspection={version:'scarlet-detectors-v1',builtinPacks:['credential-v1','cn-business-v1'],rules:[{id:'invoice-code',version:'v1',category:'business',pattern:'INV-[0-9]{6}'}]}
+  const config={policy:{requiredInspectionVersion:'scarlet-detectors-v1',inspection}}
+  assert.doesNotThrow(()=>validateAIConfigurationExtensions(config))
+  assert.throws(()=>validateAIConfigurationExtensions({policy:{requiredInspectionVersion:'datasafety-four-format-v1',inspection}}))
+  for(const change of [{builtinPacks:['credential-v1','credential-v1']},{rules:[{...inspection.rules[0],category:'public'}]},{rules:[{...inspection.rules[0],pattern:'字'.repeat(86)}]},{rules:[inspection.rules[0],inspection.rules[0]]}])assert.throws(()=>validateAIConfigurationExtensions({policy:{requiredInspectionVersion:'scarlet-detectors-v1',inspection:{...inspection,...change}}}))
+  assert.doesNotThrow(()=>validateAIConfigurationExtensions({policy:{requiredInspectionVersion:'datasafety-four-format-v1'}}))
+})
+
 test('explicit ACL lists preserve identifiers and never infer wildcard permissions',()=>{
   assert.deepEqual(aiList('sales-a, sales-b，sales-a\nfinance'),['sales-a','sales-b','finance'])
   assert.deepEqual(aiList('  '),[])

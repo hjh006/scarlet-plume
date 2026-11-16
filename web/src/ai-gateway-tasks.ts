@@ -1,4 +1,4 @@
-import {gatewayMicros,type GatewayConfiguration,type GatewayCredential} from './ai-gateway.ts'
+import {gatewayMicros,gatewayCredentialActive,type GatewayConfiguration,type GatewayCredential} from './ai-gateway.ts'
 import {validateAIAuthorizationExpiry} from './ai-security-editor.ts'
 
 export interface GatewayTaskSource {documentId:string;version:string;aclVersion:string;contentDigest:string}
@@ -8,6 +8,7 @@ export interface GatewayTask extends GatewayTaskInput {id:string;rootTaskId:stri
 export interface GatewayTaskStep {id:number;stepId:string;stepDigest:string;kind:string;modelId:string;toolId:string;documentIds:string[];categories:string[];status:string;sourceEvidence:GatewayTaskSource[];createdAt:string;completedAt?:string}
 export interface GatewayTaskPage {items:GatewayTask[];nextCursor:string;hasMore:boolean}
 export interface GatewayTaskDetail {task:GatewayTask;steps:GatewayTaskStep[];stepsTruncated:boolean}
+export interface GatewayTaskStepPage {items:GatewayTaskStep[];nextCursor:string;hasMore:boolean}
 export interface GatewayTaskDraft extends Omit<GatewayTaskInput,'budgetMicros'|'catalogDigest'|'principalId'> {budgetUSD:string}
 export const taskStatusLabels:Record<string,string>={active:'活动任务',cancelled:'已停止后续执行',completed:'已关闭后续执行',expired:'期限已过'}
 const identifier=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
@@ -24,7 +25,7 @@ export function taskCreatePayload(draft:GatewayTaskDraft,config:GatewayConfigura
   if(!config.enabled || !/^[a-f0-9]{64}$/.test(config.catalogDigest))throw new Error('请先保存已启用的网关与实际可信目录摘要。')
   const app=config.applications.find(item=>item.id===draft.applicationId && item.enabled)
   if(!app)throw new Error('请选择一个已保存且启用的应用。')
-  if(!Number.isSafeInteger(draft.credentialId) || draft.credentialId<1 || !credentials.some(item=>item.id===draft.credentialId && item.applicationId===app.id && item.enabled))throw new Error('任务需要绑定所选应用的有效调用凭证。')
+  if(!Number.isSafeInteger(draft.credentialId) || draft.credentialId<1 || !credentials.some(item=>item.id===draft.credentialId && item.applicationId===app.id && gatewayCredentialActive(item,now)))throw new Error('任务需要绑定所选应用的有效调用凭证。')
   if(!identifier.test(draft.purpose))throw new Error('用途需要 1—80 位明确标识，例如 support-answer，不能填写任务正文。')
   const modelIds=validScope(draft.modelIds,200,'模型范围'),toolIds=validScope(draft.toolIds,200,'工具范围'),documentIds=validScope(draft.documentIds,64,'资料范围'),allowedCategories=validScope(draft.allowedCategories,64,'允许数据类别')
   const scopes=draft.toolScopes || []

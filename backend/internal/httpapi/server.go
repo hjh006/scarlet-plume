@@ -71,6 +71,7 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 	s.endpointChannelRoutes(mux)
 	s.assessmentRoutes(mux)
 	s.scenarioDataRoutes(mux)
+	s.governanceOpsRoutes(mux)
 	s.apiValidationRoutes(mux)
 	s.actionAuditRoutes(mux)
 	s.classificationRoutes(mux)
@@ -81,6 +82,7 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 	s.aiSecurityRoutes(mux)
 	s.identityRoutes(mux)
 	s.gatewayRoutes(mux)
+	s.gatewayCredentialPageRoutes(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "找不到此接口。")
 	})
@@ -89,7 +91,7 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("Origin") != s.origin && !strings.HasPrefix(r.URL.Path, "/scim/v2/") && !gatewayMachineOriginExempt(r) && !(r.Method == http.MethodPost && (r.URL.Path == aiSecurityRuntimePath || r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath || r.URL.Path == endpointSessionEventsPath)) {
+			r.Header.Get("Origin") != s.origin && !strings.HasPrefix(r.URL.Path, "/scim/v2/") && !gatewayMachineOriginExempt(r) && !gatewayWorkloadTokenOriginExempt(r) && !(r.Method == http.MethodPost && (r.URL.Path == aiSecurityRuntimePath || r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath || r.URL.Path == endpointSessionEventsPath)) {
 			fail(w, http.StatusForbidden, "请求来源不受信任。")
 			return
 		}

@@ -13,6 +13,7 @@ import (
 )
 
 func (s *server) reportRoutes(mux *http.ServeMux) {
+	s.reportArchiveRetentionRoutes(mux)
 	const path = "/api/v1/workspaces/{slug}/reports/compliance"
 	mux.HandleFunc("GET "+path, s.workspace(false, s.reportPreview))
 	mux.HandleFunc("GET "+path+"/export", s.workspace(false, s.reportExport))

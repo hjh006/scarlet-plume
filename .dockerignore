@@ -29,6 +29,16 @@
 !backend/cmd/endpoint-agent/**
 !backend/cmd/endpoint-package/
 !backend/cmd/endpoint-package/**
+!backend/cmd/ai-security-agent/
+!backend/cmd/ai-security-agent/**
+!backend/cmd/ai-security-receipts/
+!backend/cmd/ai-security-receipts/**
+!backend/cmd/media-inspector/
+!backend/cmd/media-inspector/**
+!backend/cmd/ai-gateway/
+!backend/cmd/ai-gateway/**
+!backend/cmd/gateway-audit-export/
+!backend/cmd/gateway-audit-export/**
 !backend/internal/
 !backend/internal/**
 !backend/pkg/
@@ -75,3 +85,5 @@ backend/.tmp-*
 web/node_modules
 web/dist
 /.scarlet-runtime-tls/
+**/.scarlet-validation/
+web/src/plume-flow.webp.json

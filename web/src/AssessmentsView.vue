@@ -16,6 +16,8 @@ const scopeError = ref('')
 const materialsScene = computed(() => ['personal', 'domestic', 'crossborder'].includes(context.value.scene))
 const base = workspacePath(props.workspace.slug) + '/assessments'
 const active = new AbortController()
+let loadSequence = 0
+let activitySequence = 0
 const items = ref<Assessment[]>([])
 const templates = ref<AssessmentTemplate[]>([])
 const activities = ref<Activity[]>([])
@@ -64,25 +66,34 @@ function applyDetail(value: AssessmentDetail) {
   reviewNote.value = ''
 }
 async function loadActivities(append = false) {
+  const sequence = ++activitySequence
+  const scope = { ...context.value }
   activityLoading.value = true
   const query = new URLSearchParams()
   if (context.value.assetId) query.set('assetId', context.value.assetId)
   if (append && activityCursor.value !== null) query.set('before', String(activityCursor.value))
   try {
     const result = await request<ActivityPage>(workspacePath(props.workspace.slug) + '/activities?' + query, { signal: active.signal })
+    if (sequence !== activitySequence || scope.assetId !== context.value.assetId || scope.activityId !== context.value.activityId) return
     activities.value = append ? [...activities.value, ...result.items] : result.items
     activityCursor.value = result.nextCursor ?? null
-    if (context.value.activityId && !activities.value.some(item => String(item.id) === context.value.activityId)) activities.value.push(await request<Activity>(workspacePath(props.workspace.slug) + '/activities/' + encodeURIComponent(context.value.activityId), { signal: active.signal }))
+    if (scope.activityId && !activities.value.some(item => String(item.id) === scope.activityId)) {
+      const activity = await request<Activity>(workspacePath(props.workspace.slug) + '/activities/' + encodeURIComponent(scope.activityId), { signal: active.signal })
+      if (sequence !== activitySequence || scope.assetId !== context.value.assetId || scope.activityId !== context.value.activityId) return
+      activities.value.push(activity)
+    }
     const selected = activities.value.find(item => String(item.id) === (context.value.activityId || create.activityId))
     if (selected && context.value.assetId && selected.assetId !== Number(context.value.assetId)) throw new Error('所选活动与链接中的资产不一致，请返回场景重新选择。')
     if (selected && !context.value.assetId) setScope({ assetId: String(selected.assetId), activityId: String(selected.id) })
-  } finally { activityLoading.value = false }
+  } finally { if (sequence === activitySequence) activityLoading.value = false }
 }
 async function load() {
+  const sequence = ++loadSequence
   loading.value = true; error.value = ''; scopeError.value = ''
   try {
     if (props.assessmentId) {
       const value = await request<AssessmentDetail>(base + '/' + encodeURIComponent(props.assessmentId), { signal: active.signal })
+      if (sequence !== loadSequence) return
       applyDetail(value)
       if (context.value.assetId && Number(context.value.assetId) !== value.activity.assetId || context.value.activityId && Number(context.value.activityId) !== value.activity.id) scopeError.value = '链接中的资产或活动范围与本评估不一致，请返回场景重新选择。'
       else setScope({ assetId: String(value.activity.assetId), activityId: String(value.activity.id) })
@@ -95,19 +106,20 @@ async function load() {
         request<{ items: AssessmentTemplate[] }>(base + '/templates', { signal: active.signal }),
         loadActivities(),
       ])
+      if (sequence !== loadSequence) return
       items.value = records.items; templates.value = catalog.items
       if (context.value.activityId) create.activityId = context.value.activityId
       const requestedKind = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('kind')
       if (!create.templateRevisionId && requestedKind && assessmentKinds[requestedKind]) create.templateRevisionId = String(published.value.find(item => item.kind === requestedKind)?.revisionId ?? '')
     }
-  } catch (e) { showError(e) } finally { loading.value = false }
+  } catch (e) { if (sequence === loadSequence) showError(e) } finally { if (sequence === loadSequence) loading.value = false }
 }
 function selectCreateActivity() {
   const activity = activities.value.find(item => String(item.id) === create.activityId)
   if (activity) setScope({ assetId: String(activity.assetId), activityId: String(activity.id) })
 }
-watch(context, () => {
-  if (props.assessmentId || loading.value) return
+watch(() => [context.value.assetId, context.value.activityId, context.value.scene], (scope, previous) => {
+  if (props.assessmentId || scope.every((value, index) => value === previous[index])) return
   const query = new URLSearchParams(window.location.hash.split('?')[1] ?? '')
   if (query.get('kind') && assessmentKinds[query.get('kind')!]) {
     if (kindFilter.value !== query.get('kind')) create.templateRevisionId = ''
@@ -147,8 +159,18 @@ async function review(action: string) {
   if (!detail.value) return
   await perform(async () => {
     const note = reviewNote.value
-    if (action === 'submit') applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/answers', { method: 'PUT', body: JSON.stringify(answerInput()) }))
-    applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/review', { method: 'POST', body: JSON.stringify({ revision: detail.value!.revision, action, note }) }))
+    let answersSaved = false
+    try {
+      if (action === 'submit') {
+        applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/answers', { method: 'PUT', body: JSON.stringify(answerInput()) }))
+        answersSaved = true
+      }
+      applyDetail(await request<AssessmentDetail>(base + '/' + detail.value!.id + '/review', { method: 'POST', body: JSON.stringify({ revision: detail.value!.revision, action, note }) }))
+    } catch (failure) {
+      reviewNote.value = note
+      if (answersSaved) notice.value = '答复已保存，本次提交尚未确认成功。复核意见已保留，请核对当前状态后重试。'
+      throw failure
+    }
   })
 }
 async function refreshFacts() {
@@ -171,7 +193,10 @@ function editTemplate(value?: AssessmentTemplate, newVersion = false) {
   editingTemplate.value = true
 }
 function addQuestion() {
-  templateForm.questions.push({ key: 'question_' + (templateForm.questions.length + 1), title: '', kind: 'text', basis: '', basisUrl: '', applicability: '', evidence: '', acceptance: '', requirementCode: 'P04', obligation: 'conditional_law', required: true })
+  let number = 1
+  const keys = new Set(templateForm.questions.map(question => question.key))
+  while (keys.has('question_' + number)) number++
+  templateForm.questions.push({ key: 'question_' + number, title: '', kind: 'text', basis: '', basisUrl: '', applicability: '', evidence: '', acceptance: '', requirementCode: 'P04', obligation: 'conditional_law', required: true })
 }
 async function saveTemplate() {
   await perform(async () => {

@@ -38,11 +38,16 @@ type ReportIdentification struct {
 type ReportArchive struct {
 	ID int64 `json:"id"`
 	ReportSource
-	GeneratedAt    time.Time             `json:"generatedAt"`
-	Status         string                `json:"status"`
-	Code           string                `json:"code,omitempty"`
-	Counts         *ReportCounts         `json:"counts,omitempty"`
-	Identification *ReportIdentification `json:"identification,omitempty"`
+	GeneratedAt     time.Time              `json:"generatedAt"`
+	Status          string                 `json:"status"`
+	Code            string                 `json:"code,omitempty"`
+	Counts          *ReportCounts          `json:"counts,omitempty"`
+	Identification  *ReportIdentification  `json:"identification,omitempty"`
+	Retention       ReportArchiveRetention `json:"retention"`
+	ContentDigest   string                 `json:"contentDigest,omitempty"`
+	SummaryDigest   string                 `json:"summaryDigest,omitempty"`
+	ContentBytes    int64                  `json:"contentBytes,omitempty"`
+	IntegrityStatus string                 `json:"integrityStatus"`
 }
 
 const reportArchiveBasis = "报告仅覆盖本次 PostgreSQL 目录采集及已关联的检查。自动判定反映本次采集可观测的信号，检查状态和独立复核记录反映归档时点的工作流。整体合规结论需结合实际适用范围及其他证据另行评定。"
@@ -130,15 +135,21 @@ func archiveManagedPostgresReport(ctx context.Context, tx pgx.Tx, job Automation
 			return err
 		}
 	}
-	_, err = tx.Exec(ctx, `
+	return pruneReportArchives(ctx, tx, job.ID)
+}
+
+func pruneReportArchives(ctx context.Context, tx pgx.Tx, jobID int64) error {
+	_, err := tx.Exec(ctx, `
 		DELETE FROM plume.automation_report_archives
 		WHERE automation_run_id IN (
 			SELECT r.id FROM plume.automation_runs r
 			JOIN plume.automation_report_archives a ON a.automation_run_id = r.id
 			WHERE r.job_id = $1 ORDER BY r.id DESC OFFSET $2
 		)
-	`, job.ID, ReportArchiveRetentionPerJob)
-	return err
+		AND retention_state='rotation_allowed' AND NOT legal_hold
+		AND (retain_until IS NULL OR retain_until<=clock_timestamp())
+	`, jobID, ReportArchiveRetentionPerJob)
+	return archiveRetentionError(err)
 }
 
 func summarizeReportIdentification(tables []collector.PostgreSQLTable) *ReportIdentification {
@@ -217,48 +228,18 @@ func readArchiveChecks(ctx context.Context, tx pgx.Tx, job AutomationJob, cfg Ma
 }
 
 func (s *Store) ListReportArchives(ctx context.Context, workspaceID, actorID int64) ([]ReportArchive, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT a.automation_run_id, j.id, j.source, r.run_id, r.observed_at,
-		       a.generated_at, a.status, COALESCE(a.code, ''), a.summary->'counts', a.summary->'identification'
-		FROM plume.automation_report_archives a
-		JOIN plume.automation_runs r ON r.id = a.automation_run_id
-		JOIN plume.automation_jobs j ON j.id = r.job_id
-		JOIN plume.memberships m ON m.workspace_id = j.workspace_id
-		WHERE j.workspace_id = $1 AND m.user_id = $2
-		ORDER BY a.automation_run_id DESC LIMIT $3
-	`, workspaceID, actorID, reportArchiveListLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := make([]ReportArchive, 0)
-	for rows.Next() {
-		var item ReportArchive
-		if err := rows.Scan(&item.ID, &item.JobID, &item.Source, &item.RunID, &item.ObservedAt, &item.GeneratedAt,
-			&item.Status, &item.Code, &item.Counts, &item.Identification); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	page, err := s.ListReportArchivePage(ctx, workspaceID, actorID, 0, reportArchiveListLimit)
+	return page.Items, err
 }
 
 func (s *Store) ReportArchive(ctx context.Context, workspaceID, actorID, archiveID int64) (ComplianceReport, error) {
-	var status string
-	var report *ComplianceReport
-	err := s.pool.QueryRow(ctx, `
-		SELECT a.status, a.report
-		FROM plume.automation_report_archives a
-		JOIN plume.automation_runs r ON r.id = a.automation_run_id
-		JOIN plume.automation_jobs j ON j.id = r.job_id
-		JOIN plume.memberships m ON m.workspace_id = j.workspace_id
-		WHERE j.workspace_id = $1 AND m.user_id = $2 AND a.automation_run_id = $3
-	`, workspaceID, actorID, archiveID).Scan(&status, &report)
+	b, _, err := s.ReportArchiveVerifiedBytes(ctx, workspaceID, actorID, archiveID)
 	if err != nil {
-		return ComplianceReport{}, storeError(err)
+		return ComplianceReport{}, err
 	}
-	if status == "failed" {
-		return ComplianceReport{}, ErrReportArchiveFailed
+	var report ComplianceReport
+	if err = json.Unmarshal(b, &report); err != nil {
+		return report, ErrReportArchiveIntegrity
 	}
-	return *report, nil
+	return report, nil
 }

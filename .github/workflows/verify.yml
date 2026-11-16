@@ -105,6 +105,7 @@ jobs:
         run: |
           npm ci
           npm run build
+          node --experimental-strip-types --test src/*.test.mjs
 
   native-discovery:
     name: Verify native discovery (MySQL, MariaDB, MongoDB)

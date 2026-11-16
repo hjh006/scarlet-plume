@@ -3,7 +3,7 @@ import { aiString } from './ai-security'
 import { aiText, type AIRecord } from './ai-security-editor'
 import { formatDate } from './api'
 
-defineProps<{ requests: AIRecord[]; limit: number }>()
+defineProps<{ requests: AIRecord[]; limit: number; historical?:boolean }>()
 
 const statuses: Record<string, string> = {
   reported_succeeded: '来源报告完成，阶段齐全',
@@ -41,7 +41,7 @@ function list(value: unknown): string[] {
   <div class="ai-security-heading">
     <div>
       <h2>按请求核对执行链</h2>
-      <p>关联同一来源、请求引用、请求摘要和目录摘要。仅使用本次最近 {{ limit }} 条回执，阶段缺失保留为待核对。</p>
+      <p>关联同一来源、请求引用、请求摘要和目录摘要。仅使用{{ historical?'当前历史页':'当前查询页' }}最多 {{ limit }} 条回执，阶段缺失保留为待核对；跨页回执需分别核对。</p>
     </div>
   </div>
   <div v-if="requests.length" class="table-scroll" role="region" aria-label="AI 请求执行链" tabindex="0">

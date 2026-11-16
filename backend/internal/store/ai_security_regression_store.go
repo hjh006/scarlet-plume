@@ -19,6 +19,22 @@ func aiLoadPack(ctx context.Context, tx pgx.Tx, ws, id int64) (p AISecurityRegre
 	if err != nil {
 		return p, summary, storeError(err)
 	}
+	return aiDecodePack(id, raw, digest, summary.CreatedAt)
+}
+
+func aiScanPackSummary(row pgx.Row) (AISecurityRegressionPackSummary, error) {
+	var id int64
+	var raw []byte
+	var digest string
+	var at time.Time
+	if err := row.Scan(&id, &raw, &digest, &at); err != nil {
+		return AISecurityRegressionPackSummary{}, storeError(err)
+	}
+	_, summary, err := aiDecodePack(id, raw, digest, at)
+	return summary, err
+}
+
+func aiDecodePack(id int64, raw []byte, digest string, at time.Time) (p AISecurityRegressionPack, summary AISecurityRegressionPackSummary, err error) {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if d.Decode(&p) != nil {
@@ -32,45 +48,15 @@ func aiLoadPack(ctx context.Context, tx pgx.Tx, ws, id int64) (p AISecurityRegre
 	if e != nil || validated.Pack.Digest != digest {
 		return p, summary, ErrConflict
 	}
-	summary = aiPackSummary(id, p, summary.CreatedAt)
+	summary = aiPackSummary(id, p, at)
 	return p, summary, nil
 }
 
-func (s *Store) AISecurityRegressionPacks(ctx context.Context, ws, actor int64) (items []AISecurityRegressionPackSummary, err error) {
-	items = []AISecurityRegressionPackSummary{}
-	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		if _, e := checkRole(ctx, tx, ws, actor, false); e != nil {
-			return e
-		}
-		rows, e := tx.Query(ctx, `SELECT id FROM plume.ai_security_regression_packs WHERE workspace_id=$1 ORDER BY id DESC LIMIT 100`, ws)
-		if e != nil {
-			return e
-		}
-		ids := []int64{}
-		for rows.Next() {
-			var id int64
-			if e = rows.Scan(&id); e != nil {
-				rows.Close()
-				return e
-			}
-			ids = append(ids, id)
-		}
-		e = rows.Err()
-		rows.Close()
-		if e != nil {
-			return e
-		}
-		for _, id := range ids {
-			_, summary, e := aiLoadPack(ctx, tx, ws, id)
-			if e != nil {
-				return e
-			}
-			items = append(items, summary)
-		}
-		return nil
-	})
-	return
+func (s *Store) AISecurityRegressionPacks(ctx context.Context, ws, actor int64) ([]AISecurityRegressionPackSummary, error) {
+	page, err := s.AISecurityRegressionPackPage(ctx, ws, actor, AISecurityHistoryQuery{Limit: 100})
+	return page.Items, err
 }
+
 func (s *Store) AISecurityRegressionPack(ctx context.Context, ws, actor, id int64) (out AISecurityRegressionPack, err error) {
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		if _, e := checkRole(ctx, tx, ws, actor, false); e != nil {

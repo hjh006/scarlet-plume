@@ -159,6 +159,7 @@ export const scenarios: ScenarioDefinition[] = [
     trigger: '监管通知、适用的定期评估或审计、组织自查。',
     output: '检查结果、技术证据、整改建议与复测记录',
     views: [
+      { label: '合规审计办理', page: 'governance-ops?kind=audit', description: '依据真实处理规模核验审计适用条件、报告证据和独立性。' },
       { label: '监管检查', page: 'checks', description: '查看检查、证据和整改状态，选择本次适用的实际检查范围。' },
       { label: '合规评估', page: 'assessments', description: '查看已有专项评估，核对本次适用类型与关联处理活动。' },
       { label: '合规报告', page: 'reports', description: '选择实际工作区或处理活动范围，查看报告与采用依据。' },
@@ -246,6 +247,8 @@ export const scenarios: ScenarioDefinition[] = [
     trigger: '新业务上线、敏感信息处理、自动化决策或处理方式变更。',
     output: '检查结果、技术证据、整改建议与复测记录',
     views: [
+      { label: '个人权利请求', page: 'governance-ops?kind=rights_request', description: '核对请求身份、实际系统办理回执、答复送达及独立复核。' },
+      { label: '同意与撤回办理', page: 'governance-ops?kind=consent', description: '保留目的与版本，逐系统核验撤回执行，未取得回执不标记执行完成。' },
       { label: '处理活动', page: 'activities', description: '查看已有活动，选择本次涉及个人信息的实际业务范围。' },
       { label: '分类分级', page: 'classification', description: '核对所选资产的个人信息属性、识别线索与确认依据。' },
       { label: '合规评估', page: 'assessments', description: '选择个人信息影响评估或其他实际适用的评估记录。' },
@@ -297,10 +300,12 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['告知与权利响应核查材料', '保存、删除及未完成问题的实际依据'],
         entries: [
+          { label: '个人权利请求', page: 'governance-ops?kind=rights_request', description: '核对身份、执行范围、答复送达与独立复核。' },
+          { label: '同意与撤回', page: 'governance-ops?kind=consent', description: '冻结目的与版本，逐系统取得撤回执行证据。' },
           { label: '处理活动', page: 'activities', description: '核对登记的用途、保留安排与保护措施。' },
           { label: '检查与证据', page: 'checks', description: '引用源系统记录，登记差异及整改复核。' },
         ],
-        gap: '当前平台不受理个人权利请求、不维护同意台账，也不执行源系统删除；相关操作与原始材料仍在业务系统完成。',
+        gap: '办理记录需关联同一活动的真实系统执行与答复证据；登记撤回或删除请求不会自动执行源系统删除。',
       },
     ],
     sources: [personalInformationLaw, personalAuditRegulation],
@@ -400,6 +405,10 @@ export const scenarios: ScenarioDefinition[] = [
     trigger: '采购外部 AI、接入知识库或 Agent、上线 AI 应用、对外发布内容。',
     output: '检查结果、技术证据、整改建议与复测记录',
     views: [
+      { label: '生成内容标识核验', page: 'governance-ops?kind=labeling', description: '分别登记显式标识、隐式标识、导出产物摘要和外部核验证据。' },
+      { label: 'AI 运行时与数据防护', page: 'ai-security?tab=evidence', description: '查看输入、输出、检索和工具链路的实际策略回执、来源及覆盖缺口。' },
+      { label: 'AI 网关与供应商治理', page: 'ai-gateway', description: '配置模型应用授权、数据检查、预算、跨供应商切换和企业身份。' },
+      { label: 'Agent 任务与委托', page: 'ai-gateway?tab=tasks', description: '核对任务范围、委托权限、预算和可翻页的步骤证据。' },
       { label: '数据外发与事件调查', page: 'capabilities?tab=data-security', description: '按实际来源核对外发通道、AI目的地、事件证据及处理记录。' },
       { label: '处理活动', page: 'activities', description: '查看已有活动，选择实际 AI 使用业务并核对供应商与数据范围。' },
       { label: '合规评估', page: 'assessments', description: '选择 AI 使用或其他实际适用的评估，核对采集配置与答复。' },
@@ -418,6 +427,7 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['AI 使用范围与适用条件', 'AI 使用评估、证据与复核记录'],
         entries: [
+          { label: 'AI 回归与历史证据', page: 'ai-security?tab=evaluations', description: '核对测试包、回归版本、发布候选和完整历史。' },
           { label: '处理活动', page: 'activities', description: '登记或核对 AI 使用活动与供应商安排。' },
           { label: '合规评估', page: 'assessments', description: '选择 AI 使用评估模板，核对事实、答复与缺口。' },
           { label: '检查与证据', page: 'checks', description: '核对保护措施及相关整改结果。' },
@@ -435,6 +445,7 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['数据来源、用途与使用依据', '配置、访问边界及措施核查记录'],
         entries: [
+          { label: '知识检索与数据策略', page: 'ai-security?tab=rag', description: '按已发布目录测试检索授权与数据边界，并对照运行时回执。' },
           { label: '业务资产目录', page: 'asset-catalog', description: '核对已有数据对象、来源与责任团队。' },
           { label: '分类分级', page: 'classification', description: '核对数据属性和保护要求的采用依据。' },
           { label: '检查与证据', page: 'checks', description: '记录数据来源、配置和措施验证的实际引用。' },
@@ -453,10 +464,12 @@ export const scenarios: ScenarioDefinition[] = [
         deliverables: ['供应商条款与实际配置依据', '工具权限范围、授权测试及整改记录'],
         entries: [
           { label: '处理活动', page: 'activities', description: '核对模型服务、接收地域、留存与保护措施。' },
-          { label: 'API 安全与运行时', page: 'api-security/runtime', description: '核对已接入服务与接口的实际观测及覆盖。' },
+          { label: 'Agent 与 MCP 策略', page: 'ai-security?tab=agent', description: '核对已发布工具动作、调用范围、批准与运行时拒绝证据。' },
+          { label: '任务与委托', page: 'ai-gateway?tab=tasks', description: '管理实际任务权限与预算，核对完整步骤历史。' },
+          { label: '模型与提供方', page: 'ai-gateway?tab=providers', description: '核对提供方、模型与数据用途条款配置。' },
           { label: '检查与证据', page: 'checks', description: '引用实际权限配置与授权测试结果。' },
         ],
-        gap: '平台现有 API 观测不等于完整 Agent 工具权限控制；模型、知识库和工具清单仍需按实际配置核实。',
+        gap: 'Agent/MCP 控制须由网关和运行时接入生效；未接入的调用、未登记工具及来源中断仍属覆盖缺口。',
       },
       {
         id: 'public-service',
@@ -469,11 +482,12 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['服务角色与适用要求说明', '内容标识、配置及相关办理材料'],
         entries: [
+          { label: '生成内容标识核验', page: 'governance-ops?kind=labeling', description: '分别保留显式、隐式标识与实际导出产物的核验材料。' },
           { label: '处理活动', page: 'activities', description: '核对 AI 服务对象、用途与处理范围。' },
           { label: '检查模板', page: 'templates', description: '由专业人员核对或补充实际适用的检查要求。' },
           { label: '检查与证据', page: 'checks', description: '引用外部实际检测、配置或手续凭证。' },
         ],
-        gap: '平台目前不检测或添加生成合成内容标识，也不代办算法备案、安全评估等正式手续。',
+        gap: '标识办理保留外部核验证据与产物摘要；平台尚未自动检测或添加所有媒体格式的标识，也不代办算法备案等正式手续。',
       },
     ],
     sources: [
@@ -489,6 +503,7 @@ export const scenarios: ScenarioDefinition[] = [
     trigger: '向合作方提供数据、委托供应商处理、服务范围或合作关系变化。',
     output: '检查结果、技术证据、整改建议与复测记录',
     views: [
+      { label: '供应商监督与退出', page: 'governance-ops?kind=vendor', description: '关联处理活动，冻结条款、期限、监督检查与退出执行证据。' },
       { label: '数据外发与事件调查', page: 'capabilities?tab=data-security', description: '按实际来源核对外发通道、AI目的地、事件证据及处理记录。' },
       { label: '处理活动', page: 'activities', description: '查看已有活动，选择实际共享或委托关系与处理范围。' },
       { label: '业务资产目录', page: 'asset-catalog', description: '核对相关数据对象、责任团队、共享对象与来源确认。' },
@@ -523,6 +538,7 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['委托处理关系与范围底稿', '协议、保护能力及适用影响评估材料'],
         entries: [
+          { label: '供应商监督办理', page: 'governance-ops?kind=vendor', description: '核对合同依据、期限、监督检查及退出证据。' },
           { label: '处理活动', page: 'activities', description: '记录委托目的、接收方、地域与保护安排。' },
           { label: '合规评估', page: 'assessments', description: '按适用条件开展个人信息影响评估或业务变更重评。' },
           { label: '检查与证据', page: 'checks', description: '记录委托范围、协议和监督核查依据。' },
@@ -540,11 +556,12 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['协议、批准范围与权限对照', '监督发现、整改与新复测记录'],
         entries: [
+          { label: '供应商条款与监督', page: 'governance-ops?kind=vendor', description: '固定协议证据与采用范围，监督记录经独立复核。' },
           { label: '资产与权限依据', page: 'assets', description: '核对已采集对象的来源权限与覆盖。' },
           { label: '访问审计', page: 'audit', description: '核对已接入来源保留范围内的请求元数据。' },
           { label: '检查与证据', page: 'checks', description: '记录协议、权限与监督检查结果。' },
         ],
-        gap: '平台不维护完整合同台账；未接入路径和接收方实际使用情况仍需相应业务证据。',
+        gap: '供应商办理固定所采用的协议和监督证据；未接入路径及接收方实际使用情况仍须取得来源证据。',
       },
       {
         id: 'exit',
@@ -557,6 +574,7 @@ export const scenarios: ScenarioDefinition[] = [
         ],
         deliverables: ['退出范围与执行依据', '返还、删除、撤权及复测结果'],
         entries: [
+          { label: '供应商退出办理', page: 'governance-ops?kind=vendor', description: '核对退出范围和实际返还、删除或继续保留依据。' },
           { label: '运营与处置', page: 'operations', description: '仅对已接入且授权的执行来源申请受控处置。' },
           { label: '检查与证据', page: 'checks', description: '登记退出执行依据、缺口与新复测。' },
           { label: '处理活动', page: 'activities', description: '核对业务范围变更与原约定。' },
@@ -574,6 +592,7 @@ export const scenarios: ScenarioDefinition[] = [
     trigger: '安全告警、异常访问、疑似泄露或其他事件线索。',
     output: '检查结果、技术证据、整改建议与复测记录',
     views: [
+      { label: '事件报告办理', page: 'governance-ops?kind=incident', description: '区分发现、知悉、初报与总结时点，按适用规则核对期限与真实回执。' },
       { label: '运营与处置', page: 'operations', description: '查看实际来源事件、风险与处置记录，选择需要调查的范围。' },
       { label: 'API 安全', page: 'api-security', description: '选择实际契约扫描或运行时来源，核对接口发现及依据。' },
       { label: 'API 主动验证', page: 'validation', description: '查看已批准范围的验证计划、运行结果与关联检查。' },
@@ -633,7 +652,7 @@ export const scenarios: ScenarioDefinition[] = [
           { label: '检查与证据', page: 'checks', description: '记录影响事实、调查材料与实际凭证引用。' },
           { label: '现有内部报告', page: 'reports', description: '核对已登记检查和证据，供准备正式材料时参考。' },
         ],
-        gap: '当前平台不自动确定完整事件等级、法定报告时限或代为报送；内部报告不表示已向有关部门报告。',
+        gap: '事件办理按所声明角色与事实计算适用期限；未知等级、范围和工作日历继续待核验，平台不会代为报送。',
       },
       {
         id: 'retest',

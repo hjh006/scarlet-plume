@@ -32,7 +32,7 @@ func (s *Store) ResolveGateway(ctx context.Context, in GatewayResolveInput) (out
 	}
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		var ws int64
-		if e := tx.QueryRow(ctx, `SELECT c.workspace_id,c.id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &out.CredentialID, &out.ApplicationID); e != nil {
+		if e := tx.QueryRow(ctx, `SELECT c.workspace_id,c.id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &out.CredentialID, &out.ApplicationID); e != nil {
 			if errors.Is(e, pgx.ErrNoRows) {
 				return ErrForbidden
 			}
@@ -107,7 +107,7 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		var ws, credID int64
 		var appID string
 		// A credential can only select its own workspace and application. Revoke waits for in-flight admission.
-		e := tx.QueryRow(ctx, `SELECT c.workspace_id,c.id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled FOR SHARE OF c`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &credID, &appID)
+		e := tx.QueryRow(ctx, `SELECT c.workspace_id,c.id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp()) FOR SHARE OF c`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &credID, &appID)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return ErrForbidden
 		}

@@ -110,6 +110,7 @@ func gatewayRole(ctx context.Context, tx pgx.Tx, ws, actor int64, owner bool) er
 }
 
 func (s *Store) GatewayOverview(ctx context.Context, ws, actor int64) (out GatewayOverview, err error) {
+	out.CredentialPreview = GatewayCredentialPreview{Limit: 1000, Order: "effective_active_first_then_id_desc", Boundary: "概览最多预览1000项，有效凭据优先；完整凭据清单使用分页接口。" + GatewayCredentialPageBoundary}
 	out.Usage = []GatewayUsage{}
 	out.Credentials = []GatewayCredential{}
 	out.Nodes = []GatewayNode{}
@@ -140,13 +141,13 @@ func (s *Store) GatewayOverview(ctx context.Context, ws, actor int64) (out Gatew
 		if e != nil {
 			return e
 		}
-		rows, e = tx.Query(ctx, `SELECT id,application_id,name,prefix,enabled,created_at FROM plume.ai_gateway_credentials WHERE workspace_id=$1 ORDER BY id DESC LIMIT 1000`, ws)
+		rows, e = tx.Query(ctx, `SELECT id,application_id,name,prefix,enabled AND (expires_at IS NULL OR expires_at>statement_timestamp()),created_at,expires_at,workload_binding_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 ORDER BY (enabled AND (expires_at IS NULL OR expires_at>statement_timestamp())) DESC,id DESC LIMIT 1001`, ws)
 		if e != nil {
 			return e
 		}
 		for rows.Next() {
 			var v GatewayCredential
-			if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Name, &v.Prefix, &v.Enabled, &v.CreatedAt); e != nil {
+			if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Name, &v.Prefix, &v.Enabled, &v.CreatedAt, &v.ExpiresAt, &v.WorkloadBindingID); e != nil {
 				rows.Close()
 				return e
 			}
@@ -157,6 +158,11 @@ func (s *Store) GatewayOverview(ctx context.Context, ws, actor int64) (out Gatew
 		if e != nil {
 			return e
 		}
+		if len(out.Credentials) > out.CredentialPreview.Limit {
+			out.CredentialPreview.HasMore = true
+			out.Credentials = out.Credentials[:out.CredentialPreview.Limit]
+		}
+		out.CredentialPreview.Returned = len(out.Credentials)
 		rows, e = tx.Query(ctx, `SELECT id,CASE WHEN last_seen_at < now()-interval '90 seconds' THEN 'stale' ELSE status END,failures,last_seen_at,capabilities,version FROM plume.ai_gateway_nodes WHERE workspace_id=$1 ORDER BY id LIMIT 1000`, ws)
 		if e != nil {
 			return e
@@ -274,7 +280,7 @@ func (s *Store) CreateGatewayCredential(ctx context.Context, ws, actor int64, ap
 			return ErrNotFound
 		}
 		var count int
-		if e = tx.QueryRow(ctx, `SELECT count(*) FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND enabled`, ws).Scan(&count); e != nil {
+		if e = tx.QueryRow(ctx, `SELECT count(*) FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND enabled AND (expires_at IS NULL OR expires_at>clock_timestamp())`, ws).Scan(&count); e != nil {
 			return e
 		}
 		if count >= 1000 {

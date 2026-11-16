@@ -11,8 +11,8 @@ const record = computed(() => props.records[selected.value])
 watch(() => props.section.key,() => { selected.value=0;error.value='';jsonDrafts.value={};emit('validation',true) })
 watch(() => props.records.length,length => { if (selected.value>=length) selected.value=Math.max(0,length-1) })
 function choose(index:number) { selected.value=index;error.value='';jsonDrafts.value={};emit('validation',true) }
-function add() { const next=[...props.records,aiRecordDraft(props.section)];emit('update',next);selected.value=next.length-1;error.value='';jsonDrafts.value={} }
-function remove() { emit('update',props.records.filter((_,index)=>index!==selected.value));selected.value=Math.max(0,selected.value-1);error.value='';jsonDrafts.value={} }
+function add() { const next=[...props.records,aiRecordDraft(props.section)];emit('update',next);selected.value=next.length-1;error.value='';jsonDrafts.value={};emit('validation',true) }
+function remove() { emit('update',props.records.filter((_,index)=>index!==selected.value));selected.value=Math.max(0,selected.value-1);error.value='';jsonDrafts.value={};emit('validation',true) }
 function validJSONDrafts() {
   try {
     for (const [key,value] of Object.entries(jsonDrafts.value)) {
@@ -55,8 +55,9 @@ function listValue(value:unknown) { return Array.isArray(value) ? value.map(Stri
     <div class="ai-security-heading"><div><h2>{{ section.label }}</h2><p>{{ section.description }}</p></div><button v-if="!disabled && !singleton" class="button button-secondary" type="button" @click="add">新增{{ section.label }}</button></div>
     <div v-if="records.length && !singleton" class="ai-security-records" :aria-label="section.label+'记录'"><button v-for="(item,index) in records" :key="index" type="button" :aria-pressed="selected===index" @click="choose(index)">{{ aiRecordLabel(item,index) }}</button></div>
     <div v-if="record" class="ai-security-body">
-      <p v-if="error" class="message message-error" role="alert">{{ error }}</p>
+      <p v-if="error" :id="'ai-editor-error-'+section.key" class="message message-error" role="alert">{{ error }}</p>
       <fieldset class="ai-security-fields" :disabled="disabled">
+        <legend class="sr-only">{{ section.label }}：{{ aiRecordLabel(record,selected) }}</legend>
         <template v-for="field in section.fields" :key="field.key">
           <label v-if="field.type==='checkbox'" class="ai-security-toggle"><input type="checkbox" :checked="record[field.key]===true" @change="update(field.key,($event.target as HTMLInputElement).checked)">{{ field.label }}<small v-if="field.help">{{ field.help }}</small></label>
           <div v-else-if="field.type==='media'" class="field-wide ai-security-note">
@@ -72,7 +73,7 @@ function listValue(value:unknown) { return Array.isArray(value) ? value.map(Stri
           <label v-else class="field" :class="{'field-wide':['textarea','json','lines'].includes(field.type||'')}">
             <span>{{ field.label }}<span v-if="field.required" aria-hidden="true"> *</span></span>
             <select v-if="field.type==='select'" :value="aiText(record[field.key]) || aiText(field.initial)" :required="field.required" @change="update(field.key,value($event))"><option v-if="!field.options?.some(option=>option.value==='')" value="">请选择</option><option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-            <textarea v-else-if="field.type==='json'" :value="jsonDrafts[field.key] ?? aiText(record[field.key])" rows="4" spellcheck="false" @input="jsonInput(field.key,$event)" @change="update(field.key,value($event))"></textarea>
+            <textarea v-else-if="field.type==='json'" :value="jsonDrafts[field.key] ?? aiText(record[field.key])" rows="4" spellcheck="false" :aria-invalid="error?true:undefined" :aria-describedby="error?'ai-editor-error-'+section.key:undefined" @input="jsonInput(field.key,$event)" @change="update(field.key,value($event))"></textarea>
             <textarea v-else-if="field.type==='lines'" :value="Array.isArray(record[field.key])?(record[field.key] as string[]).join('\n'):aiText(record[field.key])" rows="4" :required="field.required" maxlength="33000" spellcheck="false" @change="update(field.key,value($event))"></textarea>
             <textarea v-else-if="field.type==='textarea'" :value="aiText(record[field.key])" rows="3" :required="field.required" maxlength="32000" @input="update(field.key,value($event))"></textarea>
             <select v-else-if="field.reference" multiple size="4" @change="update(field.key,selectedValues($event))"><option v-for="(item,index) in references?.[field.reference] || []" :key="aiText(item.id)" :value="aiText(item.id)" :selected="listValue(record[field.key]).includes(aiText(item.id))">{{ aiRecordLabel(item,index) }} · {{ aiText(item.id) }}</option><option v-for="id in listValue(record[field.key]).filter(id=>!(references?.[field.reference!] || []).some(item=>aiText(item.id)===id))" :key="id" :value="id" :selected="true">{{ id }}（未找到对应配置）</option></select>

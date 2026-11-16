@@ -17,13 +17,17 @@ const sourceOptions=ref<RuntimeEvidenceSource[]>([]),newPolicy=ref(false)
 const lists=reactive({categories:'',countries:'',clientCountries:'',recipients:'',domains:''})
 const policyKey=(p:RuntimeDetectionPolicy)=>p.rule+':'+(p.scopeKey||'')
 function updateLists(){lists.categories=form.value?.allowedCategories?.join(', ')||'';lists.countries=form.value?.allowedCountries?.join(', ')||'';lists.clientCountries=form.value?.allowedClientCountries?.join(', ')||'';lists.recipients=form.value?.allowedRecipients?.join(', ')||'';lists.domains=form.value?.allowedDomains?.join(', ')||''}
-function scopedCopy(){if(!form.value||!canEdit.value)return;form.value=JSON.parse(JSON.stringify({...form.value,scopeKey:'',revision:0,id:0}));newPolicy.value=true;error.value='';saved.value='';updateLists()}
+function scopedCopy(){if(!form.value||!canEdit.value||loading.value||saving.value)return;form.value=JSON.parse(JSON.stringify({...form.value,scopeKey:'',revision:0,id:0}));newPolicy.value=true;error.value='';saved.value='';updateLists()}
 function splitList(text:string){return text.split(',').map(s=>s.trim()).filter(Boolean)}
 const form = ref<RuntimeDetectionPolicy | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const saved = ref('')
+const savedDraft = ref('')
+const pendingDiscard = ref('')
+const draftSnapshot = () => JSON.stringify({ form: form.value, lists })
+const dirty = computed(() => !!form.value && draftSnapshot() !== savedDraft.value)
 const history = ref<RuntimeDetectionPolicy[]>([])
 const historyOpen = ref(false)
 const historyLoading = ref(false)
@@ -44,9 +48,21 @@ function choose() {
   const policy = page.value?.items.find(item => policyKey(item) === selected.value)
   form.value = policy ? { ...policy, sourceId: policy.sourceId ?? 0, method: policy.method ?? '', categories: [...policy.categories] } : null
   newPolicy.value=false;updateLists()
+  savedDraft.value = draftSnapshot(); pendingDiscard.value = ''
   error.value = ''; saved.value = ''
   history.value = []; historyError.value = ''
   if (historyOpen.value) void loadHistory()
+}
+function selectPolicy(key: string) {
+  if (loading.value || saving.value || key === selected.value && !newPolicy.value) return
+  if (dirty.value) { pendingDiscard.value = key; return }
+  selected.value = key; choose()
+}
+function confirmDiscard() {
+  const target = pendingDiscard.value
+  pendingDiscard.value = ''
+  if (target === 'refresh') void load(true)
+  else if (target) { selected.value = target; choose() }
 }
 async function loadHistory() {
   const sequence = ++historyRequest
@@ -58,8 +74,9 @@ async function loadHistory() {
   } catch (failure) { if (sequence === historyRequest) historyError.value = failureText(failure) }
   finally { if (sequence === historyRequest) historyLoading.value = false }
 }
-async function load() {
+async function load(discard = false) {
   if (loading.value || saving.value) return
+  if (dirty.value && !discard) { pendingDiscard.value = 'refresh'; return }
   loading.value = true; error.value = ''
   try { const [p,s]=await Promise.all([request<RuntimePolicyPage>(endpoint,{signal:active.signal}),request<{items:RuntimeEvidenceSource[]}>(workspacePath(props.workspace.slug)+'/api-security/runtime/sources',{signal:active.signal})]);page.value=p;sourceOptions.value=s.items.filter(s=>!s.revokedAt);choose() }
   catch (failure) { error.value = failureText(failure) }
@@ -73,6 +90,7 @@ async function save() {
     if (page.value) {const index=page.value.items.findIndex(item=>policyKey(item)===policyKey(result));if(index>=0)page.value.items[index]=result;else page.value.items.push(result)}
     selected.value=policyKey(result);newPolicy.value=false
     form.value = { ...result, sourceId: result.sourceId ?? 0, method: result.method ?? '', categories: [...result.categories] };updateLists()
+    savedDraft.value = draftSnapshot(); pendingDiscard.value = ''
     saved.value = `已保存版本 ${result.revision}，后续观测使用此版本。历史命中和证据保留原依据。`
     if (historyOpen.value) void loadHistory()
   } catch (failure) { error.value = failure instanceof ApiError && failure.status === 409 ? '策略版本已变化。未保存的草稿仍已保留，请核对最新版本后重试。' : failureText(failure) }
@@ -86,19 +104,20 @@ onBeforeUnmount(() => active.abort())
   <div>
     <header class="page-header">
       <div><p class="eyebrow">安全运营</p><h1>把检测条件，落实到明确目标。</h1><p>配置真实观测信号的阈值，将命中送入检查、整改和独立复核。</p></div>
-      <div class="page-actions"><a class="button button-secondary" :href="home + '/api-security/runtime'">运行时发现</a><button class="button button-secondary" type="button" :disabled="loading || saving" @click="load">刷新策略</button></div>
+      <div class="page-actions"><a class="button button-secondary" :href="home + '/api-security/runtime'">运行时发现</a><button class="button button-secondary" type="button" :disabled="loading || saving" @click="load()">刷新策略</button></div>
     </header>
     <p v-if="error" class="message message-error" role="alert">{{ error }}<span v-if="error.includes('冲突')"> 请刷新当前策略后重新修改。</span></p>
     <p v-if="saved" class="message message-success" role="status">{{ saved }}</p>
+    <div v-if="pendingDiscard" class="message message-warning" role="status"><p>当前策略有未保存的修改。继续将丢弃本页草稿。</p><div class="actions"><button type="button" class="button button-secondary" @click="pendingDiscard = ''">继续编辑</button><button type="button" class="button button-secondary" @click="confirmDiscard">丢弃草稿并{{ pendingDiscard === 'refresh' ? '刷新' : '切换' }}</button></div></div>
     <section v-if="form" class="rw-panel rw-policy-primary" aria-labelledby="rw-policy-target"><div class="rw-section-heading"><div><h2 id="rw-policy-target">{{ runtimeDetectionLabels[form.rule] || form.rule }} · 目标与条件</h2><p>下图为编辑区草稿预览；保存版本、来源采用和真实命中分别留存。</p></div><span class="rw-state-label">{{ newPolicy ? '新增范围草稿' : savedPolicy?.revision ? '已保存 v' + savedPolicy.revision : '系统默认配置' }}</span></div><div class="rw-policy-route"><article><Icon name="integrations" /><span>来源范围</span><strong>{{ policyScopeSource }}</strong><small>{{ form.scopeKey || '工作区默认' }}</small></article><Icon name="arrow" /><article><Icon name="api-security" /><span>方法与路由</span><strong>{{ form.method || '全部方法' }} {{ form.route || '来源内所有路由' }}</strong><small>{{ form.subjectRef ? '主体 ' + form.subjectRef : '未限定主体' }} · {{ form.clientIp ? '已限定客户端 IP' : '未限定客户端 IP' }}</small></article><Icon name="arrow" /><article><Icon name="checks" /><span>窗口与计数条件</span><strong>{{ form.windowMinutes }} 分钟 · 命中 ≥ {{ form.threshold }}</strong><small>最少 {{ form.minRequests }} 次来源请求</small></article><Icon name="arrow" /><article class="rw-policy-output"><Icon name="reports" /><span>配置输出</span><strong>{{ form.enabled ? '草稿启用' : '草稿停用' }}</strong><small>保存新版本后核对来源采用；不改写旧检查</small></article></div><div class="rw-policy-specific"><strong>本规则采用条件</strong><p>{{ runtimeDetectionDescriptions[form.rule] || '按当前登记规则核对来源事实与覆盖。' }}</p></div><p class="rw-boundary"><Icon name="warning" />缺失来源、未知认证、未检查完整与预算截断均需保留。关闭或放宽策略不表示原风险已消除。</p></section>
-    <div class="policy-workbench"><aside class="panel policy-catalog" aria-labelledby="detection-list-title" :aria-busy="loading"><div class="panel-heading"><h2 id="detection-list-title">检测规则</h2></div><p v-if="loading && !page" class="empty-state" role="status">正在读取检测策略…</p><nav v-else-if="page" aria-label="选择检测规则"><button v-for="policy in page.items" :key="policyKey(policy)" type="button" class="policy-catalog-item" :aria-pressed="selected === policyKey(policy)" :disabled="saving" @click="selected = policyKey(policy); choose()"><span>{{ runtimeDetectionLabels[policy.rule] || policy.rule }}<small>{{policy.scopeKey||'工作区默认'}}{{policy.sourceId?' · 来源 #'+policy.sourceId:''}}</small></span><small :class="policy.enabled ? 'enabled' : ''">{{ policy.enabled ? '已启用' : '未启用' }}</small><code>{{ policy.revision ? 'v' + policy.revision : '系统默认' }}</code></button></nav></aside>
+    <div class="policy-workbench"><aside class="panel policy-catalog" aria-labelledby="detection-list-title" :aria-busy="loading"><div class="panel-heading"><h2 id="detection-list-title">检测规则</h2></div><p v-if="loading && !page" class="empty-state" role="status">正在读取检测策略…</p><nav v-else-if="page" aria-label="选择检测规则"><button v-for="policy in page.items" :key="policyKey(policy)" type="button" class="policy-catalog-item" :aria-pressed="selected === policyKey(policy)" :disabled="saving || loading" @click="selectPolicy(policyKey(policy))"><span>{{ runtimeDetectionLabels[policy.rule] || policy.rule }}<small>{{policy.scopeKey||'工作区默认'}}{{policy.sourceId?' · 来源 #'+policy.sourceId:''}}</small></span><small :class="policy.enabled ? 'enabled' : ''">{{ policy.enabled ? '已启用' : '未启用' }}</small><code>{{ policy.revision ? 'v' + policy.revision : '系统默认' }}</code></button></nav></aside>
     <section v-if="form" class="panel policy-editor" aria-labelledby="detection-edit-title">
       <div class="panel-heading"><div><h2 id="detection-edit-title">{{ runtimeDetectionLabels[form.rule] }}</h2><p>{{ runtimeDetectionDescriptions[form.rule] }}</p></div></div>
       <p v-if="!canEdit" class="message">只有工作区负责人可以修改策略。当前显示已保存配置，来源采用须另行核对。</p>
       <form @submit.prevent="save">
         <fieldset :disabled="!canEdit || saving" class="policy-fields">
           <legend class="sr-only">{{ runtimeDetectionLabels[form.rule] }}配置</legend>
-          <label class="policy-toggle"><input v-model="form.enabled" type="checkbox">启用此规则</label><div class="field"><label for="policy-scope-key">独立策略范围键（默认策略留空）</label><input id="policy-scope-key" v-model="form.scopeKey" maxlength="80" pattern="[A-Za-z0-9_.:-]*" :required="newPolicy" :readonly="!newPolicy"><button class="button" type="button" :disabled="saving" @click="scopedCopy">由当前配置新增独立范围</button></div><div class="field"><label for="policy-source">限定运行时来源</label><select id="policy-source" v-model.number="form.sourceId"><option :value="0">各已授权来源分别计算</option><option v-for="source in sourceOptions" :key="source.id" :value="source.id">{{source.name}} · {{source.service}} · #{{source.id}}</option></select></div><div class="field"><label for="policy-method">请求方法</label><select id="policy-method" v-model="form.method"><option value="">全部方法</option><option v-for="method in ['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','TRACE']" :key="method">{{method}}</option></select></div><div class="field"><label for="policy-route">路由模板（可选）</label><input id="policy-route" v-model="form.route" maxlength="200"></div><div class="field"><label for="policy-subject">来源内subjectRef（可选）</label><input id="policy-subject" v-model="form.subjectRef" maxlength="160"></div><div class="field"><label for="policy-ip">客户端IP（可选）</label><input id="policy-ip" v-model="form.clientIp" maxlength="64"></div>
+          <label class="policy-toggle"><input v-model="form.enabled" type="checkbox">启用此规则</label><div class="field"><label for="policy-scope-key">独立策略范围键（默认策略留空）</label><input id="policy-scope-key" v-model="form.scopeKey" maxlength="80" pattern="[A-Za-z0-9_.:-]*" :required="newPolicy" :readonly="!newPolicy"><button class="button" type="button" :disabled="saving || loading" @click="scopedCopy">由当前配置新增独立范围</button></div><div class="field"><label for="policy-source">限定运行时来源</label><select id="policy-source" v-model.number="form.sourceId"><option :value="0">各已授权来源分别计算</option><option v-for="source in sourceOptions" :key="source.id" :value="source.id">{{source.name}} · {{source.service}} · #{{source.id}}</option></select></div><div class="field"><label for="policy-method">请求方法</label><select id="policy-method" v-model="form.method"><option value="">全部方法</option><option v-for="method in ['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','TRACE']" :key="method">{{method}}</option></select></div><div class="field"><label for="policy-route">路由模板（可选）</label><input id="policy-route" v-model="form.route" maxlength="200"></div><div class="field"><label for="policy-subject">来源内subjectRef（可选）</label><input id="policy-subject" v-model="form.subjectRef" maxlength="160"></div><div class="field"><label for="policy-ip">客户端IP（可选）</label><input id="policy-ip" v-model="form.clientIp" maxlength="64"></div>
           <div class="field"><label for="policy-window">统计窗口（分钟）</label><input id="policy-window" v-model.number="form.windowMinutes" type="number" min="1" :max="form.rule==='subject_repeated_access'?1440:60" required></div>
           <div class="field"><label for="policy-threshold">最少命中计数</label><input id="policy-threshold" v-model.number="form.threshold" type="number" min="1" max="10000" required></div>
           <div class="field"><label for="policy-minimum">窗口最少请求数</label><input id="policy-minimum" v-model.number="form.minRequests" type="number" min="1" max="10000" required></div>
@@ -130,4 +149,6 @@ onBeforeUnmount(() => active.abort())
 
 .policy-editor{margin-top:0;min-width:0}.policy-fields{border:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.25rem}.policy-toggle,.policy-categories{grid-column:1/-1}.policy-toggle,.policy-categories label{display:flex;align-items:center;gap:.65rem;min-height:44px}.policy-categories{display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;border:1px solid var(--line);border-radius:12px;padding:1rem}.policy-categories legend{padding:0 .4rem}.policy-note{margin:1rem 0;line-height:1.7}.policy-fields input[type=checkbox]{width:18px;height:18px}.policy-editor .page-actions{align-items:center}.policy-history{margin-top:1.5rem}.policy-history .table-scroll{margin-top:1rem}@media(max-width:760px){.policy-fields{grid-template-columns:1fr}.policy-categories{gap:.25rem 1rem}}
 .policy-fields .field{margin:0;align-self:start}.policy-note{font-size:12px;color:var(--secondary)}.policy-toggle,.policy-categories label{font-size:12px;min-height:36px}.policy-fields .field label,.policy-categories legend{font-size:12px}.policy-editor .page-actions>span{font-size:12px}.policy-history{margin-top:0}.policy-catalog{overflow:hidden}
+@media(max-width:1200px){.policy-workbench{grid-template-columns:180px minmax(0,1fr)}.policy-context{grid-column:2}}
+@media(max-width:900px){.policy-workbench{grid-template-columns:minmax(0,1fr)}.policy-context{grid-column:auto}.policy-catalog nav{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.policy-catalog-item{font-size:14px;min-height:72px}.policy-fields{grid-template-columns:minmax(0,1fr)}.policy-fields .field label,.policy-categories legend,.policy-toggle,.policy-categories label,.policy-note,.policy-context-body,.policy-adoption{font-size:14px}.policy-fields{min-width:0}.policy-editor .page-actions{flex-wrap:wrap}.policy-editor .button{max-width:100%;white-space:normal}}
 </style>

@@ -45,6 +45,10 @@ func TestGatewayTaskManagementAndAuthenticatedMachineHTTP(t *testing.T) {
 	identityHTTPRequest(t, f.handler, "POST", machine+"/task/check", gatewayHTTPJSON(t, fact), nil, "", 401)
 	identityHTTPRequest(t, f.handler, "POST", machine+"/task/check", gatewayHTTPJSON(t, fact), nil, control, 200)
 	identityHTTPRequest(t, f.handler, "POST", machine+"/task/steps/admit", gatewayHTTPJSON(t, fact), nil, control, 200)
+	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/"+task.ID+"/steps?limit=1", "", f.viewerCookie, "", 200)
+	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/"+task.ID+"/steps?before=invalid", "", f.cookie, "", 400)
+	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/"+task.ID+"/steps?limit=", "", f.cookie, "", 400)
+	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/missing/steps", "", f.cookie, "", 404)
 	bad := fact
 	bad.Categories = []string{"confidential"}
 	identityHTTPRequest(t, f.handler, "POST", machine+"/task/check", gatewayHTTPJSON(t, bad), nil, control, 403)

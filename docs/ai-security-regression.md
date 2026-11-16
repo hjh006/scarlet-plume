@@ -39,7 +39,10 @@
 
 | 方法与路径 | 用途 |
 | --- | --- |
-| `GET /regression-packs` | 最近 100 个摘要、支持维度、当前门禁/引擎/检测版本。 |
+| `GET /regression-packs?before=...&limit=50` | 分页读取冻结包摘要，附 hasMore/nextCursor；保留支持维度及当前受支持门禁/引擎/检测版本元数据。 |
+| `GET /regression-packs/export` | 导出本次过滤分页摘要及明确 scope，不包含全部包内容。 |
+| `GET /evaluations?before=...&limit=50&status=passed` | 评测历史分页；status 可为 passed/failed。 |
+| `GET /evaluations/{id}` | 原样读取该历史评测及其已记录版本，不重新计算发布资格。 |
 | `GET /regression-packs/baseline` | 完整基线包。 |
 | `GET /regression-packs/{id}` | 工作区内完整冻结包。 |
 | `POST /regression-packs/validate` | `{pack}`，校验并计算摘要，不保存。 |
@@ -48,7 +51,7 @@
 | `GET /evaluations/{id}/compare?against={oldId}` | 同工作区冻结结果比较。 |
 | `POST /publish` | 沿用 `{expectedRevision,evaluationId,note}`，服务端验证全部门禁条件。 |
 
-读取沿用工作区权限；校验、导入与运行需要 Owner/Operator，发布需要独立 Owner/Reviewer。写接口沿用 Origin 防护。每包最多 128 用例、256 KiB；每工作区最多 1000 冻结包，列表展示最近 100 个。重复 JSON 字段、非法编码、超预算、未知字段、未注册探针、错维度、重复用例 ID 和不符摘要拒绝。
+读取沿用工作区权限；校验、导入与运行需要 Owner/Operator，发布需要独立 Owner/Reviewer。写接口沿用 Origin 防护。每包最多 128 用例、256 KiB；每工作区最多 1000 冻结包，列表默认 100、显式页长 1—200，使用工作区/集合绑定的 nextCursor 作为下一页 before。分页及导出范围见[控制面操作说明](ai-security-control-plane.md#历史读取与分页导出)。重复 JSON 字段、非法编码、超预算、未知字段、未注册探针、错维度、重复用例 ID 和不符摘要拒绝。
 
 包摘要为去除 `digest` 后按现有服务器规范 JSON 计算 SHA-256，不使用客户端字符串字节直接签名。服务器预览提供同一算法结果；数据库读回和发布时再次验证摘要。
 

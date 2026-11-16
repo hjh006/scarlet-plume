@@ -22,6 +22,8 @@ function outcome(value:unknown) {
       <div><dt>实际决策</dt><dd>{{ aiDecisionLabel(record) }}</dd></div>
       <div><dt>决策代码</dt><dd>{{ aiString(decision,'code') || '未提供' }}</dd></div>
       <div><dt>采用目录版本</dt><dd>{{ aiString(decision,'catalogVersion') || '未提供' }}</dd></div>
+      <div v-if="decision.catalogDigest"><dt>采用目录摘要</dt><dd class="mono">{{ aiString(decision,'catalogDigest') }}</dd></div>
+      <div v-if="decision.requestDigest"><dt>绑定请求摘要</dt><dd class="mono">{{ aiString(decision,'requestDigest') }}</dd></div>
       <div><dt>主体与应用</dt><dd>{{ aiString(decision,'principalId') }} / {{ aiString(decision,'applicationId') }}</dd></div>
       <div><dt>允许资料</dt><dd>{{ aiText(decision.allowedDocumentIds) || '无允许资料引用' }}</dd></div>
       <div><dt>采用类别</dt><dd>{{ aiText(decision.categories) || '本次未列出类别' }}</dd></div><div v-if="decision.taskId"><dt>绑定任务</dt><dd class="mono">{{ aiString(decision,'taskId') }}</dd></div><div v-if="decision.taskPurpose"><dt>可信任务用途</dt><dd>{{ aiString(decision,'taskPurpose') }}</dd></div>

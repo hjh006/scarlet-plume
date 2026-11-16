@@ -12,6 +12,7 @@ import (
 func (s *server) securityPlatformRoutes(mux *http.ServeMux) {
 	const base = "/api/v1/workspaces/{slug}/security-platform"
 	mux.HandleFunc("GET "+base, s.workspace(false, s.securityPlatformOverview))
+	mux.HandleFunc("GET "+base+"/posture", s.workspace(false, s.securityPosturePage))
 	mux.HandleFunc("GET "+base+"/export", s.workspace(false, s.securityPlatformOverview))
 	mux.HandleFunc("POST "+base+"/snapshots", s.workspace(true, s.captureSecurityPlatform))
 	mux.HandleFunc("GET "+base+"/snapshots/{snapshot}", s.workspace(false, s.securityPlatformSnapshot))

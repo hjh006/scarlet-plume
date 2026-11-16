@@ -1,94 +1,91 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
-import { archiveFailureLabels, type ReportArchivePage } from './reports'
+import { archiveFailureLabels } from './reports'
+import { archiveActions, archiveRetentionActions, archiveRetentionPayload, archiveRetentionStates, downloadArchive, type ArchiveIntegrity, type ArchiveRetentionDraft, type ArchiveRetentionEvent, type ArchiveRetentionHistory, type RetainedReportArchive, type RetainedReportArchivePage } from './report-archive-retention'
 import Icon from './Icon.vue'
+import './ai-security.css'
+import './report-archive-retention.css'
 
-const props = defineProps<{ workspace: Workspace }>()
-const emit = defineEmits<{ sessionExpired: [] }>()
-const home = `#/${encodeURIComponent(props.workspace.slug)}`
-const archivePath = home + '/reports/archives'
-const apiUrl = workspacePath(props.workspace.slug) + '/reports/archives'
-const active = new AbortController()
-const page = ref<ReportArchivePage | null>(null)
-const loading = ref(true)
-const loadError = ref('')
-const selectedId = ref<number | null>(null)
-const selected = computed(()=>page.value?.items.find(item=>item.id===selectedId.value)??page.value?.items[0])
-
-async function load() {
-  loading.value = true
-  loadError.value = ''
-  try {
-    page.value = await request<ReportArchivePage>(apiUrl, { signal: active.signal })
-  } catch (error) {
-    if (active.signal.aborted) return
-    if (error instanceof ApiError && error.status === 401) emit('sessionExpired')
-    else loadError.value = describeError(error)
-  } finally {
-    loading.value = false
-  }
+const props=defineProps<{workspace:Workspace}>()
+const emit=defineEmits<{sessionExpired:[]}>()
+const home='#/'+encodeURIComponent(props.workspace.slug),archivePath=home+'/reports/archives'
+const apiUrl=workspacePath(props.workspace.slug)+'/reports/archives'
+const active=new AbortController()
+const page=ref<RetainedReportArchivePage|null>(null),cursor=ref(''),cursors=ref<string[]>([]),loading=ref(false),loadError=ref('')
+const selected=ref<RetainedReportArchive|null>(null),busy=ref(''),error=ref(''),notice=ref('')
+const draft=ref<ArchiveRetentionDraft>({action:'',basis:'',retainUntil:'',evidenceId:''}),draftSnapshot=ref(''),editing=ref(false),conflict=ref(false)
+const dirty=computed(()=>editing.value && JSON.stringify(draft.value)!==draftSnapshot.value)
+const actions=computed(()=>selected.value?archiveActions(selected.value,props.workspace.role):[])
+const independent=computed(()=>['release_hold','allow_rotation'].includes(draft.value.action))
+const integrity=ref<ArchiveIntegrity|null>(null),integrityError=ref(''),integrityLoading=ref(false)
+const integrityCurrent=computed(()=>selected.value && integrity.value?.archiveId===selected.value.id && integrity.value.contentDigest===selected.value.contentDigest && integrity.value.summaryDigest===selected.value.summaryDigest && integrity.value.integrityStatus==='verified')
+const historyId=ref(''),historyRecord=ref(0),historyItems=ref<ArchiveRetentionEvent[]>([]),historyNext=ref(''),historyCursor=ref(''),historyCursors=ref<string[]>([]),historyHasMore=ref(false),historyLoading=ref(false),historyError=ref('')
+const checkId=ref(''),evidenceLoading=ref(false),evidenceError=ref(''),loadedCheck=ref(0)
+const evidence=ref<{id:number;kind:string;sourceSystem:string;sourceRecord:string;summary:string;observedAt:string}[]>([])
+let listGeneration=0,selectionGeneration=0,historyGeneration=0,evidenceGeneration=0
+function fail(cause:unknown,target=error){if(active.signal.aborted)return;if(cause instanceof ApiError && cause.status===401)emit('sessionExpired');target.value=describeError(cause)}
+function resetDraft(){draft.value={action:actions.value[0] || '',basis:'',retainUntil:'',evidenceId:''};draftSnapshot.value=JSON.stringify(draft.value);editing.value=false;conflict.value=false;evidence.value=[];evidenceError.value='';loadedCheck.value=0;evidenceLoading.value=false;evidenceGeneration++}
+async function load(nextCursor:string|number=cursor.value,remember=false,replaceSelection=false){
+  const generation=++listGeneration
+  loading.value=true;loadError.value=''
+  try{const out=await request<RetainedReportArchivePage>(apiUrl+'?limit=50'+(nextCursor?'&cursor='+encodeURIComponent(nextCursor):''),{signal:active.signal});if(active.signal.aborted || generation!==listGeneration)return;if(remember)cursors.value.push(cursor.value);else if(!nextCursor)cursors.value=[];page.value={...out,items:out.items || []};cursor.value=String(nextCursor);const current=out.items.find(item=>item.id===selected.value?.id);if(replaceSelection || !dirty.value){if(current)selected.value=current;else if(replaceSelection){selected.value=null;notice.value='该归档已不在当前列表页，请重新查询归档范围；已轮换的留存记录仍可按归档编号追溯。'}else if(!selected.value)selected.value=out.items[0] || null;if(replaceSelection)resetDraft()}return true}catch(cause){if(generation===listGeneration)fail(cause,loadError)}finally{if(generation===listGeneration)loading.value=false}
 }
-
-onMounted(() => { void load() })
-onBeforeUnmount(() => active.abort())
+async function previous(){const previous=cursors.value.at(-1);if(previous!==undefined && await load(previous))cursors.value.pop()}
+async function choose(item:RetainedReportArchive){if(dirty.value || busy.value)return;selectionGeneration++;selected.value=item;integrity.value=null;integrityError.value='';error.value='';notice.value='';resetDraft();historyId.value=String(item.id);await loadHistory(item.id)}
+function edit(){if(!selected.value || !actions.value.length)return;resetDraft();editing.value=true}
+async function saveRetention(){
+  if(!selected.value || busy.value || conflict.value || !actions.value.includes(draft.value.action))return
+  let payload:ReturnType<typeof archiveRetentionPayload>
+  try{payload=archiveRetentionPayload(selected.value,draft.value)}catch(cause){error.value=cause instanceof Error?cause.message:'请核对留存字段。';return}
+  const id=selected.value.id
+  busy.value='retention';error.value='';notice.value=''
+  try{const out=await request<RetainedReportArchive>(apiUrl+'/'+id+'/retention',{method:'POST',body:JSON.stringify(payload),signal:active.signal});selected.value=out;if(page.value)page.value.items=page.value.items.map(item=>item.id===id?out:item);resetDraft();notice.value='留存决定已登记。参与轮换须满足服务端实际条件；本操作不证明外部存档已完成。';historyId.value=String(id);await loadHistory(id)}catch(cause){fail(cause);if(cause instanceof ApiError && cause.status===409){conflict.value=true;error.value+=' 操作草稿已保留，请重新读取当前归档修订后核对；不会自动重试或覆盖。'}}finally{busy.value=''}
+}
+async function verifyIntegrity(){
+  if(!selected.value || integrityLoading.value || selected.value.status!=='ready')return
+  const id=selected.value.id,generation=selectionGeneration
+  integrityLoading.value=true;integrityError.value=''
+  try{const out=await request<ArchiveIntegrity>(apiUrl+'/'+id+'/integrity',{signal:active.signal});if(active.signal.aborted || generation!==selectionGeneration || selected.value?.id!==id)return;integrity.value=out}catch(cause){if(generation===selectionGeneration)fail(cause,integrityError)}finally{integrityLoading.value=false}
+}
+async function exportArchive(format:'html'|'json'){
+  if(!selected.value || busy.value || selected.value.status!=='ready')return
+  const item=selected.value
+  busy.value='export-'+format;error.value='';notice.value=''
+  try{const result=await downloadArchive(apiUrl+'/'+item.id+'/export?format='+format,'scarlet-report-archive-'+item.id+'.'+format,active.signal,item.contentDigest);notice.value=(result.responseVerified?'导出响应 SHA-256 已匹配。':'导出响应未提供可核对的内容摘要。')+(result.receiptId?'准备凭证 #'+result.receiptId+'。':'')+'浏览器已发起文件保存；prepared 记录不证明文件已收取，也不证明外部保留或不可变存储已确认。';if(historyRecord.value===item.id)await loadHistory(item.id)}catch(cause){fail(cause)}finally{busy.value=''}
+}
+async function loadHistory(id:number,nextCursor:string|number='',remember=false){
+  if(!Number.isSafeInteger(id) || id<1){historyError.value='归档编号应为正整数。';return}
+  const generation=++historyGeneration
+  historyLoading.value=true;historyError.value=''
+  try{const out=await request<ArchiveRetentionHistory>(apiUrl+'/'+id+'/retention-history?limit=50'+(nextCursor?'&cursor='+encodeURIComponent(nextCursor):''),{signal:active.signal});if(active.signal.aborted || generation!==historyGeneration)return;if(id!==historyRecord.value){historyCursors.value=[];historyCursor.value=''}if(remember)historyCursors.value.push(historyCursor.value);else if(!nextCursor)historyCursors.value=[];historyRecord.value=id;historyItems.value=out.items || [];historyNext.value=String(out.nextCursor || '');historyHasMore.value=out.hasMore;historyCursor.value=String(nextCursor);return true}catch(cause){if(generation===historyGeneration)fail(cause,historyError)}finally{if(generation===historyGeneration)historyLoading.value=false}
+}
+async function previousHistory(){const previous=historyCursors.value.at(-1);if(previous!==undefined && await loadHistory(historyRecord.value,previous))historyCursors.value.pop()}
+async function lookupEvidence(){
+  const id=Number(checkId.value)
+  if(!/^[1-9]\d*$/.test(checkId.value) || !Number.isSafeInteger(id)){evidenceError.value='请填写当前工作区的一条真实检查编号。';return}
+  const generation=++evidenceGeneration
+  evidenceLoading.value=true;evidenceError.value='';loadedCheck.value=0;evidence.value=[]
+  try{const detail=await request<{evidence:typeof evidence.value}>(workspacePath(props.workspace.slug)+'/checks/'+id,{signal:active.signal});if(active.signal.aborted || generation!==evidenceGeneration)return;evidence.value=detail.evidence || [];loadedCheck.value=id}catch(cause){if(generation===evidenceGeneration)fail(cause,evidenceError)}finally{if(generation===evidenceGeneration)evidenceLoading.value=false}
+}
+function historyAction(action:string){return archiveRetentionActions[action] || ({created:'生成归档',create:'生成归档',export_prepared:'准备导出文件',prepared:'准备导出文件',rotated:'按批准决定轮换删除',rotation_deleted:'按批准决定轮换删除'} as Record<string,string>)[action] || action}
+onMounted(async()=>{await load('');if(selected.value){historyId.value=String(selected.value.id);await loadHistory(selected.value.id)}})
+onBeforeUnmount(()=>active.abort())
 </script>
 
 <template>
-  <a class="back-link" :href="home + '/reports'"><Icon name="back" />返回合规报告</a>
-  <header class="page-header">
-    <div>
-      <h1>历史报告归档</h1>
-      <p>追溯每次 PostgreSQL 采集后的数据识别和检查快照。</p>
-    </div>
-    <div class="page-actions">
-      <a class="button button-secondary" :href="home + '/automation'">查看采集任务</a>
-      <button type="button" class="button button-secondary" :disabled="loading" @click="load">刷新归档</button>
-    </div>
-  </header>
-  <div class="archive-workbench"><section class="panel" aria-labelledby="report-archives-title" :aria-busy="loading">
-    <div class="panel-heading">
-      <div>
-        <h2 id="report-archives-title">最近归档</h2>
-        <p v-if="page">展示工作区最近 100 条归档，每个任务保留最近 {{ page.retentionPerJob }} 条。</p>
-      </div>
-    </div>
-    <p v-if="loadError" class="message message-error report-feedback" role="alert">{{ loadError }}</p>
-    <p v-else-if="loading && !page" class="empty-state" role="status">正在读取归档…</p>
-    <div v-else-if="page?.items.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="report-archives-title">
-      <table class="data-table report-table report-archive-table">
-        <thead><tr><th scope="col">采集来源</th><th scope="col">结果</th><th scope="col">识别与检查</th><th scope="col">生成时间</th></tr></thead>
-        <tbody>
-          <tr v-for="item in page.items" :key="item.id" :class="{selected:selected?.id===item.id}">
-            <th scope="row">
-              <a v-if="item.status === 'ready'" class="table-link" :href="archivePath + '/' + item.id">{{ item.source }}</a>
-              <span v-else>{{ item.source }}</span>
-              <span class="table-secondary">任务 #{{ item.jobId }} · <span class="mono">{{ item.runId }}</span></span>
-            </th>
-            <td>
-              <span class="badge" :class="item.status === 'ready' ? 'status-verified' : 'status-needs_work'">
-                {{ item.status === 'ready' ? '已归档' : '生成失败' }}
-              </span>
-              <span v-if="item.status === 'failed'" class="table-secondary">{{ archiveFailureLabels[item.code || ''] || '本次未生成报告。' }}</span>
-            </td>
-            <td>
-              <template v-if="item.identification && item.counts">
-                {{ item.identification.tables }} 张表 · {{ item.identification.columns }} 个字段
-                <span class="table-secondary">{{ item.identification.sensitiveCandidates }} 个疑似敏感 · {{ item.counts.total }} 项检查</span>
-              </template>
-              <span v-else>—</span>
-            </td>
-            <td><time :datetime="item.generatedAt">{{ formatDate(item.generatedAt) }}</time><button class="archive-select" type="button" @click="selectedId=item.id">查看采用范围</button></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else class="empty-state">
-      <strong>暂无自动报告</strong>
-      <p>启用 PostgreSQL 任务的自动归档，下一次采集成功后可查看报告。</p>
-    </div>
-  </section><aside class="archive-context"><section class="panel"><div class="panel-heading"><h2>历史采用快照</h2></div><div v-if="selected" class="archive-context-body"><span class="badge" :class="selected.status==='ready'?'status-verified':'status-needs_work'">{{selected.status==='ready'?'已归档':'生成失败'}}</span><h3>{{selected.source}}</h3><dl><div><dt>归档时间</dt><dd>{{formatDate(selected.generatedAt)}}</dd></div><div><dt>采集任务</dt><dd>#{{selected.jobId}}</dd></div><div><dt>运行引用</dt><dd class="mono">{{selected.runId}}</dd></div><div><dt>采用范围</dt><dd>本次PostgreSQL来源关联检查</dd></div></dl><template v-if="selected.status==='ready'"><a class="button button-primary" :href="archivePath+'/'+selected.id">预览采用报告</a><a class="button button-secondary" :href="apiUrl+'/'+selected.id+'/export?format=html'">导出 HTML</a><a class="button button-secondary" :href="apiUrl+'/'+selected.id+'/export?format=json'">导出 JSON</a></template><p v-else class="message message-warning">{{archiveFailureLabels[selected.code||'']||'本次未生成报告。可核对采集范围与来源记录。'}}</p></div><p v-else class="empty-state">暂无可查看的历史快照。</p></section><section class="panel"><div class="panel-heading"><h2>留存口径</h2></div><p class="archive-note">归档固定生成时的范围和证据，不随当前来源或检查状态改写。每个任务保留最近 {{page?.retentionPerJob??'限定数量'}} 条。</p></section></aside></div>
+  <section class="ai-security-workspace archive-retention-workspace">
+    <a class="back-link" :href="home+'/reports'"><Icon name="back"/>返回合规报告</a>
+    <header class="page-header"><div><p class="eyebrow">合规报告 / 自动采集归档</p><h1>历史报告与留存依据</h1><p>追溯 PostgreSQL 自动采集快照，核对保留用途、独立解除与本地内容完整性。</p></div><div class="page-actions"><a class="button button-secondary" :href="home+'/automation'">查看采集任务</a><button class="button button-secondary" :disabled="loading || !!busy" @click="load()">刷新归档列表</button></div></header>
+    <p v-if="error" class="message message-error" role="alert">{{ error }}</p><p v-if="notice" class="message message-success" role="status">{{ notice }}</p>
+    <div class="archive-workbench"><section class="panel" :aria-busy="loading"><div class="ai-security-heading"><div><h2>自动报告归档</h2><p>按归档编号从新到旧逐页读取。未知用途默认保留，只有独立批准的可轮换项参与每任务 {{ page?.retentionPerJob || '已配置' }} 项轮换窗口。</p></div></div><p v-if="loadError" class="message message-error" role="alert">{{ loadError }}{{ page?' 下方保留上次成功读取的范围。':'' }}<button class="button button-secondary" @click="load()">重新读取</button></p><p v-if="loading" class="ai-security-body" role="status">正在读取归档与留存状态…</p>
+      <div v-if="page?.items.length" class="table-scroll" role="region" tabindex="0" aria-label="自动报告归档与留存"><table class="data-table archive-table"><thead><tr><th scope="col">来源与采集范围</th><th scope="col">归档与完整性</th><th scope="col">留存状态</th><th scope="col">生成时间</th></tr></thead><tbody><tr v-for="item in page.items" :key="item.id" :class="{'is-selected':selected?.id===item.id}"><th scope="row"><button class="archive-select" :aria-pressed="selected?.id===item.id" :disabled="dirty || !!busy" @click="choose(item)">{{ item.source }}</button><span class="table-secondary">归档 #{{ item.id }} · 任务 #{{ item.jobId }}</span><span class="table-secondary mono">运行 {{ item.runId }}</span><span v-if="item.identification && item.counts" class="table-secondary">{{ item.identification.tables }} 张表 · {{ item.identification.columns }} 字段 · {{ item.identification.sensitiveCandidates }} 疑似敏感 · {{ item.counts.total }} 检查</span></th><td><span class="badge" :class="item.status==='ready'?'status-verified':'status-needs-work'">{{ item.status==='ready'?'已生成本地归档':'本次生成失败' }}</span><span class="table-secondary">{{ item.integrityStatus==='recorded'?'已登记 SHA-256 摘要，尚未按需核验':item.integrityStatus==='not_available'?'本次无可用报告摘要':item.integrityStatus }}</span><span v-if="item.status==='failed'" class="table-secondary">{{ archiveFailureLabels[item.code || ''] || '本次未生成报告，请核对来源及采集范围。' }}</span></td><td>{{ archiveRetentionStates[item.retention.state] || item.retention.state }}<span v-if="item.retention.legalHold" class="table-secondary">保全保护生效</span><span class="table-secondary">{{ item.retention.retainUntil?'保留至 '+formatDate(item.retention.retainUntil):'尚未确认保留截止' }}</span></td><td>{{ formatDate(item.generatedAt) }}</td></tr></tbody></table></div>
+      <div v-else-if="page && !loading && !loadError" class="ai-security-empty"><h3>当前页没有自动报告</h3><p>在自动采集任务中启用实际报告归档。只有采集和归档成功，才形成可预览的报告快照。</p><a class="button button-secondary" :href="home+'/automation'">核对采集与自动归档</a></div>
+      <div v-if="page" class="ai-security-pagination"><button class="button button-secondary" :disabled="loading || !cursors.length" @click="previous">较新一页</button><button class="button button-secondary" :disabled="loading || !page.hasMore || !page.nextCursor" @click="load(page.nextCursor,true)">较早一页</button><p>第 {{ cursors.length+1 }} 页 · 本页 {{ page.items.length }} 项 · {{ page.hasMore?'仍有较早归档':'已到最早可列示归档' }}</p></div>
+    </section><aside class="archive-context"><section class="panel"><div class="ai-security-heading"><div><h2>留存与采用范围</h2><p>仅覆盖本工作区自动采集报告归档。</p></div></div><div v-if="selected" class="ai-security-body"><h3>{{ selected.source }} · #{{ selected.id }}</h3><dl class="archive-facts"><div><dt>归档状态</dt><dd>{{ selected.status==='ready'?'报告可供核对':'本次报告生成失败' }}</dd></div><div><dt>留存修订</dt><dd>v{{ selected.retention.revision }}</dd></div><div><dt>保留决定</dt><dd>{{ archiveRetentionStates[selected.retention.state] }}</dd></div><div><dt>保全保护</dt><dd>{{ selected.retention.legalHold?'生效，不能以到期自动解除':'当前未设置' }}</dd></div><div v-if="selected.retention.holdReason"><dt>保全依据</dt><dd>{{ selected.retention.holdReason }}</dd></div><div><dt>保留期限</dt><dd>{{ selected.retention.retainUntil?formatDate(selected.retention.retainUntil):'用途与期限待核定' }}</dd></div><div><dt>留存依据</dt><dd>{{ selected.retention.basis || '尚未登记明确依据' }}</dd></div></dl><div v-if="selected.status==='ready'" class="archive-downloads"><a class="button button-primary" :href="archivePath+'/'+selected.id">预览原归档报告</a><button class="button button-secondary" :disabled="!!busy" @click="exportArchive('html')">{{ busy==='export-html'?'正在准备…':'准备 HTML 下载' }}</button><button class="button button-secondary" :disabled="!!busy" @click="exportArchive('json')">{{ busy==='export-json'?'正在准备…':'准备 JSON 下载' }}</button></div><button v-if="actions.length && !editing" class="button button-secondary" :disabled="!!busy" @click="edit">登记留存或独立复核决定</button><p v-if="!actions.length" class="table-secondary">当前角色或保留条件下没有可执行动作。未到期记录不能直接批准轮换，保全须独立解除。</p></div><p v-else class="ai-security-empty">选择一项真实归档后，核对其留存用途和保护范围。</p></section><section class="panel"><div class="ai-security-heading"><div><h2>外部保留状态</h2></div></div><div class="ai-security-body"><span class="badge status-draft">{{ page?.externalStorageStatus==='unverified'?'外部存储未确认':'未取得外部保留确认' }}</span><p>本地报告摘要与独立保留分别核对。prepared 导出记录不证明浏览器已经保存，也不证明外部不可变存储或长期保留已完成。</p></div></section></aside></div>
+    <p v-if="page?.boundary" class="ai-security-note">{{ page.boundary }}</p>
+    <section v-if="selected" class="panel"><div class="ai-security-heading"><div><h2>核对本地报告与摘要完整性</h2><p>列表仅登记摘要；按需读取内容和摘要后核验 SHA-256。预览和导出也由服务端核验，通过不表示外部存储已确认。</p></div><button class="button button-secondary" :disabled="integrityLoading || selected.status!=='ready'" @click="verifyIntegrity">{{ integrityLoading?'正在读取并核验…':'核验本地内容与摘要' }}</button></div><p v-if="integrityError" class="message message-error" role="alert">{{ integrityError }}<button class="button button-secondary" :disabled="integrityLoading" @click="verifyIntegrity">重试完整性核验</button></p><div class="ai-security-body"><span class="badge" :class="integrityCurrent?'status-verified':'status-draft'">{{ integrityCurrent?'本次本地 SHA-256 核验通过':selected.status==='ready'?'已登记摘要，等待本次核验':'本次没有可用报告内容' }}</span><dl class="ai-security-facts"><div><dt>报告内容摘要</dt><dd class="mono">{{ selected.contentDigest || '未提供' }}</dd></div><div><dt>汇总元数据摘要</dt><dd class="mono">{{ selected.summaryDigest || '未提供' }}</dd></div><div v-if="integrityCurrent"><dt>算法与口径</dt><dd>{{ integrity?.algorithm }} · {{ integrity?.canonicalization }}</dd></div><div v-if="integrityCurrent"><dt>核验内容字节数</dt><dd>{{ integrity?.contentBytes.toLocaleString() }}</dd></div></dl><p v-if="integrityCurrent" class="table-secondary">{{ integrity?.boundary }}</p></div></section>
+    <form v-if="selected && editing" class="panel archive-retention-editor" @submit.prevent="saveRetention"><div class="ai-security-heading"><div><h2>归档 #{{ selected.id }} 的留存决定</h2><p>当前采用留存修订 {{ selected.retention.revision }}。独立解除或放行须回避既往保护贡献者和所引用证据作者，由服务端核对。</p></div><button class="button button-secondary" type="button" :disabled="!!busy" @click="resetDraft">{{ dirty?'取消并丢弃操作草稿':'关闭编辑' }}</button></div><div class="ai-security-body"><fieldset class="ai-security-fields" :disabled="!!busy || conflict"><legend class="sr-only">留存动作与依据</legend><label class="field">实际动作<select v-model="draft.action" required><option v-for="action in actions" :key="action" :value="action">{{ archiveRetentionActions[action] }}</option></select></label><label v-if="draft.action==='extend'" class="field">新的保留截止（带时区）<input v-model.trim="draft.retainUntil" required maxlength="40" placeholder="YYYY-MM-DDTHH:mm:ss+08:00"><small>仅允许延长，且须晚于当前时间；不统一预置法定保留天数。</small></label><label class="field field-wide">适用业务、留存或独立复核依据<textarea v-model.trim="draft.basis" required rows="3" maxlength="600"></textarea></label></fieldset><div v-if="independent" class="archive-evidence-picker"><h3>用于独立判断的真实检查证据</h3><p class="table-secondary">解除保全与批准轮换都须采用当前工作区真实证据，且复核人不能是该证据作者。</p><div class="archive-evidence-lookup"><label class="field">检查编号<input v-model.trim="checkId" type="number" min="1" step="1" :disabled="!!busy || evidenceLoading || conflict"></label><button class="button button-secondary" type="button" :disabled="!!busy || evidenceLoading || conflict || !checkId" @click="lookupEvidence">{{ evidenceLoading?'正在读取…':'读取检查证据' }}</button><a :href="home+'/checks'">前往检查台账</a></div><p v-if="evidenceError" class="message message-error" role="alert">{{ evidenceError }}</p><label v-for="item in evidence" :key="item.id" class="archive-evidence-choice"><input v-model="draft.evidenceId" type="radio" name="archive-retention-evidence" :value="String(item.id)" :disabled="!!busy || conflict"><span><strong>证据 #{{ item.id }} · {{ item.kind }}</strong><span>{{ item.summary }}</span><small>{{ item.sourceSystem }} · {{ formatDate(item.observedAt) }}</small></span></label><p v-if="loadedCheck && !evidence.length" class="table-secondary">检查 #{{ loadedCheck }} 尚无证据，请先在原检查取得真实材料。</p><p class="table-secondary">当前选择：{{ draft.evidenceId?'真实证据 #'+draft.evidenceId:'尚未选择' }}</p></div><p v-if="draft.action==='allow_rotation'" class="ai-security-note">批准仅使归档具备参与后续轮换的资格，不立即证明文件已经删除。受保护、未到期或独立复核不通过的归档继续保留。</p><div class="ai-security-actions"><button class="button button-primary" :disabled="!!busy || conflict || !draft.basis.trim() || independent && !draft.evidenceId">{{ busy==='retention'?'正在记录…':archiveRetentionActions[draft.action] || '记录留存决定' }}</button><button v-if="conflict" class="button button-secondary" type="button" :disabled="loading || !!busy" @click="load(cursor,false,true)">重新读取并丢弃操作草稿</button></div></div></form>
+    <section class="panel"><div class="ai-security-heading"><div><h2>留存、导出准备与轮换墓碑</h2><p>按归档编号追溯独立决定；轮换后仅保留必要墓碑，不把删除的原报告正文伪装成仍然存在。</p></div></div><form class="ai-security-filter" @submit.prevent="loadHistory(Number(historyId))"><label class="field">归档编号<input v-model.trim="historyId" type="number" min="1" step="1" required :disabled="historyLoading" placeholder="可查询已轮换归档编号"></label><button class="button button-secondary" :disabled="historyLoading">查询留存历史</button></form><p v-if="historyError" class="message message-error" role="alert">{{ historyError }}{{ historyRecord?' 下方保留归档 #'+historyRecord+' 上次成功读取的历史。':'' }}</p><p v-if="historyLoading" class="ai-security-body" role="status">正在读取留存与导出准备历史…</p><ol v-if="historyItems.length" class="archive-history"><li v-for="entry in historyItems" :key="entry.id"><div><strong>{{ historyAction(entry.action) }}</strong><span class="table-secondary">{{ entry.actor || (entry.actorId?'成员 #'+entry.actorId:'系统轮换') }} · {{ formatDate(entry.createdAt) }}</span></div><p>{{ entry.note || '未附加说明' }}<span v-if="entry.evidenceId" class="table-secondary">独立判断证据 #{{ entry.evidenceId }}</span></p><details><summary>核对留存快照与摘要</summary><pre class="ai-security-code">{{ JSON.stringify(entry.snapshot,null,2) }}</pre></details></li></ol><p v-else-if="historyRecord && !historyLoading && !historyError" class="ai-security-empty">此归档当前没有可读取的留存事件。</p><div v-if="historyRecord" class="ai-security-pagination"><button class="button button-secondary" :disabled="historyLoading || !historyCursors.length" @click="previousHistory">较新一页</button><button class="button button-secondary" :disabled="historyLoading || !historyHasMore || !historyNext" @click="loadHistory(historyRecord,historyNext,true)">较早一页</button><p>归档 #{{ historyRecord }} · 第 {{ historyCursors.length+1 }} 页 · 本页 {{ historyItems.length }} 项</p></div></section>
+  </section>
 </template>
-<style scoped>
-.archive-workbench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}.archive-workbench>.panel{min-width:0}.archive-context{display:grid;gap:16px;position:sticky;top:16px}.archive-context-body{padding:18px;display:grid;gap:12px}.archive-context h3{font-size:14px}.archive-context dl{margin:0;font-size:12px}.archive-context dl>div{display:grid;grid-template-columns:65px minmax(0,1fr);gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}.archive-context dt{color:var(--secondary)}.archive-context dd{margin:0;overflow-wrap:anywhere}.archive-select{display:block;border:0;background:none;padding:0;margin-top:6px;color:var(--accent);font-size:12px}.report-archive-table tr.selected{background:var(--accent-soft)}.report-archive-table tr.selected>th{box-shadow:inset 2px 0 var(--accent)}.archive-note{padding:18px;color:var(--secondary);font-size:12px}@media(max-width:1320px){.archive-workbench{grid-template-columns:minmax(0,1fr) 270px}}
-</style>

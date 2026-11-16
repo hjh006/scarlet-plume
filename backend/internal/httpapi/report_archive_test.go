@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -44,6 +45,14 @@ func TestPostgreSQLAutomaticReportArchives(t *testing.T) {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		// Explicitly dispose of these test-only snapshots before tenant cleanup.
+		// A production cascade must not bypass unknown-purpose or hold protection.
+		if _, err := pool.Exec(ctx, `UPDATE plume.automation_report_archives a SET retention_state='rotation_allowed',legal_hold=false,retain_until=NULL,retention_basis='Disposable test fixture cleanup' FROM plume.automation_runs r JOIN plume.automation_jobs j ON j.id=r.job_id JOIN plume.workspaces w ON w.id=j.workspace_id WHERE a.automation_run_id=r.id AND w.slug=ANY($1)`, []string{slug, otherSlug}); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(ctx, `DELETE FROM plume.automation_report_archives a USING plume.automation_runs r,plume.automation_jobs j,plume.workspaces w WHERE a.automation_run_id=r.id AND r.job_id=j.id AND j.workspace_id=w.id AND w.slug=ANY($1)`, []string{slug, otherSlug}); err != nil {
+			t.Error(err)
+		}
 		if _, err := pool.Exec(ctx, "DELETE FROM plume.workspaces WHERE slug = ANY($1)", []string{slug, otherSlug}); err != nil {
 			t.Error(err)
 		}
@@ -156,9 +165,14 @@ func TestPostgreSQLAutomaticReportArchives(t *testing.T) {
 			}
 		}
 	}
+	jsonExport := get(firstPath+"/export?format=json", true, 200)
 	if updated.Identification == nil || updated.Identification.SensitiveCandidates != 0 ||
-		get(firstPath+"/export?format=json", true, 200).Body.String() != original {
+		jsonExport.Body.String() != original {
 		t.Fatal("archive changed after another run")
+	}
+	bytesDigest := sha256.Sum256(jsonExport.Body.Bytes())
+	if jsonExport.Header().Get("Content-Digest") != "sha-256=:"+base64.StdEncoding.EncodeToString(bytesDigest[:])+":" || jsonExport.Header().Get("X-Archive-Digest") == "" || jsonExport.Header().Get("X-Export-Receipt-Id") == "" {
+		t.Fatal("export missing exact byte digest or prepared receipt")
 	}
 	html := get(firstPath+"/export?format=html", true, 200)
 	if !strings.HasSuffix(html.Header().Get("Content-Disposition"), ".html\"") ||
@@ -191,12 +205,52 @@ func TestPostgreSQLAutomaticReportArchives(t *testing.T) {
 		RetentionPerJob int                   `json:"retentionPerJob"`
 	}
 	checkErr(json.Unmarshal(get(path, true, 200).Body.Bytes(), &list))
-	if len(list.Items) != store.ReportArchiveRetentionPerJob || list.RetentionPerJob != store.ReportArchiveRetentionPerJob ||
+	if len(list.Items) != store.ReportArchiveRetentionPerJob+1 || list.RetentionPerJob != store.ReportArchiveRetentionPerJob ||
 		list.Items[0].Status != "failed" || list.Items[0].Code != "scope_too_large" || list.Items[0].Counts != nil ||
-		list.Items[0].Identification != nil || list.Items[len(list.Items)-1].ID != second.ID ||
-		list.Items[len(list.Items)-1].Counts == nil || list.Items[len(list.Items)-1].Identification == nil {
+		list.Items[0].Identification != nil || list.Items[len(list.Items)-1].ID != first.ID ||
+		list.Items[len(list.Items)-1].Counts == nil || list.Items[len(list.Items)-1].Identification == nil || list.Items[len(list.Items)-1].Retention.State != "review_required" {
 		t.Fatalf("unexpected archive retention or failure state: %+v", list)
 	}
 	get(fmt.Sprintf("%s/%d", path, tooLarge.ID), true, 422)
-	get(firstPath, true, 404)
+	get(firstPath, true, 200)
+	integrity := get(firstPath+"/integrity", true, 200)
+	if !strings.Contains(integrity.Body.String(), `"integrityStatus":"verified"`) || !strings.Contains(integrity.Body.String(), `"externalStorageStatus":"unverified"`) {
+		t.Fatal("local hash mistaken for external storage verification")
+	}
+	history := get(firstPath+"/retention-history?limit=1", true, 200)
+	if !strings.Contains(history.Body.String(), `"deliveryStatus":"prepared"`) {
+		t.Fatal("export receipt missing or falsely claims delivery")
+	}
+	post := func(p, origin string, body any, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		raw, e := json.Marshal(body)
+		checkErr(e)
+		r := httptest.NewRequest("POST", p, strings.NewReader(string(raw)))
+		r.AddCookie(&http.Cookie{Name: "__Host-scarlet-session", Value: token})
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != status {
+			t.Fatalf("POST %s returned %d want %d %.400s", p, w.Code, status, w.Body.String())
+		}
+		return w
+	}
+	hold := store.ReportArchiveRetentionInput{Revision: 1, Action: "hold", Basis: "Retain specific source report during investigation"}
+	post(firstPath+"/retention", "https://untrusted.invalid", hold, 403)
+	post(fmt.Sprintf("%s/%d/retention", pathFor(otherSlug), first.ID), "https://example.invalid", hold, 404)
+	var protected store.ReportArchive
+	checkErr(json.Unmarshal(post(firstPath+"/retention", "https://example.invalid", hold, 200).Body.Bytes(), &protected))
+	if !protected.Retention.LegalHold || protected.Retention.Revision != 2 {
+		t.Fatal("hold route did not protect archive")
+	}
+	post(firstPath+"/retention", "https://example.invalid", hold, 409)
+	post(firstPath+"/retention", "https://example.invalid", store.ReportArchiveRetentionInput{Revision: 2, Action: "release_hold", Basis: "No evidence"}, 422)
+	get(path+"?limit=101", true, 400)
+	var firstPage store.ReportArchivePage
+	checkErr(json.Unmarshal(get(path+"?limit=1", true, 200).Body.Bytes(), &firstPage))
+	if !firstPage.HasMore || firstPage.NextCursor == 0 {
+		t.Fatal("archive list hides retained continuation")
+	}
+	get(fmt.Sprintf("%s?cursor=%d&limit=1", path, firstPage.NextCursor), true, 200)
 }

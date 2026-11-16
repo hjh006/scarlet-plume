@@ -174,7 +174,7 @@ func (h *runtimeHandler) prepareSources(ctx context.Context, r Request, c Config
 	for _, id := range r.DocumentIDs {
 		for _, f := range facts {
 			if f.DocumentID == id {
-				found, code := inspect(local[id].Content, c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns)
+				found, code := inspect(local[id].Content, c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns, c.Policy.Inspection)
 				if code != "" {
 					return r, errors.New("document_input_content_denied")
 				}

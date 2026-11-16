@@ -112,32 +112,45 @@ export function workspacePath(slug: string) {
 }
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly status: number
+  readonly retryAfterSeconds?: number
+  constructor(status: number, message: string, retryAfterSeconds?: number) {
     super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
+}
+
+export function retryAfterSeconds(value: string | null, now = Date.now()): number | undefined {
+  if (!value || value.length > 128) return undefined
+  const seconds = /^\d+$/.test(value.trim()) ? Number(value) : (Date.parse(value) - now) / 1000
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(86400, Math.ceil(seconds)) : undefined
 }
 
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
   if (options.body !== undefined) headers.set('Content-Type', 'application/json')
-  const response = await fetch(path, { ...options, headers, credentials: 'same-origin' })
+  const deadline = AbortSignal.timeout(45000)
+  const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline
+  const response = await fetch(path, { ...options, headers, signal, credentials: 'same-origin' })
 
   if (response.status === 204) return undefined as T
   const body = await response.json().catch(() => null)
   if (!response.ok) {
     const message = typeof body?.error === 'string' ? body.error.slice(0, 300) : ''
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, message, retryAfterSeconds(response.headers.get('Retry-After')))
   }
   if (body === null) throw new Error('服务返回的响应格式无效。')
   return body as T
 }
 
 export async function downloadFile(path: string, filename: string, signal: AbortSignal) {
-  const response = await fetch(path, { signal, credentials: 'same-origin' })
+  const response = await fetch(path, { signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]), credentials: 'same-origin' })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    throw new ApiError(response.status, typeof body?.error === 'string' ? body.error.slice(0, 300) : '')
+    throw new ApiError(response.status, typeof body?.error === 'string' ? body.error.slice(0, 300) : '', retryAfterSeconds(response.headers.get('Retry-After')))
   }
   const blob = await response.blob()
   if (signal.aborted) return
@@ -157,9 +170,12 @@ export function describeError(error: unknown) {
     if (error.status === 403) return '当前账号无权执行此操作。'
     if (error.status === 404) return '找不到此工作区或记录。'
     if (error.status === 413) return '文件超过导入大小限制。'
+    if (error.status === 429) return error.retryAfterSeconds !== undefined ? `请求过于频繁，请在 ${error.retryAfterSeconds} 秒后重试。` : '请求过于频繁，请稍后重试。'
+    if (error.status === 409) return error.message || '记录已被更新。请保留草稿，核对最新版本后重试。'
     if (error.status >= 500) return '服务暂时无法完成请求，请稍后重试。'
     return error.message || '无法完成请求，请检查输入。'
   }
+  if (error instanceof DOMException && error.name === 'TimeoutError') return '请求等待超时。若刚才执行了保存，请先刷新核对结果，避免重复提交。'
   return error instanceof TypeError ? '无法连接服务，请检查网络后重试。' : '无法完成请求，请稍后重试。'
 }
 

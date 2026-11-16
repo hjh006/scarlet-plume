@@ -16,7 +16,7 @@ __pycache__/
 /htmlcov/
 /.scarlet-runtime-tls/
 
-/.scarlet-validation/
+.scarlet-validation/
 /.scarlet-openmetadata/
 
 /var/ai-gateway/

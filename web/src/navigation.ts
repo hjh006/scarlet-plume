@@ -22,6 +22,7 @@ export const toolGroups = [
     { id: 'runtime-policies', label: '运行时检测策略', icon: 'templates', description: '维护检测策略参数、修订与采用版本。' },
   ] },
   { label: '检查、评估与交付', items: [
+    { id: 'governance-ops', label: '治理办理', icon: 'activities', description: '办理个人权利、同意撤回、供应商监督、合规审计、事件报告与内容标识核验，保留执行回执和独立复核。' },
     { id: 'checks', label: '监管检查', icon: 'checks', description: '开展取证、整改、新复测和独立复核。' },
     { id: 'assessments', label: '合规评估', icon: 'checks', description: '查看个人信息、出境、AI及业务变更评估。' },
     { id: 'reports', label: '合规报告', icon: 'reports', description: '查看当前范围报告、历史归档与导出材料。' },

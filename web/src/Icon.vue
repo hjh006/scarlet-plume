@@ -5,6 +5,10 @@ defineProps<{ name: string }>()
 <template>
   <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
     <template v-if="name === 'search'"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></template>
+    <path v-else-if="name === 'filter'" d="M3 4h18l-7 8v7l-4 2v-9L3 4Z" />
+    <template v-else-if="name === 'ai'"><rect x="6" y="6" width="12" height="12" rx="3" /><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4m-8-5-3 4m0-4 3 4" /></template>
+    <template v-else-if="name === 'info'"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></template>
+    <template v-else-if="name === 'history'"><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6M12 7v5l3 2" /></template>
     <template v-else-if="name === 'mark'">
       <path d="M3.1 18.8C1.7 12.1 5 7.1 11.4 5.3 16.1 4 19.2 3.5 21.5 1c.2 6.2-1.9 10.1-6.1 12.8-3.9 2.4-8 3.1-12.3 5Z" fill="currentColor" stroke="none" />
       <path d="M2 22c3-5.6 7.5-9.4 15.5-16.2" stroke="currentColor" stroke-width="1.2" />

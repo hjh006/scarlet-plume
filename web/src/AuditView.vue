@@ -70,6 +70,7 @@ function errorText(failure: unknown) {
 }
 
 async function loadSources() {
+  sourceError.value = ''
   try {
     const result = await request<{ items: typeof sources.value }>(base + '/api-security/runtime/sources', { signal: active.signal })
     sources.value = result.items ?? []
@@ -186,7 +187,7 @@ onBeforeUnmount(() => active.abort())
         </template>
         <button type="submit" class="button button-secondary" :disabled="loading || exporting">{{ loading ? '正在查询…' : '查询' }}</button>
       </form>
-      <p v-if="sourceError" class="field-hint audit-note">观测来源列表暂不可用，可继续按其他条件查询。</p>
+      <div v-if="sourceError" class="message message-error audit-note" role="alert"><p>观测来源列表暂不可用，可继续按其他条件查询。{{ sourceError }}</p><button type="button" class="button button-secondary" @click="loadSources">重试来源列表</button></div>
       <p v-if="error" class="message message-error audit-note" role="alert">{{ error }}</p>
       <p v-else-if="loading" class="empty-state" role="status">正在读取审计记录…</p>
       <template v-else-if="runtime || actions">

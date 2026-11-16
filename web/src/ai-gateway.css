@@ -1,9 +1,9 @@
 .ai-gateway-group-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,.45fr) auto; gap:12px; align-items:end; margin:12px 0; }
 .ai-gateway-address { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:end; margin-bottom:16px; }
 .ai-gateway-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
-.ai-gateway-metrics article { padding:18px 20px; }
+.ai-gateway-metrics article { padding:18px 20px; min-width:0; }
 .ai-gateway-metrics span { color:var(--secondary); font-size:13px; }
-.ai-gateway-metrics strong { display:block; margin-top:8px; font-size:26px; font-weight:650; }
+.ai-gateway-metrics strong { display:block; margin-top:8px; font-size:clamp(20px,2.2vw,26px); font-weight:650; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .ai-gateway-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.6fr); gap:18px; align-items:start; }
 .ai-gateway-layout > * { min-width:0; }
 .ai-gateway-workspace .data-table { min-width:700px; }

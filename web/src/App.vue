@@ -1,64 +1,61 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, nextTick, onMounted, onUnmounted, ref, watch, type AsyncComponentLoader, type Component } from 'vue'
 import { ApiError, describeError, request, roleLabels, sessionPath, type Session } from './api'
 import Brand from './Brand.vue'
-import ScenarioView from './ScenarioView.vue'
-import ToolsView from './ToolsView.vue'
-import CapabilityToolsView from './CapabilityToolsView.vue'
 import { primaryScenarioForPage, scenarioEntryPath, scenarioOwnsPage, scenarios } from './scenario-navigation'
 import { configurationToolGroups, toolGroups, toolPages } from './navigation'
 import { readScenarioContext, scenarioContextHref, scenarioScopeEvent } from './scenario-context'
 import phoenixFeather from './assets/phoenix-feather.webp'
 import Icon from './Icon.vue'
-import WorkspaceView from './WorkspaceView.vue'
-import PostgresInspectionView from './PostgresInspectionView.vue'
-import ChecksView from './ChecksView.vue'
-import CheckCreate from './CheckCreate.vue'
-import CheckDetail from './CheckDetail.vue'
-import ActivitiesView from './ActivitiesView.vue'
-import ActivityCreate from './ActivityCreate.vue'
-import ActivityDetail from './ActivityDetail.vue'
-import TemplatesView from './TemplatesView.vue'
-import TemplateForm from './TemplateForm.vue'
-import ComplianceReportView from './ComplianceReportView.vue'
-import ReportArchiveView from './ReportArchiveView.vue'
-import AutomationView from './AutomationView.vue'
-import ApiSecurityView from './ApiSecurityView.vue'
-import ApiRuntimeView from './ApiRuntimeView.vue'
-import ApiLifecycleView from './ApiLifecycleView.vue'
-import DataFlowsView from './DataFlowsView.vue'
-import RuntimePoliciesView from './RuntimePoliciesView.vue'
-import DiscoveryView from './DiscoveryView.vue'
-import AssetCatalogView from './AssetCatalogView.vue'
-import SecurityOperationsView from './SecurityOperationsView.vue'
-import AssessmentsView from './AssessmentsView.vue'
-import AuditView from './AuditView.vue'
-import ClassificationView from './ClassificationView.vue'
-import ClassificationStandardsView from './ClassificationStandardsView.vue'
 
-const AISecurityView = defineAsyncComponent({
-  loader: () => import('./AISecurityView.vue'), delay: 0, timeout: 15000,
-  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入 AI 运行时安全页面…'),
-  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, 'AI 安全页面未能载入，请刷新重试。'),
-})
-const AISecurityPlatform = defineAsyncComponent({
-  loader: () => import('./AISecurityPlatform.vue'), delay: 0, timeout: 15000,
-  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入安全能力工作台…'),
-  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, '安全能力工作台未能载入，请刷新重试。'),
-})
-const AIGatewayView = defineAsyncComponent({
-  loader: () => import('./AIGatewayView.vue'), delay: 0, timeout: 15000,
-  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入 AI 网关管理页面…'),
-  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, 'AI 网关页面未能载入，请刷新重试。'),
-})
+function loadPage<T extends Component>(loader: AsyncComponentLoader<T>, label: string): T {
+  return defineAsyncComponent({
+    loader, delay: 120, timeout: 20000,
+    loadingComponent: () => h('div', { class: 'page-loading', role: 'status' }, [
+      h('span', { class: 'page-loading-indicator', 'aria-hidden': 'true' }),
+      h('span', `正在载入${label}…`),
+    ]),
+    errorComponent: () => h('section', { class: 'panel page-load-error', role: 'alert' }, [
+      h('h2', `${label}暂时无法载入`),
+      h('p', '请检查网络连接，再重新载入页面。'),
+      h('button', { type: 'button', class: 'button button-secondary', onClick: () => window.location.reload() }, '重新载入页面'),
+    ]),
+  })
+}
 
-const ApiValidationView = defineAsyncComponent({
-  loader: () => import('./ApiValidationView.vue'),
-  delay: 0,
-  timeout: 15000,
-  loadingComponent: () => h('p', { class: 'message', role: 'status' }, '正在载入 API 验证页面…'),
-  errorComponent: () => h('p', { class: 'message message-error', role: 'alert' }, '页面资源未能载入，请刷新页面重试。'),
-})
+const ScenarioView = loadPage(() => import('./ScenarioView.vue'), '场景检查')
+const ToolsView = loadPage(() => import('./ToolsView.vue'), '专业工具与配置')
+const CapabilityToolsView = loadPage(() => import('./CapabilityToolsView.vue'), '能力接入')
+const WorkspaceView = loadPage(() => import('./WorkspaceView.vue'), '工作区概览')
+const PostgresInspectionView = loadPage(() => import('./PostgresInspectionView.vue'), '资产检查详情')
+const ChecksView = loadPage(() => import('./ChecksView.vue'), '检查台账')
+const CheckCreate = loadPage(() => import('./CheckCreate.vue'), '新建检查')
+const CheckDetail = loadPage(() => import('./CheckDetail.vue'), '检查详情')
+const ActivitiesView = loadPage(() => import('./ActivitiesView.vue'), '处理活动')
+const ActivityCreate = loadPage(() => import('./ActivityCreate.vue'), '新建处理活动')
+const ActivityDetail = loadPage(() => import('./ActivityDetail.vue'), '处理活动详情')
+const TemplatesView = loadPage(() => import('./TemplatesView.vue'), '检查模板')
+const TemplateForm = loadPage(() => import('./TemplateForm.vue'), '模板编辑')
+const ComplianceReportView = loadPage(() => import('./ComplianceReportView.vue'), '合规报告')
+const ReportArchiveView = loadPage(() => import('./ReportArchiveView.vue'), '报告归档')
+const AutomationView = loadPage(() => import('./AutomationView.vue'), '自动采集')
+const ApiSecurityView = loadPage(() => import('./ApiSecurityView.vue'), 'API 安全')
+const ApiRuntimeView = loadPage(() => import('./ApiRuntimeView.vue'), 'API 运行时观测')
+const ApiLifecycleView = loadPage(() => import('./ApiLifecycleView.vue'), '接口生命周期')
+const DataFlowsView = loadPage(() => import('./DataFlowsView.vue'), '数据流转')
+const RuntimePoliciesView = loadPage(() => import('./RuntimePoliciesView.vue'), '运行时策略')
+const DiscoveryView = loadPage(() => import('./DiscoveryView.vue'), '数据发现')
+const AssetCatalogView = loadPage(() => import('./AssetCatalogView.vue'), '资产目录')
+const SecurityOperationsView = loadPage(() => import('./SecurityOperationsView.vue'), '安全运营')
+const AssessmentsView = loadPage(() => import('./AssessmentsView.vue'), '专项评估')
+const AuditView = loadPage(() => import('./AuditView.vue'), '审计记录')
+const ClassificationView = loadPage(() => import('./ClassificationView.vue'), '分类分级')
+const ClassificationStandardsView = loadPage(() => import('./ClassificationStandardsView.vue'), '分类标准')
+const AISecurityView = loadPage(() => import('./AISecurityView.vue'), 'AI 运行时安全')
+const AISecurityPlatform = loadPage(() => import('./AISecurityPlatform.vue'), '安全能力工作台')
+const AIGatewayView = loadPage(() => import('./AIGatewayView.vue'), 'AI 网关与企业治理')
+const ApiValidationView = loadPage(() => import('./ApiValidationView.vue'), 'API 验证')
+const GovernanceOperationsView = loadPage(() => import('./GovernanceOperationsView.vue'), '治理办理')
 
 const pages = [...toolPages,
   { id: 'scenarios', label: '场景检查', icon: 'checks' },
@@ -88,7 +85,7 @@ function readRoute() {
     slug = ''
   }
   const page = pages.find(page => page.id === requestedPage)?.id || 'overview'
-  return { slug, page, recordId, contextId, sceneId: parameters.get('scene') || '', scopeAssetId: parameters.get('assetId') || '', scopeActivityId: parameters.get('activityId') || '', capabilityTab:parameters.get('tab')||'', explicitScene: parameters.has('scene') }
+  return { slug, page, recordId, contextId, sceneId: parameters.get('scene') || '', scopeAssetId: parameters.get('assetId') || '', scopeActivityId: parameters.get('activityId') || '', capabilityTab:parameters.get('tab')||'', governanceKind:parameters.get('kind')||'', explicitScene: parameters.has('scene') }
 }
 
 function attachSceneContext(target: ReturnType<typeof readRoute>, sceneId: string) {
@@ -115,6 +112,11 @@ function scopedHref(page: string) {
   void navigationScopeVersion.value
   return scenarioContextHref(route.value.slug, page)
 }
+function scenarioEntryActive(page: string) {
+  if (route.value.page !== page.split(/[/?]/)[0]) return false
+  const query = new URLSearchParams(page.split('?')[1] || '')
+  return (query.get('tab') || '') === route.value.capabilityTab && (query.get('kind') || '') === route.value.governanceKind
+}
 const session = ref<Session | null>(null)
 const initializing = ref(true)
 const initialError = ref('')
@@ -122,6 +124,8 @@ const actionError = ref('')
 const busy = ref(false)
 const username = ref('')
 const password = ref('')
+const passwordVisible = ref(false)
+const passwordCapsLock = ref(false)
 const enterpriseWorkspace = ref(initialRoute.slug)
 const mainContent = ref<HTMLElement | null>(null)
 const menuButton = ref<HTMLButtonElement | null>(null)
@@ -262,6 +266,8 @@ async function signIn() {
       : describeError(error)
   } finally {
     password.value = ''
+    passwordVisible.value = false
+    passwordCapsLock.value = false
     busy.value = false
   }
 }
@@ -283,9 +289,18 @@ async function signOut() {
   }
 }
 function enterpriseSignIn() {
+  if (busy.value) return
   const slug=enterpriseWorkspace.value.trim()
-  if(slug)window.location.assign('/api/v1/identity/'+encodeURIComponent(slug)+'/oidc/start')
+  if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(slug)) {
+    actionError.value = '请输入管理员提供的工作区标识，使用小写字母、数字或连字符。'
+    return
+  }
+  actionError.value = ''
+  busy.value = true
+  window.location.assign('/api/v1/identity/'+encodeURIComponent(slug)+'/oidc/start')
 }
+function restorePublicPage() { busy.value = false }
+function detectCapsLock(event: KeyboardEvent) { passwordCapsLock.value = event.getModifierState('CapsLock') }
 
 function sessionExpired() {
   scenarioReturn.value = null
@@ -314,6 +329,7 @@ onMounted(() => {
   window.addEventListener('hashchange', syncRoute)
   window.addEventListener(scenarioScopeEvent, refreshNavigationScope)
   window.addEventListener('keydown', navigationShortcut)
+  window.addEventListener('pageshow', restorePublicPage)
   void loadSession()
 })
 
@@ -321,6 +337,7 @@ onUnmounted(() => {
   window.removeEventListener('hashchange', syncRoute)
   window.removeEventListener(scenarioScopeEvent, refreshNavigationScope)
   window.removeEventListener('keydown', navigationShortcut)
+  window.removeEventListener('pageshow', restorePublicPage)
 })
 </script>
 
@@ -355,7 +372,7 @@ onUnmounted(() => {
                 <h3 :id="`${scenario.id}-results-heading`" class="scenario-subnavigation-label">结果与发现</h3>
                 <div class="scenario-subnavigation-items">
                   <a v-for="view in scenario.views" :key="view.page" :href="scopedHref(scenarioEntryPath(scenario.id, view.page))"
-                     :aria-current="route.page === view.page.split(/[/?]/)[0] && (!view.page.includes('tab=') || view.page.includes('tab='+route.capabilityTab)) ? 'page' : undefined">{{ view.label }}</a>
+                     :aria-current="scenarioEntryActive(view.page) ? 'page' : undefined">{{ view.label }}</a>
                 </div>
               </div>
               <div class="scenario-subnavigation-group" role="group" :aria-labelledby="`${scenario.id}-guides-heading`">
@@ -371,6 +388,7 @@ onUnmounted(() => {
         <div class="nav-group navigation-support">
           <span class="nav-label">材料与工具</span>
           <a :href="scopedHref('reports')"><Icon name="reports" /><span>材料与报告</span></a>
+          <a :href="scopedHref('governance-ops')" :aria-current="route.page === 'governance-ops' ? 'page' : undefined"><Icon name="activities" /><span>治理办理</span></a>
           <a :href="scopedHref('tools')" :class="{ 'navigation-section-active': isProfessionalPage }" :aria-current="route.page === 'tools' ? 'page' : undefined"><Icon name="templates" /><span>专业工具与配置</span></a>
         </div>
       </nav>
@@ -404,7 +422,7 @@ onUnmounted(() => {
         <input id="navigation-query" ref="navigationInput" v-model="navigationQuery" placeholder="如分类分级、出境、合规审计、API" autocomplete="off">
         <nav aria-label="功能查找结果"><a v-for="item in navigationMatches" :key="item.path" :href="scopedHref(item.path)" @click="closeNavigation"><Icon :name="item.icon" /><span>{{ item.label }}<small class="navigation-result-group">{{ item.group }}</small></span><Icon name="arrow" /></a><p v-if="!navigationMatches.length" class="empty-state">没有匹配的场景或功能，请换个关键词。</p></nav>
       </dialog>
-      <main id="main-content" ref="mainContent" class="main-content" tabindex="-1">
+      <main id="main-content" ref="mainContent" class="main-content" :data-page="route.page" tabindex="-1">
         <p v-if="actionError" class="message message-error page-feedback" role="alert">{{ actionError }}</p>
         <a v-if="scenarioReturn && scenarioReturn.slug === workspace.slug" class="scenario-return" :href="scopedHref(scenarioReturn.path)"><Icon name="back" />返回 {{ scenarioReturn.label }}</a>
         <ScenarioView v-if="route.page === 'scenarios'" :key="`${workspace.slug}/scenarios/${route.recordId}/${route.contextId}`" :workspace="workspace" :scenario-id="route.recordId" :task-id="route.contextId" @session-expired="sessionExpired" />
@@ -412,6 +430,7 @@ onUnmounted(() => {
         <AISecurityPlatform v-else-if="route.page === 'security-platform'" :key="`${workspace.slug}/${route.capabilityTab}`" :initial-tab="route.capabilityTab" :workspace="workspace" @session-expired="sessionExpired" />
         <AISecurityView v-else-if="route.page === 'ai-security'" :key="`${workspace.slug}/${route.capabilityTab}`" :initial-tab="route.capabilityTab" :workspace="workspace" @session-expired="sessionExpired" />
         <AIGatewayView v-else-if="route.page === 'ai-gateway'" :key="`${workspace.slug}/${route.capabilityTab}`" :initial-tab="route.capabilityTab" :workspace="workspace" @session-expired="sessionExpired" />
+        <GovernanceOperationsView v-else-if="route.page === 'governance-ops'" :key="`${workspace.slug}/${route.governanceKind}/${route.recordId}`" :workspace="workspace" :initial-kind="route.governanceKind" :initial-record-id="route.recordId" @session-expired="sessionExpired" />
         <CapabilityToolsView v-else-if="route.page === 'capabilities'" :key="`${workspace.slug}/${route.scopeAssetId}/${route.scopeActivityId}`" :workspace="workspace" @session-expired="sessionExpired" />
         <template v-else-if="route.page === 'activities'">
           <ActivityCreate v-if="route.recordId === 'new'" :key="workspace.slug" :workspace="workspace"
@@ -531,25 +550,32 @@ onUnmounted(() => {
         <div class="login-form-region"><section class="panel login-panel" aria-labelledby="login-title">
           <h2 id="login-title">登录赤翎</h2>
           <p class="login-description">使用管理员分配的工作区账号。</p>
-          <p v-if="actionError" class="message message-error page-feedback" role="alert">{{ actionError }}</p>
-          <form @submit.prevent="signIn">
+          <p v-if="actionError" id="login-error" class="message message-error page-feedback" role="alert">{{ actionError }}</p>
+          <form class="account-sign-in" :aria-busy="busy" @submit.prevent="signIn">
             <div class="field">
               <label for="login-username">账号</label>
-              <input id="login-username" v-model="username" name="username" autocomplete="username" required>
+              <input id="login-username" v-model="username" name="username" autocomplete="username" autocapitalize="none" :spellcheck="false" maxlength="150" :aria-describedby="actionError ? 'login-error' : undefined" :disabled="busy" required>
             </div>
             <div class="field">
               <label for="login-password">密码</label>
-              <input id="login-password" v-model="password" name="password" type="password" autocomplete="current-password" required>
+              <div class="password-control">
+                <input id="login-password" v-model="password" name="password" :type="passwordVisible ? 'text' : 'password'" autocomplete="current-password" maxlength="1024" :aria-describedby="[actionError ? 'login-error' : '', passwordCapsLock ? 'caps-lock-note' : ''].filter(Boolean).join(' ') || undefined" :disabled="busy" @keydown="detectCapsLock" @keyup="detectCapsLock" @blur="passwordCapsLock = false" required>
+                <button type="button" class="password-visibility" aria-controls="login-password" :aria-label="passwordVisible ? '隐藏密码' : '显示密码'" :aria-pressed="passwordVisible" :disabled="busy" @click="passwordVisible = !passwordVisible">{{ passwordVisible ? '隐藏' : '显示' }}</button>
+              </div>
+              <p v-if="passwordCapsLock" id="caps-lock-note" class="field-hint" role="status">大写锁定已开启。</p>
             </div>
             <button type="submit" class="button button-primary" :disabled="busy">
               {{ busy ? '登录中…' : '登录' }} <Icon name="arrow" />
             </button>
           </form>
-          <form @submit.prevent="enterpriseSignIn">
-            <h3>企业身份登录</h3>
-            <div class="field"><label for="enterprise-workspace">工作区标识</label><input id="enterprise-workspace" v-model.trim="enterpriseWorkspace" name="workspace" autocomplete="organization" required maxlength="160"></div>
-            <button type="submit" class="button button-secondary" :disabled="busy">前往企业身份提供商 <Icon name="arrow" /></button>
-          </form>
+          <details class="enterprise-sign-in">
+            <summary><span>企业身份登录</span><Icon name="chevron" /></summary>
+            <form :aria-busy="busy" @submit.prevent="enterpriseSignIn">
+              <p class="field-hint">使用工作区已配置的企业身份提供商。</p>
+              <div class="field"><label for="enterprise-workspace">工作区标识</label><input id="enterprise-workspace" v-model.trim="enterpriseWorkspace" name="workspace" autocomplete="off" autocapitalize="none" :spellcheck="false" pattern="[a-z0-9][a-z0-9-]{0,59}" required maxlength="60" aria-describedby="enterprise-workspace-hint" :disabled="busy"><p id="enterprise-workspace-hint" class="field-hint">由管理员提供，使用小写字母、数字或连字符。</p></div>
+              <button type="submit" class="button button-secondary" :disabled="busy || !enterpriseWorkspace.trim()">前往企业身份提供商 <Icon name="arrow" /></button>
+            </form>
+          </details>
           <p class="login-access-note">如需工作区访问权限，请联系管理员。</p>
         </section></div>
       </div>

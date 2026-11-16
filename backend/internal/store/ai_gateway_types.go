@@ -69,12 +69,14 @@ type GatewayUsage struct {
 }
 
 type GatewayCredential struct {
-	ID            int64     `json:"id"`
-	ApplicationID string    `json:"applicationId"`
-	Name          string    `json:"name"`
-	Prefix        string    `json:"prefix"`
-	Enabled       bool      `json:"enabled"`
-	CreatedAt     time.Time `json:"createdAt"`
+	ExpiresAt         *time.Time `json:"expiresAt,omitempty"`
+	WorkloadBindingID *int64     `json:"workloadBindingId,omitempty"`
+	ID                int64      `json:"id"`
+	ApplicationID     string     `json:"applicationId"`
+	Name              string     `json:"name"`
+	Prefix            string     `json:"prefix"`
+	Enabled           bool       `json:"enabled"`
+	CreatedAt         time.Time  `json:"createdAt"`
 }
 
 type GatewayNode struct {
@@ -93,12 +95,13 @@ type GatewayRouteHealth struct {
 	LastOutcome string     `json:"lastOutcome"`
 }
 type GatewayOverview struct {
-	RouteHealth []GatewayRouteHealth `json:"routeHealth"`
-	Config      GatewayConfig        `json:"config"`
-	Usage       []GatewayUsage       `json:"usage"`
-	Credentials []GatewayCredential  `json:"credentials"`
-	Nodes       []GatewayNode        `json:"nodes"`
-	Runtime     struct {
+	RouteHealth       []GatewayRouteHealth     `json:"routeHealth"`
+	Config            GatewayConfig            `json:"config"`
+	Usage             []GatewayUsage           `json:"usage"`
+	Credentials       []GatewayCredential      `json:"credentials"`
+	CredentialPreview GatewayCredentialPreview `json:"credentialPreview"`
+	Nodes             []GatewayNode            `json:"nodes"`
+	Runtime           struct {
 		Configured bool `json:"configured"`
 	} `json:"runtime"`
 }

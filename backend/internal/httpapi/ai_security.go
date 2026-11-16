@@ -5,6 +5,7 @@ import (
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 func (s *server) aiSecurityRoutes(mux *http.ServeMux) {
@@ -19,6 +20,7 @@ func (s *server) aiSecurityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/export", s.workspace(false, s.exportAISecurity))
 	mux.HandleFunc("GET "+base+"/runtime-config", s.workspace(false, s.runtimeAISecurityConfig))
 	s.aiSecurityRegressionRoutes(mux)
+	s.aiSecurityHistoryRoutes(mux)
 }
 func (s *server) getAISecurity(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
 	v, e := s.store.AISecurityBundle(r.Context(), ws.ID, u.ID)
@@ -127,7 +129,7 @@ func (s *server) exportAISecurity(w http.ResponseWriter, r *http.Request, u stor
 		return
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="ai-security-evaluation-evidence.json"`)
-	respond(w, 200, map[string]any{"kind": "ai-security-control-plane-evidence", "mode": "evaluation", "workspace": ws.Slug, "bundle": v})
+	respond(w, 200, map[string]any{"kind": "ai-security-control-plane-evidence", "mode": "evaluation", "workspace": ws.Slug, "bundle": v, "scope": map[string]any{"mode": "bounded_preview", "readAt": time.Now().UTC(), "historyCoverage": v.HistoryCoverage, "configurationIncluded": true, "regressionPackContentsIncluded": false, "limitations": []string{"仅包含最近100条决策、30批评估、100条审批预览；不表示全量历史。", "需按各集合分页导出；历史记录不代表当前发布资格或实际执行。"}}})
 }
 func (s *server) runtimeAISecurityConfig(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
 	v, revision, e := s.store.AISecurityRuntimeConfig(r.Context(), ws.ID, u.ID)

@@ -46,7 +46,7 @@ func gatewayCacheScope(ctx context.Context, tx pgx.Tx, in GatewayCacheScope) (ws
 		return 0, p, "", ErrInvalid
 	}
 	var appID string
-	if err = tx.QueryRow(ctx, `SELECT c.workspace_id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled FOR SHARE OF c`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &appID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT c.workspace_id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp()) FOR SHARE OF c`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &appID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = ErrForbidden
 		}

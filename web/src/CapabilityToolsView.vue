@@ -3,7 +3,7 @@ import { defineAsyncComponent, h, type Component, onBeforeUnmount, onMounted, re
 import type { Workspace } from './api'
 import Icon from './Icon.vue'
 import { scenarioContextHref } from './scenario-context'
-function panel(loader:()=>Promise<{default:Component}>){return defineAsyncComponent({loader,delay:0,loadingComponent:()=>h('p',{class:'message',role:'status'},'正在载入工具…'),errorComponent:()=>h('p',{class:'message message-error',role:'alert'},'工具资源载入失败，请刷新页面重试。')})}
+function panel(loader:()=>Promise<{default:Component}>){return defineAsyncComponent({loader,delay:0,loadingComponent:()=>h('p',{class:'message',role:'status'},'正在载入工具…'),timeout:20000,errorComponent:()=>h('section',{class:'message message-error',role:'alert'},[h('p','工具资源暂时无法载入，请检查网络连接。'),h('button',{type:'button',class:'button button-secondary',onClick:()=>window.location.reload()},'重新载入页面')])})}
 const BrowserAnnotationsPanel=panel(()=>import('./BrowserAnnotationsPanel.vue'))
 const FileDiscoveryPanel=panel(()=>import('./FileDiscoveryPanel.vue'))
 const ValueSearchPanel=panel(()=>import('./ValueSearchPanel.vue'))

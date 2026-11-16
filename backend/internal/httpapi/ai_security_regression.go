@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/hjh006/scarlet-plume/backend/internal/store"
-	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
 	"github.com/hjh006/scarlet-plume/backend/pkg/datasafety"
 )
 
@@ -23,12 +22,7 @@ func (s *server) aiSecurityRegressionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/evaluations/{evaluation}/compare", s.workspace(false, s.compareAIRegression))
 }
 func (s *server) listAIRegressionPacks(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
-	items, e := s.store.AISecurityRegressionPacks(r.Context(), ws.ID, u.ID)
-	if e != nil {
-		operationsFailure(w, e)
-		return
-	}
-	respond(w, 200, map[string]any{"items": items, "requiredDimensions": store.AISecurityRegressionDimensions(), "latestGate": store.AISecurityRegressionGate, "limit": 100, "engineVersion": aisecurity.RuntimeProtocolVersion, "inspectionVersion": aisecurity.InspectionVersion})
+	s.aiSecurityHistoryList(w, r, u, ws, "regression-packs", false)
 }
 func (s *server) getAIRegressionPack(w http.ResponseWriter, r *http.Request, u store.User, ws store.Workspace) {
 	id, e := strconv.ParseInt(r.PathValue("pack"), 10, 64)

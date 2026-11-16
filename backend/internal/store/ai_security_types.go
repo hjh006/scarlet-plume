@@ -90,6 +90,7 @@ type AISecurityCoverage struct {
 	Assets         int      `json:"assets"`
 }
 type AISecurityBundle struct {
+	HistoryCoverage map[string]AISecurityHistoryWindow `json:"historyCoverage"`
 	AISecurityConfiguration
 	Decisions   []AISecurityDecisionRecord `json:"decisions"`
 	Evaluations []AISecurityEvaluation     `json:"evaluations"`

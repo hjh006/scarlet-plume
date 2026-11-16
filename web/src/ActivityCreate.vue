@@ -21,6 +21,7 @@ const saving = ref(false)
 const loadError = ref('')
 const formError = ref('')
 const active = new AbortController()
+let loadSequence = 0
 const draft = reactive({
   assetId: context.value.assetId,
   name: '',
@@ -53,22 +54,25 @@ async function load(append = false) {
     loading.value = false
     return
   }
+  const sequence = ++loadSequence
+  const selectedID = draft.assetId
   loading.value = true
   loadError.value = ''
   const query = append && cursor.value !== null ? '?after=' + cursor.value : ''
   try {
     const page = await request<AssetPage>(apiUrl + '/assets' + query, { signal: active.signal })
-    if (active.signal.aborted) return
+    if (active.signal.aborted || sequence !== loadSequence) return
     assets.value = append ? [...assets.value, ...page.items] : page.items
     cursor.value = page.nextCursor
     if (draft.assetId && !assets.value.some(asset => String(asset.id) === draft.assetId)) {
       const selected = await request<{ asset: Asset }>(apiUrl + '/classification/assets/' + encodeURIComponent(draft.assetId), { signal: active.signal })
+      if (sequence !== loadSequence || selectedID !== draft.assetId) return
       assets.value.push(selected.asset)
     }
   } catch (error) {
-    loadError.value = errorText(error)
+    if (sequence === loadSequence) loadError.value = errorText(error)
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 

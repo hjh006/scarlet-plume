@@ -45,6 +45,14 @@ func TestAutomaticClassificationSourcePersistence(t *testing.T) {
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		// Classify these disposable test snapshots explicitly before deleting their
+		// tenant; real unknown-purpose archives and holds block cascade deletion.
+		if _, err := pool.Exec(cleanup, `UPDATE plume.automation_report_archives a SET retention_state='rotation_allowed',legal_hold=false,retain_until=NULL,retention_basis='Disposable test fixture cleanup' FROM plume.automation_runs r JOIN plume.automation_jobs j ON j.id=r.job_id JOIN plume.workspaces w ON w.id=j.workspace_id WHERE a.automation_run_id=r.id AND w.slug=ANY($1)`, []string{slug, otherSlug}); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(cleanup, `DELETE FROM plume.automation_report_archives a USING plume.automation_runs r,plume.automation_jobs j,plume.workspaces w WHERE a.automation_run_id=r.id AND r.job_id=j.id AND j.workspace_id=w.id AND w.slug=ANY($1)`, []string{slug, otherSlug}); err != nil {
+			t.Error(err)
+		}
 		_, err := pool.Exec(cleanup, "DELETE FROM plume.workspaces WHERE slug=ANY($1)", []string{slug, otherSlug})
 		if err != nil {
 			t.Error(err)

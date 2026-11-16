@@ -215,6 +215,35 @@ func (s *Store) AISecurityBundle(ctx context.Context, ws, actor int64) (out AISe
 		if e != nil {
 			return e
 		}
+		out.HistoryCoverage = map[string]AISecurityHistoryWindow{}
+		for _, item := range []struct {
+			collection, table string
+			limit, count      int
+			last              int64
+		}{
+			{"decisions", "plume.ai_security_decisions", 100, len(out.Decisions), 0},
+			{"evaluations", "plume.ai_security_evaluations", 30, len(out.Evaluations), 0},
+			{"approvals", "plume.ai_security_approvals", 100, len(out.Approvals), 0},
+		} {
+			window := AISecurityHistoryWindow{Limit: item.limit}
+			if item.count == item.limit {
+				switch item.collection {
+				case "decisions":
+					item.last = out.Decisions[item.count-1].ID
+				case "evaluations":
+					item.last = out.Evaluations[item.count-1].ID
+				case "approvals":
+					item.last = out.Approvals[item.count-1].ID
+				}
+				if e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM `+item.table+` WHERE workspace_id=$1 AND id<$2)`, ws, item.last).Scan(&window.HasMore); e != nil {
+					return e
+				}
+				if window.HasMore {
+					window.NextCursor = aiOperationsNext(item.last, aiHistoryScope(item.collection, ws, AISecurityHistoryQuery{}))
+				}
+			}
+			out.HistoryCoverage[item.collection] = window
+		}
 		c := v.Configuration
 		out.Coverage = AISecurityCoverage{Mode: "evaluation", Assets: len(c.Applications) + len(c.Documents) + len(c.Models) + len(c.Tools), TrustedSources: 0, Limitations: []string{"服务端目录由授权人员配置，不等于已验证的源端资产/ACL观察。", "控制台请求的应用和主体是评估声明，不是运行时认证身份。", "决策与评测不表示实际检索、模型调用或工具执行；真实执行需客户侧接入及独立来源证据。", "最近100条决策、30批评测与100条审批预览，导出采用相同有界范围。"}}
 		return nil

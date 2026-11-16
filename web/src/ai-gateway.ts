@@ -38,7 +38,17 @@ export interface GatewayCachePolicy {enabled:boolean;ttlSeconds:number;maxEntrie
 export interface GatewayApplication {id:string;name:string;enabled:boolean;allowRag:boolean;requireTask?:boolean;principalId:string;modelIds:string[];toolIds:string[];budgetMicros:number;requestsPerMinute:number;tokensPerMinute:number;cachePolicy?:GatewayCachePolicy}
 export interface GatewayProvider {id:string;name:string;provider:string;modelId:string;upstreamModel:string;region:string;responseFormat:string;endpointRef:string;secretRef:string;enabled:boolean;inputMicrosPerMillion:number;outputMicrosPerMillion:number;fallbackModelIds?:string[]}
 export interface GatewayConfiguration {revision:number;enabled:boolean;catalogDigest:string;applications:GatewayApplication[];providers:GatewayProvider[]}
-export interface GatewayCredential {id:number;applicationId:string;name:string;prefix:string;enabled:boolean;createdAt:string}
+export interface GatewayCredential {id:number;applicationId:string;name:string;prefix:string;enabled:boolean;createdAt:string;expiresAt?:string;workloadBindingId?:number}
+export function gatewayCredentialActive(credential:GatewayCredential,now=Date.now()):boolean {return credential.enabled && (!credential.expiresAt || Number.isFinite(Date.parse(credential.expiresAt)) && Date.parse(credential.expiresAt)>now)}
+export interface GatewayCredentialPage {items:(GatewayCredential & {status:string})[];limit:number;hasMore:boolean;nextCursor:string;boundary:string}
+export interface GatewayCredentialFilters {state:string;applicationId:string}
+export function gatewayCredentialQuery(filters:GatewayCredentialFilters,before=''):string {
+  const query=new URLSearchParams({limit:'100'})
+  if(filters.state){if(!['active','expired','disabled'].includes(filters.state))throw new Error('凭据状态筛选无效。');query.set('state',filters.state)}
+  if(filters.applicationId){if(!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(filters.applicationId))throw new Error('应用标识筛选无效。');query.set('applicationId',filters.applicationId)}
+  if(before)query.set('before',before)
+  return query.toString()
+}
 export interface GatewayNode {id:string;status:string;lastSeenAt:string;failures:number;capabilities?:string[];version?:string}
 export interface GatewayRouteHealth {providerId:string;failures:number;openUntil:string|null;lastOutcome:string}
 export const gatewayCapabilities=[
@@ -49,7 +59,7 @@ export const gatewayCapabilities=[
   {id:'task_scope_and_kill',label:'任务范围与中止约束',boundary:'任务、精确工具动作/目标、祖先中止与跨节点步数/预算均需真实请求验证。节点上报不代表执行效果已验收。'},
   {id:'source_document_binding',label:'实际资料来源绑定',boundary:'只代表节点配置了资料来源；源 ACL、正文摘要、租约与撤权需在各实际链路核对。'},
 ]
-export interface GatewayBundle {config:GatewayConfiguration;usage:{applicationId:string;reservedMicros:number;spentMicros:number}[];credentials:GatewayCredential[];nodes:GatewayNode[];routeHealth?:GatewayRouteHealth[];runtime:{configured:boolean}}
+export interface GatewayBundle {config:GatewayConfiguration;usage:{applicationId:string;reservedMicros:number;spentMicros:number}[];credentials:GatewayCredential[];credentialPreview?:{returned:number;limit:number;hasMore:boolean;order:string;boundary:string};nodes:GatewayNode[];routeHealth?:GatewayRouteHealth[];runtime:{configured:boolean}}
 export interface GatewayAudit {sequence:number;workspaceId:number;actorId:number;action:string;target:string;payload:Record<string,unknown>;occurredAt:string;previousHash:string;hash:string}
 export interface GatewayAuditPage {items:GatewayAudit[];nextCursor:number;valid:boolean;previousHash:string;headHash:string;headSequence:number;providerId?:string;routeSequences?:number[]}
 export interface GatewayApplicationDraft extends Omit<GatewayApplication,'modelIds'|'toolIds'|'budgetMicros'|'cachePolicy'> {modelIdsText:string;toolIdsText:string;budgetUSD:string;cachePolicy:GatewayCachePolicy}

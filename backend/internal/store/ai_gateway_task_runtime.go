@@ -67,7 +67,7 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	}
 	var credential int64
 	var appID string
-	err = tx.QueryRow(ctx, `SELECT c.workspace_id,c.id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &credential, &appID)
+	err = tx.QueryRow(ctx, `SELECT c.workspace_id,c.id,c.application_id FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug=$1 AND c.token_hash=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())`, in.WorkspaceSlug, in.TokenHash).Scan(&ws, &credential, &appID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrForbidden
 	}

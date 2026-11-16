@@ -60,7 +60,10 @@ func addID(m map[string]bool, id string) bool {
 // Empty catalogs are valid and deny all runtime requests.
 func ValidateConfig(c Config) error {
 	p := c.Policy
-	if p.RequiredRuntimeProtocolVersion != "" && p.RequiredRuntimeProtocolVersion != RuntimeProtocolVersion || p.RequiredInspectionVersion != "" && p.RequiredInspectionVersion != InspectionVersion {
+	if _, err := compileInspection(p.Inspection); err != nil || p.Inspection != nil && p.RequiredInspectionVersion != InspectionVersion {
+		return ErrConfig
+	}
+	if p.RequiredRuntimeProtocolVersion != "" && p.RequiredRuntimeProtocolVersion != RuntimeProtocolVersion || p.RequiredInspectionVersion != "" && p.RequiredInspectionVersion != InspectionVersion && (p.RequiredInspectionVersion != LegacyInspectionVersion || p.Inspection != nil) {
 		return ErrConfig
 	}
 	if !validID(c.Version) || !validID(p.Version) || p.MaxRequestAgeSeconds < 1 || p.MaxRequestAgeSeconds > 3600 || p.MaxInputBytes < 1 || p.MaxInputBytes > 16<<20 || p.MaxOutputBytes < 1 || p.MaxOutputBytes > 16<<20 || !categories(p.AllowedInputCategories) || !categories(p.AllowedOutputCategories) || !list(p.AllowedModelRegions, 128, validID) {
@@ -211,7 +214,7 @@ func allowedCategories(found, global, local []string, perTarget bool) bool {
 	}
 	return true
 }
-func inspect(text string, limit int, patterns []string) ([]string, string) {
+func inspect(text string, limit int, patterns []string, profiles ...*InspectionPolicy) ([]string, string) {
 	if len(text) > limit || !utf8.ValidString(text) {
 		return nil, "content_budget_or_encoding"
 	}
@@ -246,6 +249,10 @@ func inspect(text string, limit int, patterns []string) ([]string, string) {
 				case map[string]any:
 					for k, y := range x {
 						stringsToCheck = append(stringsToCheck, k)
+						if value, ok := y.(string); ok && len(profiles) > 0 && profiles[0] != nil {
+							// Retain decoded key/value context for structured credentials.
+							stringsToCheck = append(stringsToCheck, k+": "+value)
+						}
 						walk(y)
 					}
 				}
@@ -253,8 +260,20 @@ func inspect(text string, limit int, patterns []string) ([]string, string) {
 			walk(value)
 		}
 	}
+	var profile *InspectionPolicy
+	if len(profiles) > 0 {
+		profile = profiles[0]
+	}
+	additional, code := inspectAdditional(stringsToCheck, profile)
+	if code != "" {
+		return nil, code
+	}
+	facts.Categories = unique(append(facts.Categories, additional...))
 	for _, p := range patterns {
-		re := regexp.MustCompile(p)
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return nil, "inspection_profile_invalid"
+		}
 		for _, candidate := range stringsToCheck {
 			if re.MatchString(candidate) {
 				return facts.Categories, "configured_pattern_match"
@@ -289,6 +308,9 @@ func Evaluate(c Config, r Request, now time.Time) Decision {
 	}
 	if ValidateConfig(c) != nil {
 		return deny("catalog_invalid")
+	}
+	if c.Policy.Inspection != nil {
+		d.Coverage = append(d.Coverage, "versioned_classification_profile:"+hash(c.Policy.Inspection), "credential_shape_and_business_checksum_are_not_validity_or_secrecy_proof")
 	}
 	if !validID(r.RequestID) || len(r.RequestID) < 16 || !validID(r.ApplicationID) || !validID(r.PrincipalID) || !slices.Contains([]string{"rag", "model", "tool"}, r.Kind) || r.IssuedAt.IsZero() || r.ExpiresAt.IsZero() || !r.ExpiresAt.After(r.IssuedAt) || r.ExpiresAt.Sub(r.IssuedAt) > time.Duration(c.Policy.MaxRequestAgeSeconds)*time.Second || r.IssuedAt.After(now.Add(5*time.Second)) || !r.ExpiresAt.After(now) || now.Sub(r.IssuedAt) > time.Duration(c.Policy.MaxRequestAgeSeconds)*time.Second {
 		return deny("request_invalid_or_expired")
@@ -394,20 +416,20 @@ func Evaluate(c Config, r Request, now time.Time) Decision {
 		d.MediaInspectionVersion = MediaInspectionVersion
 		d.Coverage = append(d.Coverage, MediaInspectionVersion)
 	}
-	input, code := inspect(inputText, c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns)
+	input, code := inspect(inputText, c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns, c.Policy.Inspection)
 	input = unique(append(input, r.mediaInputCategories...))
 	if code != "" {
 		return deny("input_" + code)
 	}
 	if r.sourceInputProjection != nil {
-		sourceCategories, sourceCode := inspect(*r.sourceInputProjection, c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns)
+		sourceCategories, sourceCode := inspect(*r.sourceInputProjection, c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns, c.Policy.Inspection)
 		if sourceCode != "" {
 			return deny("source_input_" + sourceCode)
 		}
 		input = unique(append(input, sourceCategories...))
 	}
 	input = unique(append(input, r.sourceInputCategories...))
-	output, code := inspect(outputText, c.Policy.MaxOutputBytes, c.Policy.BlockedOutputPatterns)
+	output, code := inspect(outputText, c.Policy.MaxOutputBytes, c.Policy.BlockedOutputPatterns, c.Policy.Inspection)
 	output = unique(append(output, r.mediaOutputCategories...))
 	if code != "" {
 		return deny("output_" + code)
@@ -512,7 +534,7 @@ func Evaluate(c Config, r Request, now time.Time) Decision {
 			Target    string            `json:"target"`
 			Arguments map[string]string `json:"arguments"`
 		}{r.Target, r.Arguments})
-		argumentCategories, code := inspect(string(argumentBody), c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns)
+		argumentCategories, code := inspect(string(argumentBody), c.Policy.MaxInputBytes, c.Policy.BlockedInputPatterns, c.Policy.Inspection)
 		if code != "" {
 			return deny("tool_input_" + code)
 		}

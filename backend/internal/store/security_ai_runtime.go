@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ type AISecurityRuntimeSourceInput struct {
 type AISecurityRuntimeSource struct {
 	AISecurityRuntimeSourceInput
 	ID           int64      `json:"id"`
+	TokenVersion int64      `json:"tokenVersion"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	RevokedAt    *time.Time `json:"revokedAt,omitempty"`
 	LastSeen     *time.Time `json:"lastSeen,omitempty"`
@@ -48,11 +50,13 @@ type AISecurityRuntimeEvent struct {
 	Record               aisecurity.AuditRecord `json:"record"`
 }
 type AISecurityRuntimeEvidence struct {
-	Sources  []AISecurityRuntimeSource  `json:"sources"`
-	Events   []AISecurityRuntimeEvent   `json:"events"`
-	Limit    int                        `json:"limit"`
-	Coverage []string                   `json:"coverage"`
-	Requests []AISecurityRuntimeRequest `json:"requests"`
+	HasMore    bool                       `json:"hasMore"`
+	NextCursor string                     `json:"nextCursor"`
+	Sources    []AISecurityRuntimeSource  `json:"sources"`
+	Events     []AISecurityRuntimeEvent   `json:"events"`
+	Limit      int                        `json:"limit"`
+	Coverage   []string                   `json:"coverage"`
+	Requests   []AISecurityRuntimeRequest `json:"requests"`
 }
 type AISecurityRuntimeReceipt struct {
 	ID       int64 `json:"id"`
@@ -81,7 +85,7 @@ func publishedAISecurityCatalog(ctx context.Context, tx pgx.Tx, ws int64) (aisec
 }
 
 func (s *Store) CreateAISecurityRuntimeSource(ctx context.Context, ws, actor int64, in AISecurityRuntimeSourceInput, tokenHash string) (AISecurityRuntimeSource, error) {
-	out := AISecurityRuntimeSource{AISecurityRuntimeSourceInput: in}
+	out := AISecurityRuntimeSource{AISecurityRuntimeSourceInput: in, TokenVersion: 1}
 	if !securityText(in.Name, 160, true) || !securityText(in.ApplicationID, 160, true) || !securityHex(in.CatalogDigest, 64) || !securityHex(tokenHash, 64) {
 		return out, ErrInvalid
 	}
@@ -132,19 +136,78 @@ func (s *Store) RevokeAISecurityRuntimeSource(ctx context.Context, ws, actor, id
 	})
 }
 
+// RotateAISecurityRuntimeSource replaces the only accepted hash atomically. Receipt
+// admission locks the same source row, so a rotation also fences concurrent ingest.
+func (s *Store) RotateAISecurityRuntimeSource(ctx context.Context, ws, actor, id, expectedVersion int64, tokenHash string) (out AISecurityRuntimeSource, err error) {
+	if id < 1 || expectedVersion < 1 || !securityHex(tokenHash, 64) {
+		return out, ErrInvalid
+	}
+	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if e := runtimeOwner(ctx, tx, ws, actor); e != nil {
+			return e
+		}
+		var creatorAuthorized bool
+		var previousHash string
+		e := tx.QueryRow(ctx, `SELECT s.id,s.name,s.application_id,s.catalog_digest,s.token_version,s.created_at,s.revoked_at,s.last_seen,s.receipt_count,s.token_hash,EXISTS(SELECT 1 FROM plume.memberships m WHERE m.workspace_id=s.workspace_id AND m.user_id=s.created_by AND m.role='owner'),COALESCE(c.published_digest=s.catalog_digest,false) FROM plume.ai_security_runtime_sources s LEFT JOIN plume.ai_security_configurations c ON c.workspace_id=s.workspace_id WHERE s.workspace_id=$1 AND s.id=$2 FOR UPDATE OF s`, ws, id).Scan(&out.ID, &out.Name, &out.ApplicationID, &out.CatalogDigest, &out.TokenVersion, &out.CreatedAt, &out.RevokedAt, &out.LastSeen, &out.ReceiptCount, &previousHash, &creatorAuthorized, &out.Current)
+		if e != nil {
+			return storeError(e)
+		}
+		if out.RevokedAt != nil || !creatorAuthorized || out.TokenVersion != expectedVersion || out.TokenVersion == 9223372036854775807 {
+			return ErrConflict
+		}
+		if tokenHash == previousHash {
+			return ErrInvalid
+		}
+		if e = tx.QueryRow(ctx, `UPDATE plume.ai_security_runtime_sources SET token_hash=$3,token_version=token_version+1 WHERE workspace_id=$1 AND id=$2 RETURNING token_version`, ws, id, tokenHash).Scan(&out.TokenVersion); e != nil {
+			return e
+		}
+		return identityAudit(ctx, tx, ws, actor, "ai.runtime_source_token_rotated", strconv.FormatInt(id, 10), map[string]any{"tokenVersion": out.TokenVersion})
+	})
+	return out, storeError(err)
+}
+
 func (s *Store) AISecurityRuntimeEvidence(ctx context.Context, ws, actor int64) (AISecurityRuntimeEvidence, error) {
-	out := AISecurityRuntimeEvidence{Sources: []AISecurityRuntimeSource{}, Events: []AISecurityRuntimeEvent{}, Requests: []AISecurityRuntimeRequest{}, Limit: 100, Coverage: []string{"运行回执由独立令牌认证的客户侧来源提交，不等于平台独立复测或人工核验。", "prepared表示发出前的持久化准备记录；仅有prepared不能证明操作成功。", "旧配置、已撤销来源的记录保留历史，不作为当前控制有效的证明。", "请求链仅关联本次最近100条回执；缺失阶段可能来自采样窗口、未上报或执行中断，不能据此推断未发生副作用。", "执行器与检测版本由来源报告，匹配当前支持版本不等于已远程证明实际二进制或运行环境。"}}
+	return s.AISecurityRuntimeEvidencePage(ctx, ws, actor, AISecurityRuntimeEvidenceQuery{Limit: 100})
+}
+
+type AISecurityRuntimeEvidenceQuery struct {
+	Before   string
+	Limit    int
+	SourceID int64
+	Kind     string
+	Outcome  string
+}
+
+func (s *Store) AISecurityRuntimeEvidencePage(ctx context.Context, ws, actor int64, q AISecurityRuntimeEvidenceQuery) (AISecurityRuntimeEvidence, error) {
+	if q.Limit < 1 || q.Limit > 200 || q.SourceID < 0 || q.Kind != "" && !slices.Contains([]string{"rag", "model", "tool", "output"}, q.Kind) || q.Outcome != "" && !slices.Contains([]string{"allow", "deny", "approval_required", "unknown"}, q.Outcome) {
+		return AISecurityRuntimeEvidence{}, ErrInvalid
+	}
+	scope := aiOperationsScope("runtime-evidence", ws, q.SourceID, q.Kind, q.Outcome)
+	before, cursorErr := aiOperationsBefore(q.Before, scope)
+	if cursorErr != nil {
+		return AISecurityRuntimeEvidence{}, cursorErr
+	}
+	out := AISecurityRuntimeEvidence{Sources: []AISecurityRuntimeSource{}, Events: []AISecurityRuntimeEvent{}, Requests: []AISecurityRuntimeRequest{}, Limit: q.Limit, Coverage: []string{"运行回执由独立令牌认证的客户侧来源提交，不等于平台独立复测或人工核验。", "prepared表示发出前的持久化准备记录；仅有prepared不能证明操作成功。", "旧配置、已撤销来源的记录保留历史，不作为当前控制有效的证明。", "请求链仅关联当前分页和过滤条件内的回执片段，不代表跨页完整链；缺失阶段可能来自分页窗口、未上报或执行中断，不能据此推断未发生副作用。来源列表最多显示100项，历史撤销来源仍可通过来源ID查询回执。", "执行器与检测版本由来源报告，匹配当前支持版本不等于已远程证明实际二进制或运行环境。"}}
 	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		if err := securityPlatformMember(ctx, tx, ws, actor, false); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT s.id,s.name,s.application_id,s.catalog_digest,s.created_at,s.revoked_at,s.last_seen,s.receipt_count,COALESCE(s.revoked_at IS NULL AND c.published_digest=s.catalog_digest AND EXISTS(SELECT 1 FROM plume.memberships m WHERE m.workspace_id=s.workspace_id AND m.user_id=s.created_by AND m.role='owner'),false) FROM plume.ai_security_runtime_sources s LEFT JOIN plume.ai_security_configurations c ON c.workspace_id=s.workspace_id WHERE s.workspace_id=$1 ORDER BY (s.revoked_at IS NULL) DESC,s.id DESC LIMIT 100`, ws)
+		if q.SourceID > 0 {
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM plume.ai_security_runtime_sources WHERE workspace_id=$1 AND id=$2)`, ws, q.SourceID).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return ErrNotFound
+			}
+		}
+		rows, err := tx.Query(ctx, `SELECT s.id,s.name,s.application_id,s.catalog_digest,s.token_version,s.created_at,s.revoked_at,s.last_seen,s.receipt_count,COALESCE(s.revoked_at IS NULL AND c.published_digest=s.catalog_digest AND EXISTS(SELECT 1 FROM plume.memberships m WHERE m.workspace_id=s.workspace_id AND m.user_id=s.created_by AND m.role='owner'),false) FROM plume.ai_security_runtime_sources s LEFT JOIN plume.ai_security_configurations c ON c.workspace_id=s.workspace_id WHERE s.workspace_id=$1 ORDER BY (s.revoked_at IS NULL) DESC,s.id DESC LIMIT 100`, ws)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var item AISecurityRuntimeSource
-			if err = rows.Scan(&item.ID, &item.Name, &item.ApplicationID, &item.CatalogDigest, &item.CreatedAt, &item.RevokedAt, &item.LastSeen, &item.ReceiptCount, &item.Current); err != nil {
+			if err = rows.Scan(&item.ID, &item.Name, &item.ApplicationID, &item.CatalogDigest, &item.TokenVersion, &item.CreatedAt, &item.RevokedAt, &item.LastSeen, &item.ReceiptCount, &item.Current); err != nil {
 				rows.Close()
 				return err
 			}
@@ -155,7 +218,7 @@ func (s *Store) AISecurityRuntimeEvidence(ctx context.Context, ws, actor int64) 
 		if err != nil {
 			return err
 		}
-		rows, err = tx.Query(ctx, `SELECT e.id,s.id,e.event_id,e.record,e.received_at,COALESCE(s.revoked_at IS NULL AND c.published_digest=s.catalog_digest AND EXISTS(SELECT 1 FROM plume.memberships m WHERE m.workspace_id=s.workspace_id AND m.user_id=s.created_by AND m.role='owner'),false) FROM plume.ai_security_runtime_events e JOIN plume.ai_security_runtime_sources s ON s.id=e.source_id LEFT JOIN plume.ai_security_configurations c ON c.workspace_id=s.workspace_id WHERE s.workspace_id=$1 ORDER BY e.id DESC LIMIT 100`, ws)
+		rows, err = tx.Query(ctx, `SELECT e.id,s.id,e.event_id,e.record,e.received_at,COALESCE(s.revoked_at IS NULL AND c.published_digest=s.catalog_digest AND EXISTS(SELECT 1 FROM plume.memberships m WHERE m.workspace_id=s.workspace_id AND m.user_id=s.created_by AND m.role='owner'),false) FROM plume.ai_security_runtime_events e JOIN plume.ai_security_runtime_sources s ON s.id=e.source_id LEFT JOIN plume.ai_security_configurations c ON c.workspace_id=s.workspace_id WHERE s.workspace_id=$1 AND ($2::bigint=0 OR e.id<$2) AND ($3::bigint=0 OR s.id=$3) AND ($4::text='' OR e.record->'decision'->>'kind'=$4) AND ($5::text='' OR e.record->'decision'->>'outcome'=$5) ORDER BY e.id DESC LIMIT $6`, ws, before, q.SourceID, q.Kind, q.Outcome, q.Limit+1)
 		if err != nil {
 			return err
 		}
@@ -174,6 +237,10 @@ func (s *Store) AISecurityRuntimeEvidence(ctx context.Context, ws, actor int64) 
 			e.OccurredAt = e.Record.ObservedAt
 			e.Stage = e.Record.Stage
 			e.RuntimeCompatibility = aiRuntimeCompatibility(e.Record)
+			if len(out.Events) == q.Limit {
+				out.HasMore = true
+				break
+			}
 			out.Events = append(out.Events, e)
 		}
 		err = rows.Err()
@@ -182,6 +249,9 @@ func (s *Store) AISecurityRuntimeEvidence(ctx context.Context, ws, actor int64) 
 	})
 	if err == nil {
 		out.Requests = aiRuntimeRequests(out.Events)
+		if out.HasMore {
+			out.NextCursor = aiOperationsNext(out.Events[len(out.Events)-1].ID, scope)
+		}
 	}
 	return out, storeError(err)
 }

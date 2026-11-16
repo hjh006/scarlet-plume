@@ -13,6 +13,7 @@ import (
 
 func (s *server) gatewayRoutes(mux *http.ServeMux) {
 	s.gatewayTaskRoutes(mux)
+	s.gatewayWorkloadRoutes(mux)
 	const base = "/api/v1/workspaces/{slug}/ai-gateway"
 	for _, route := range []struct {
 		pattern string

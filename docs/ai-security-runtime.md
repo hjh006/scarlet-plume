@@ -37,15 +37,17 @@ age is 300 seconds, input/output limits are 65,536 bytes and all allowlists are
 empty. Empty category arrays allow no detected or trusted classified category;
 they never inherit a broader model policy.
 
-The current runtime contract is `scarlet-ai-runtime-v2`; its inspector version
-is `datasafety-four-format-v1`. Optional policy fields
-`requiredRuntimeProtocolVersion` and `requiredInspectionVersion` must exactly
-match those constants when present. Unknown profiles are rejected; there is no
-automatic downgrade. New optional configuration fields use `omitempty`, so
-unchanged legacy catalogs retain their existing digest and approval binding.
-Enabling a profile, lease or definition pin changes the catalog digest and
-requires a fresh bound approval. Older runtimes reject these unknown fields
-when reading private configuration; they must not silently drop them.
+The current runtime contract is `scarlet-ai-runtime-v2`; the current inspector
+version is `scarlet-detectors-v1`. Optional `requiredRuntimeProtocolVersion`
+must match the supported runtime. `requiredInspectionVersion` accepts the
+current version, or legacy `datasafety-four-format-v1` only when no
+`policy.inspection` profile is configured. A configured inspection profile
+requires `requiredInspectionVersion: "scarlet-detectors-v1"`. Unknown profiles
+are rejected without downgrade. Optional fields use `omitempty`, so unchanged
+legacy catalogs retain their existing digest and approval binding. Changing
+rules, packs or versions changes the catalog digest and requires fresh bound
+authorizations, evaluation and publication. Deploy the control plane and
+compatible runtime binaries before publishing a catalog that requires them.
 
 | Config field | Trusted facts and enforcement |
 | --- | --- |
@@ -61,7 +63,7 @@ IDs match `[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}`; request IDs must also be at
 least 16 characters. Business categories match `[a-z][a-z0-9_.-]{0,63}` and may
 include labels such as `confidential` or `source_code`. Optional integrity hashes
 are 64 lowercase hexadecimal characters. Limits are checked by
-`ValidateConfig`: request age 1–3,600 seconds, content budgets 1–1,048,576 bytes,
+`ValidateConfig`: request age 1–3,600 seconds, content budgets 1–16,777,216 bytes,
 and at most 32 configured RE2 expressions per direction, each at most 256 bytes.
 Duplicate entities, dangling references and invalid parameter/protocol bindings
 are rejected.
@@ -99,8 +101,7 @@ credential or approval body. The internal `Request` includes authenticated
 identity and output for previews and post-execution inspection; that broader
 type must not be exposed as an unauthenticated execution request.
 Duplicate JSON object keys and invalid UTF-8 are rejected before decoding the
-wire request or upstream model/MCP objects. Parsing is bounded to 1 MiB plus
-64 KiB, depth 64 and 131,072 values; stricter per-content budgets still apply.
+wire request or upstream model/MCP objects. Parsing is bounded to 16 MiB, depth 64 and 131,072 values; stricter per-content budgets still apply.
 
 Unknown or disabled applications, principals, documents, models and tools are
 denied. A high-impact action requires an unexpired, unrevoked approval with
@@ -151,12 +152,17 @@ adapter and is not provided by the local snapshot loader.
 The implemented adapter accepts one JSON object in `input`, with exactly one
 text input shape: `prompt` string, `input` string, or `messages` array of
 `{role, content}` strings. Roles are `system`, `user`, `assistant`; at most 128
-messages are accepted. The other accepted top-level fields are `model`,
-`stream`, `max_tokens` and `temperature`.
+messages are accepted. The typed top-level contract also includes `model`, `stream`, `max_tokens`,
+`temperature`, `stream_options`, `modalities` and `audio` with the restrictions
+in the model adapter.
 
-`stream` must be false or absent. `max_tokens` is 0–4,096; zero/absent becomes
+Text `stream:true` requires `openai_chat` and uses complete, bounded
+`strict_hold` inspection before replay. It is not incremental content release.
+`stream_options.include_usage` is enforced for upstream streams. `max_tokens` is 0–4,096; zero/absent becomes
 1,024. `temperature`, when provided, is 0–2. Unknown routing, deployment, tools,
-URLs, multimodal fields and message extensions are rejected. The service
+URLs, unsupported media formats and message extensions are rejected. Approved
+PNG/JPEG and PCM WAV parts require an explicit `Model.media` policy and a real
+media processor; see [the media deployment contract](ai-gateway-media.md). The service
 injects the catalog `upstreamModel`, falling back to the catalog model ID. A
 caller-provided `model` must match it. The static `endpointRef` selects the
 trusted URL; the caller cannot choose another provider or deployment. Providers
@@ -178,8 +184,10 @@ bounded text and JSON-decoded strings and rejects unsupported/partial inspection
 Configured input/output RE2 patterns check raw text and decoded JSON string
 tokens, including Unicode escapes. These are explicit format and rule checks,
 not general semantic classification or universal prompt-injection detection.
-The runtime buffers a bounded complete JSON response before checking and
-releasing it; model SSE and multimodal inference are unsupported.
+The runtime buffers complete bounded JSON or typed text SSE before checking
+and releasing normalized output. Approved media is normalized and inspected
+through the configured processor; extracted OCR/ASR text uses the same category
+and rule policy. Streaming media output remains unsupported.
 
 `Model.responseFormat` is optional: empty/`json` preserves the generic JSON
 response contract, with coverage explicitly stating that no provider response
@@ -195,6 +203,50 @@ multimodal content and HTTP-200 error bodies are suppressed. Only
 text/JSON and applying the existing context category taint. Provider metadata
 is not passed through. This checks the response's reported identity; it does not
 independently attest the provider's internal model or processing geography.
+
+## Versioned classification packs
+
+An optional policy profile enables bounded additional classification:
+
+```json
+{
+  "requiredInspectionVersion": "scarlet-detectors-v1",
+  "inspection": {
+    "version": "scarlet-detectors-v1",
+    "builtinPacks": ["credential-v1", "cn-business-v1"],
+    "rules": [
+      {"id":"contract-id","version":"v1","category":"business","pattern":"INTERNAL-[A-Z]{3}-[0-9]{4}"}
+    ]
+  }
+}
+```
+
+These fields belong inside `policy`. Pack names must be unique and supported.
+`credential-v1` recognizes bounded private-key, contextual authorization/API-key
+and JWT shapes. `cn-business-v1` recognizes the 18-character GB 32100 base-31
+business identifier checksum. These classify shape, not credential validity,
+registry issuance, secrecy or general prompt-injection safety.
+
+There may be at most 32 custom rules. Each has a unique ID, explicit version,
+one supported category and a nonempty RE2 pattern of at most 256 UTF-8 bytes.
+Invalid patterns and patterns matching an empty string are rejected. Supported
+rule categories are `email`, `phone`, `national_id`, `financial_account`,
+`credential` and `business`; unknown categories/packs/versions reject the
+configuration. The detected categories must pass existing global and applicable
+model/tool category allowlists; adding a detector never grants a category.
+
+Inspection covers decoded JSON keys/values, input and output projections,
+resolved source content, extracted media text and tool parameters/results.
+The same checks apply to buffered SSE, cache hits and each fallback provider.
+Rule/pack versions enter the catalog digest and cache policy scope. Receipts
+report the current inspector version and a profile digest without matched
+content. Existing unconfigured catalogs retain the four-format base behavior.
+
+Upgrade the actual runtime and control plane together, then run the current
+configuration's regression gate and publish its new digest. Refresh pinned
+runtime-source bindings for that digest. Older inspector receipts remain
+historical evidence with an explicit compatibility gap; editing a version
+string does not upgrade a running binary or revalidate an old result.
 
 ## Tool and MCP adapters
 

@@ -128,7 +128,7 @@ func gatewayApprovalTaskContext(ctx context.Context, tx pgx.Tx, ws int64, r aise
 		return r, e
 	}
 	var slug, hash string
-	if e = tx.QueryRow(ctx, `SELECT w.slug,c.token_hash FROM plume.workspaces w JOIN plume.ai_gateway_credentials c ON c.workspace_id=w.id WHERE w.id=$1 AND c.id=$2 AND c.enabled`, ws, task.CredentialID).Scan(&slug, &hash); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT w.slug,c.token_hash FROM plume.workspaces w JOIN plume.ai_gateway_credentials c ON c.workspace_id=w.id WHERE w.id=$1 AND c.id=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())`, ws, task.CredentialID).Scan(&slug, &hash); e != nil {
 		return r, ErrForbidden
 	}
 	fact := gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: r.TaskID, TaskStepID: r.RequestID, TaskStepDigest: aisecurity.RequestDigest(r)}, WorkspaceSlug: slug, TokenHash: hash, ApplicationID: r.ApplicationID, PrincipalID: r.PrincipalID, CatalogDigest: catalog, Kind: r.Kind, ToolID: r.ToolID, Action: r.Action, Target: r.Target, DocumentIDs: r.DocumentIDs, Categories: categories}

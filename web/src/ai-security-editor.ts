@@ -175,7 +175,19 @@ export function validateAIConfigurationExtensions(configuration:AIRecord):void {
   const policy=configuration.policy && typeof configuration.policy==='object'?configuration.policy as AIRecord:{}
   for(const key of ['maxInputBytes','maxOutputBytes'])if(policy[key]!==undefined && (!Number.isSafeInteger(policy[key]) || Number(policy[key])<1 || Number(policy[key])>aiMaxModelWireBytes))throw new Error('输入／输出 wire 上限应为 1—16777216 字节的整数；文本和 JSON 检测仍受检测器独立预算限制。')
   if(!['','scarlet-ai-runtime-v2'].includes(String(policy.requiredRuntimeProtocolVersion ?? ''))) throw new Error('要求的运行时协议版本仅支持 scarlet-ai-runtime-v2 或留空。')
-  if(!['','datasafety-four-format-v1'].includes(String(policy.requiredInspectionVersion ?? ''))) throw new Error('要求的检测器版本仅支持 datasafety-four-format-v1 或留空。')
+  if(!['','datasafety-four-format-v1','scarlet-detectors-v1'].includes(String(policy.requiredInspectionVersion ?? ''))) throw new Error('请选择受支持的检测器版本。')
+  if(policy.inspection!==undefined && policy.inspection!==null) {
+    const inspection=policy.inspection as AIRecord
+    if(typeof inspection!=='object' || Array.isArray(inspection) || inspection.version!=='scarlet-detectors-v1' || policy.requiredInspectionVersion!=='scarlet-detectors-v1' || Object.keys(inspection).some(key=>!['version','builtinPacks','rules'].includes(key)))throw new Error('版本化分类需要 inspection.version 与 requiredInspectionVersion 同为 scarlet-detectors-v1。')
+    const packs=inspection.builtinPacks ?? [],rules=inspection.rules ?? []
+    if(!Array.isArray(packs) || packs.length>2 || new Set(packs).size!==packs.length || packs.some(pack=>!['credential-v1','cn-business-v1'].includes(pack)))throw new Error('内置检测包仅支持 credential-v1、cn-business-v1，不能重复。')
+    if(!Array.isArray(rules) || rules.length>32)throw new Error('自定义分类规则最多 32 条。')
+    const ids=new Set<string>()
+    for(const rule of rules) {
+      if(!rule || typeof rule!=='object' || Array.isArray(rule) || Object.keys(rule).some(key=>!['id','version','category','pattern'].includes(key)) || typeof rule.id!=='string' || !aiScopeIdentifier.test(rule.id) || ids.has(rule.id) || typeof rule.version!=='string' || !aiScopeIdentifier.test(rule.version) || !['email','phone','national_id','financial_account','credential','business'].includes(rule.category) || typeof rule.pattern!=='string' || new TextEncoder().encode(rule.pattern).length<1 || new TextEncoder().encode(rule.pattern).length>256)throw new Error('规则须有唯一标识、版本、受支持类别及 1—256 字节 RE2 正则；Go 正则语法由服务端最终校验。')
+      ids.add(rule.id)
+    }
+  }
   if(policy.requireAuthorizationLeases!==undefined && policy.requireAuthorizationLeases!==null && typeof policy.requireAuthorizationLeases!=='boolean') throw new Error('强制授权租约应为布尔值。')
   for(const key of ['requirePinnedSourceContent','requireDataHandling'])if(policy[key]!==undefined && policy[key]!==null && typeof policy[key]!=='boolean')throw new Error('资料正文固定与目的端处理约定要求应为布尔值。')
 }

@@ -1,4 +1,17 @@
 import test from 'node:test'
+import { gatewayCredentialQuery } from './ai-gateway.ts'
+
+test('credential history keeps exact state/app filters and opaque cursor without exposing secrets',()=>{
+  const cursor='signed-workspace+state%3Dexpired/app-a='
+  const query=new URLSearchParams(gatewayCredentialQuery({state:'expired',applicationId:'app-a'},cursor))
+  assert.equal(query.get('state'),'expired')
+  assert.equal(query.get('applicationId'),'app-a')
+  assert.equal(query.get('before'),cursor)
+  assert.equal(query.has('token'),false)
+  assert.equal(new URLSearchParams(gatewayCredentialQuery({state:'',applicationId:''})).has('before'),false)
+  for(const state of ['enabled','revoked','*'])assert.throws(()=>gatewayCredentialQuery({state,applicationId:''}))
+  assert.throws(()=>gatewayCredentialQuery({state:'active',applicationId:'app/*'}))
+})
 import assert from 'node:assert/strict'
 import {gatewayIdentityDraft,gatewayIdentityPayload,gatewayPublicURLs,gatewayMicros,gatewayDollars,gatewayConfigurationPayload,gatewayAuditSummary,gatewayApplicationDraft,gatewayProviderDraft} from './ai-gateway.ts'
 

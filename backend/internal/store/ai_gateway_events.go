@@ -129,7 +129,7 @@ func (s *Store) RecordGatewayDenied(ctx context.Context, in GatewayDeniedEvent) 
 				return ErrForbidden
 			}
 			var credentialApp string
-			if e = tx.QueryRow(ctx, `SELECT application_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND token_hash=$2 AND enabled FOR SHARE`, ws, in.TokenHash).Scan(&credentialApp); e != nil {
+			if e = tx.QueryRow(ctx, `SELECT application_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND token_hash=$2 AND enabled AND (expires_at IS NULL OR expires_at>clock_timestamp()) FOR SHARE`, ws, in.TokenHash).Scan(&credentialApp); e != nil {
 				if errors.Is(e, pgx.ErrNoRows) {
 					return ErrForbidden
 				}

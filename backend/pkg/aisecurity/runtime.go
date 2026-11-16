@@ -692,7 +692,7 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 			outputD.Coverage = append(outputD.Coverage, "generic_json_response_without_provider_schema_verification")
 		}
 	} else {
-		found, code := inspect(string(raw), cfg.Policy.MaxOutputBytes, cfg.Policy.BlockedOutputPatterns)
+		found, code := inspect(string(raw), cfg.Policy.MaxOutputBytes, cfg.Policy.BlockedOutputPatterns, cfg.Policy.Inspection)
 		outputD.Categories = unique(append(outputD.Categories, found...))
 		if code != "" || !allowedCategories(found, cfg.Policy.AllowedOutputCategories, nil, false) {
 			outputD.Outcome = "deny"

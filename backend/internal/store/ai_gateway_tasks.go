@@ -163,7 +163,7 @@ func gatewayTaskApp(c GatewayConfig, id string) (GatewayApplication, bool) {
 
 func gatewayTaskCredential(ctx context.Context, tx pgx.Tx, ws int64, id int64, app string) error {
 	var actual string
-	e := tx.QueryRow(ctx, `SELECT application_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND id=$2 AND enabled`, ws, id).Scan(&actual)
+	e := tx.QueryRow(ctx, `SELECT application_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND id=$2 AND enabled AND (expires_at IS NULL OR expires_at>clock_timestamp())`, ws, id).Scan(&actual)
 	if errors.Is(e, pgx.ErrNoRows) || e == nil && actual != app {
 		return ErrForbidden
 	}
