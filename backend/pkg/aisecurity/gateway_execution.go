@@ -48,6 +48,9 @@ func (g *gatewayHandler) beforeRuntime(ctx context.Context, r Request, d Decisio
 	hash, _ := ctx.Value(gatewayCredentialHashKey{}).(string)
 	fact := GatewayAuthorization{Identity: Identity{ApplicationID: r.ApplicationID, PrincipalID: r.PrincipalID}, TokenHash: hash, Kind: r.Kind, RequestID: r.RequestID, ModelID: r.ModelID, ToolID: r.ToolID, Action: r.Action, Target: r.Target, RequestDigest: d.RequestDigest, CatalogDigest: d.CatalogDigest, InputBytes: inputBytes, MaxOutputTokens: maxOutput}
 	fact.TaskContext = taskBinding(ctx, r)
+	if r.Kind == "tool" && d.RequiresApproval {
+		fact.ApprovalID = r.ApprovalID
+	}
 	fact.SourceDigests = sourceDigestList(r)
 	if r.mediaInputProjection != nil {
 		fact.ProjectionBytes = int64(len(*r.mediaInputProjection))

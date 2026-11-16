@@ -12,6 +12,9 @@ func (c *GatewayController) TaskControl(ctx context.Context, op TaskOperation) (
 	r := op.Request
 	token, _ := ctx.Value(gatewayCredentialHashKey{}).(string)
 	in := gatewaygovernance.TaskCheckInput{TaskContext: taskBinding(ctx, r), WorkspaceSlug: c.options.WorkspaceSlug, TokenHash: token, ApplicationID: r.ApplicationID, PrincipalID: r.PrincipalID, CatalogDigest: op.Decision.CatalogDigest, Kind: r.Kind, ModelID: r.ModelID, ToolID: r.ToolID, Action: r.Action, Target: r.Target, DocumentIDs: append([]string(nil), r.DocumentIDs...), Categories: append([]string(nil), op.Decision.Categories...)}
+	if r.Kind == "tool" && r.ApprovalID != "" && op.Stage != "complete" {
+		in.ApprovalID, in.RequestID, in.RequestDigest = r.ApprovalID, r.RequestID, RequestDigest(r)
+	}
 	var out gatewaygovernance.TaskGrant
 	switch op.Stage {
 	case "check":

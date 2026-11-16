@@ -1,0 +1,14 @@
+# Optional second connection for the local synthetic customer scenario.
+# Use together with compose.customer-demo.yaml; keep both files on subsequent up.
+# The private raw env file sets OPENAI_API_KEYS to the original and depth app
+# credentials, in the same order as OPENAI_API_BASE_URLS. It contains no controller
+# or tool credential. Model permissions and per-model capabilities are managed
+# through the official Open WebUI model API, separately from this static listing.
+services:
+  open-webui:
+    env_file:
+      - path: ${CUSTOMER_OPENWEBUI_DEPTH_ENV_FILE:-./var/customer-demo/depth/secrets/open-webui-depth.env}
+        format: raw
+    environment:
+      OPENAI_API_BASE_URLS: https://ai-gateway:8905/v1;https://ai-gateway-depth:8905/v1
+      OPENAI_API_CONFIGS: '{"0":{"enable":true,"model_ids":["synthetic-media-model"]},"1":{"enable":true,"model_ids":["depth-primary","depth-text"]}}'

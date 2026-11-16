@@ -201,3 +201,83 @@ direct integrations 均关闭。应用后端通过内部网络隔离，入口 CS
 [原生上传菜单](https://github.com/open-webui/open-webui/blob/b0e6098e940942281d9c83f3529ea117287a3a22/src/lib/components/chat/MessageInput/InputMenu.svelte)、
 [文件上传校验](https://github.com/open-webui/open-webui/blob/b0e6098e940942281d9c83f3529ea117287a3a22/backend/open_webui/routers/files.py)、
 [离线模式](https://docs.openwebui.com/tutorials/maintenance/offline-mode/)。
+
+## 深度链路验收
+
+可选 `depth` profile 在同一隔离控制面和真实媒体扫描器旁增加两组租户网关、两条独立
+OpenAI-compatible 合成模型端点和私网 MCP 服务。入口为回环 `8907`、`8909`，各自只接
+`customer-depth`、`customer-depth-other` 工作区；原 `customer-demo` 的目录、凭据和状态文件
+保持独立。共享客户网络仍只接客户应用与获批网关节点，模型、MCP、scanner、控制面和数据库
+分别留在后端网络。MCP 服务没有宿主端口。
+
+由操作员先完成两个新工作区的原生迁移、身份、真实回归与独立发布，并准备
+`var/customer-demo/depth/` 下的私有配置。两个工作区使用相同的功能目录 digest，才能让跨租户
+缓存用例检验租户边界。`primary/`、`other/` 分别保存 `config/`、`state/`、`metadata.json` 和
+各应用凭据；`accounts.json` 保存各工作区的 owner、独立 reviewer 账号，不能复用同一用户
+完成申请和复核。其他环境、TLS、模型和文件权限前提与基础部署一致。
+
+目录需明确配置下列合成范围，不能使用任意应用、模型或工具的通配权限：
+
+- `depth-app` / `depth-user`：只允许 `depth-primary`、`depth-backup`、`depth-text`、
+  `depth-text-backup`，不授予工具权限。客户界面的第二连接只取得这一应用凭据。
+- `task-app` / `depth-agent`：强制任务身份与祖先约束，工具仅 `ticket-read`、`ticket-close`，
+  目标仅 `ticket-17`；`close` 为高影响操作，独立审批冻结确切参数、请求摘要与任务租约链。
+- `depth-primary`、`depth-backup` 允许媒体且使用 v2 scanner；对应两条固定 provider 路由。
+  `depth-text`、`depth-text-backup` 为不带 `media` 策略的纯文本模型，专门验证加密精确缓存。
+  当前运行时对启用媒体策略的模型保守绕过缓存，包括该模型收到的纯文本请求；不能将这一
+  bypass 描述为缓存命中。策略继续拒绝邮箱、凭据等未批准类别。
+
+两个合成 provider 使用不同 TLS 主机名、凭据、模型和独立调用计数；底层协议均为
+OpenAI-compatible，不代表已对其他厂商的专有协议或真实模型质量完成验收。fixture 支持
+正常 SSE、跨 chunk 敏感文本、缺少终止事件、延迟超时、明确 503、合成 PNG/WAV 输出；
+不会把媒体、提示词、识别正文或 token 写入调用计数日志。MCP fixture 仅实现固定目标的
+stateless `2026-07-28` 工具响应，最多五秒的受控延迟供撤销边界测试。
+
+```sh
+docker compose --env-file var/customer-demo/demo.env \
+  -f compose.customer-gateway.yaml --profile depth build depth-primary-provider ai-gateway-depth
+docker compose --env-file var/customer-demo/demo.env \
+  -f compose.customer-gateway.yaml --profile depth up -d
+python3 docker/customer-demo/e2e.py \
+  --private-dir var/customer-demo/depth \
+  --output var/customer-demo/depth/evidence/acceptance.json
+```
+
+验收脚本只接受专用回环地址并拒绝主平台 `8890`。它使用真实网关、Bifrost、控制面、PG、
+OCR/ASR 与 MCP HTTP 调用；逐项核对独立 provider/tool 计数、HTTP 状态、缓存标志和账务。
+可用 `--only stream|media|cache|fallback|mcp` 重跑一个集合。普通流式、断连、敏感跨 chunk、
+媒体输入/输出、相同目录跨租户缓存、上下文变化、nonce、凭据与祖先撤销均须按实际结果记录，
+不能用节点健康、客户端目录或回执上传替代这些请求。
+
+脚本会创建受限合成凭据、父子任务和独立审批，并执行专用凭据撤销与祖先任务取消用例。高影响批准
+失效用例保存相同配置内容后保留旧本地快照，确认旧批准仍无法执行；随后通过新回归与独立
+发布恢复可用目录。它保留旧审计、nonce journal、未知费用占额和现有计数，不通过清库使结果
+通过。准备的 `metadata.json` 须包含真实工作区、目录 digest 和由平台签发的应用凭据，
+`accounts.json` 须包含对应独立账号；仓库不附可工作的凭据或验收报告。
+
+明确的可重试 HTTP 可用性失败可以沿已批准路由切换，每次仍单独准入、检测和审计，失败尝试
+的费用未知占额继续保留。执行超时、未完成流或结果未知不自动重放；共享熔断开启后的新请求
+可以在分派前跳过不可用路由。输出拦截必须验证未交付客户，不能据拒绝状态认定上游没有执行。
+
+客户界面可使用可选 `compose.customer-demo-depth.yaml` 原生覆盖文件追加第二个 OpenAI
+连接，保留原连接及数据卷。操作员将按连接顺序排列的原、新最小应用 keys 只写入
+`var/customer-demo/depth/secrets/open-webui-depth.env`，保持 `0600`；不把 `task-app`、控制面
+或 MCP 服务凭据交给界面。第二连接静态目录仅显示 `depth-primary`、`depth-text`，备用模型
+用于受控切换，不直接加入界面列表。纯文本模型的原生能力元数据关闭 vision 和文件上传。
+
+```sh
+docker compose --env-file var/customer-demo/secrets/open-webui-compose.env \
+  -f compose.customer-demo.yaml -f compose.customer-demo-depth.yaml config --quiet
+docker compose --env-file var/customer-demo/secrets/open-webui-compose.env \
+  -f compose.customer-demo.yaml -f compose.customer-demo-depth.yaml \
+  up -d --force-recreate --no-deps open-webui open-webui-entry
+```
+
+连接顺序、原生用户授权和模型能力仍需由管理员按官方 API 设置；覆盖文件不授予新的工具权限。
+界面验收与脚本计数窗口应串行进行，避免把其他会话的调用计入单个故障用例。
+
+启用第二连接后，后续常态启动也保留这两个 `-f` 文件，避免仅使用基础文件而恢复为单连接配置。
+
+如为受控故障测试重建 fixture，先归档原始调用日志，再将已观察计数记录在私有
+`counter-offsets.json` 中保持累计连续。脚本在单轮开始时固定该偏移，每项仍依据本轮真实日志
+增长断言调用次数；偏移不会改变请求前后的差值，也不能代替原始日志。

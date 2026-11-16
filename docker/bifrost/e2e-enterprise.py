@@ -21,6 +21,19 @@ import uuid
 from e2e import ROOT, IMAGE, port, write, wait_port, wait_http
 spec=importlib.util.spec_from_file_location('controller_e2e',Path(__file__).with_name('e2e-controller.py'))
 legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(legacy)
+# This disposable fixture owns its random workspace. Remove task descendants
+# before workspace credentials, after all gateway/controller processes stop.
+HELPER=legacy.HELPER.replace(
+    'if os.Args[1]=="cleanup"{if _,e=pool.Exec(ctx,`DELETE FROM plume.workspaces WHERE slug=$1`,os.Args[2]);e!=nil{panic(e)};return}',
+    r'''if os.Args[1]=="cleanup"{
+ if len(os.Args[2])!=21||os.Args[2][:11]!="enterprise-"{panic("disposable enterprise workspace required")}
+ tx,e:=pool.Begin(ctx);if e!=nil{panic(e)};defer tx.Rollback(ctx)
+ var id int64;if e=tx.QueryRow(ctx,`SELECT id FROM plume.workspaces WHERE slug=$1 FOR UPDATE`,os.Args[2]).Scan(&id);e!=nil{panic(e)}
+ if _,e=tx.Exec(ctx,`DELETE FROM plume.ai_gateway_tasks WHERE workspace_id=$1`,id);e!=nil{panic(e)}
+ if _,e=tx.Exec(ctx,`DELETE FROM plume.workspaces WHERE id=$1 AND slug=$2`,id,os.Args[2]);e!=nil{panic(e)}
+ if e=tx.Commit(ctx);e!=nil{panic(e)};return
+}''')
+if HELPER==legacy.HELPER:raise RuntimeError('enterprise fixture cleanup helper not installed')
 
 CONTENT='Synthetic source contact: person@example.com\nAuthorized for support only.'
 CONTENT_SHA=hashlib.sha256(CONTENT.encode()).hexdigest()
@@ -77,7 +90,7 @@ def main():
     server=http.server.ThreadingHTTPServer(('0.0.0.0',sp),Services);threading.Thread(target=server.serve_forever,daemon=True).start()
     bf_name='scarlet-enterprise-'+uuid.uuid4().hex[:10];processes=[];logs=[];created=False;results=[]
     with tempfile.TemporaryDirectory(prefix='scarlet-enterprise-e2e-') as directory,tempfile.TemporaryDirectory(prefix='.gateway-enterprise-e2e-',dir=ROOT/'backend') as helper_dir:
-        tmp=Path(directory);hp=Path(helper_dir);(hp/'main.go').write_text(legacy.HELPER)
+        tmp=Path(directory);hp=Path(helper_dir);(hp/'main.go').write_text(HELPER)
         node=secrets.token_urlsafe(48)
         env=dict(os.environ,SCARLET_ORIGIN=control,SCARLET_GATEWAY_WORKSPACE=WORKSPACE,SCARLET_GATEWAY_CONTROL_TOKEN=node,SCARLET_GATEWAY_CONTROL_TOKENS='',SCARLET_BOOTSTRAP_WORKSPACE=WORKSPACE,SCARLET_BOOTSTRAP_WORKSPACE_NAME='Disposable Enterprise Test',SCARLET_BOOTSTRAP_USER=WORKSPACE+'@example.invalid',SCARLET_BOOTSTRAP_PASSWORD=secrets.token_urlsafe(32),SCARLET_GATEWAY_PROVIDER_KEY='synthetic-enterprise-provider-key-0001',SCARLET_GATEWAY_ENDPOINT=f'http://host.docker.internal:{sp}/v1',SCARLET_GATEWAY_CACHE_KEY=__import__('base64').b64encode(secrets.token_bytes(32)).decode())
         def helper(op,*args):return subprocess.check_output([str(tmp/'helper'),op,*map(str,args)],env=env).decode()

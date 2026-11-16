@@ -10,7 +10,7 @@ const canManage=computed(()=>props.workspace.role==='owner')
 const controller=new AbortController()
 const identity=ref<GatewayIdentity|null>(null),users=ref<GatewayIdentityUser[]>([])
 interface UserPage {items:GatewayIdentityUser[];limit:number;hasMore:boolean;nextCursor?:string;accountCount:number;matchingCount:number}
-const accountCount=ref(0),matchingCount=ref(0),usersHasMore=ref(false),usersNext=ref(''),usersCursor=ref(''),usersPrevious=ref<string[]>([]),usersLoading=ref(false)
+const accountCount=ref<number|null>(null),matchingCount=ref<number|null>(null),usersReadAt=ref(''),usersHasMore=ref(false),usersNext=ref(''),usersCursor=ref(''),usersPrevious=ref<string[]>([]),usersLoading=ref(false)
 const userFilters=reactive({q:'',active:'',group:''}),appliedUserFilters=ref({...userFilters})
 let usersSequence=0
 const loading=ref(true),busy=ref(''),error=ref(''),usersError=ref(''),feedback=ref('')
@@ -19,6 +19,12 @@ const groups=ref<GatewayGroupRole[]>([])
 const savedSnapshot=ref('')
 const dirty=computed(()=>JSON.stringify({draft,groups:groups.value})!==savedSnapshot.value)
 const configured=computed(()=>Boolean(draft.enabled || draft.scimEnabled || draft.issuer || draft.clientId || draft.clientSecretRef))
+const bindingLocked=computed(()=>accountCount.value===null || accountCount.value>0)
+const userFiltersChanged=computed(()=>JSON.stringify(userFilters)!==JSON.stringify(appliedUserFilters.value))
+const appliedUserScope=computed(()=>{
+  const filters=appliedUserFilters.value
+  return [filters.q?'账号检索“'+filters.q+'”':'',filters.active==='true'?'已开通':filters.active==='false'?'已停用':'',filters.group?'组 externalId“'+filters.group+'”':''].filter(Boolean).join(' · ') || '全部账号'
+})
 const token=ref(''),showToken=ref(false)
 let clearTimer:ReturnType<typeof setTimeout>|undefined
 const addresses=gatewayPublicURLs(window.location.origin,props.workspace.slug)
@@ -31,8 +37,8 @@ async function loadUsers(cursor='',trail:string[]=[],filters={...appliedUserFilt
   if(cursor)query.set('cursor',cursor)
   try {
     const page=await request<UserPage>(base+'/users?'+query,{signal:controller.signal})
-    if(sequence!==usersSequence)return
-    users.value=page.items;accountCount.value=page.accountCount;matchingCount.value=page.matchingCount;usersHasMore.value=page.hasMore;usersNext.value=page.nextCursor||'';usersCursor.value=cursor;usersPrevious.value=trail;appliedUserFilters.value={...filters}
+    if(controller.signal.aborted || sequence!==usersSequence)return
+    users.value=page.items || [];accountCount.value=page.accountCount;matchingCount.value=page.matchingCount;usersReadAt.value=new Date().toISOString();usersHasMore.value=page.hasMore;usersNext.value=page.nextCursor||'';usersCursor.value=cursor;usersPrevious.value=trail;appliedUserFilters.value={...filters}
   } catch(cause) {if(sequence===usersSequence&&!controller.signal.aborted){usersError.value=describeError(cause);if(cause instanceof ApiError&&cause.status===401)emit('sessionExpired')}}
   finally {if(sequence===usersSequence)usersLoading.value=false}
 }
@@ -74,8 +80,8 @@ onUnmounted(()=>{clearToken();controller.abort()})
         <div class="ai-security-body"><fieldset class="ai-security-fields" :disabled="loading || !!busy">
           <label class="ai-security-toggle"><input v-model="draft.enabled" type="checkbox">启用企业 OIDC 登录<small>关闭后将撤销本工作区联邦账号的会话和成员访问。</small></label>
           <label class="ai-security-toggle"><input v-model="draft.scimEnabled" type="checkbox">启用 SCIM 机器开通入口<small>仅控制机器同步入口；不会代替 OIDC 登录验证。</small></label>
-          <label class="field field-wide">OIDC issuer<input v-model.trim="draft.issuer" type="url" maxlength="2048" :required="configured" :readonly="accountCount>0"><small>已有联邦账号后不能更换 issuer 或 client ID，服务端会校验，避免账号重新绑定。</small></label>
-          <label class="field">Client ID<input v-model.trim="draft.clientId" maxlength="255" :required="configured" :readonly="accountCount>0"></label>
+          <label class="field field-wide">OIDC issuer<input v-model.trim="draft.issuer" type="url" maxlength="2048" :required="configured" :readonly="bindingLocked"><small>{{ accountCount===null?'尚未成功读取联邦账号数量，暂不编辑 issuer 或 client ID；请在下方重试读取账号。':'已有联邦账号后不能更换 issuer 或 client ID，服务端会校验，避免账号重新绑定。' }}</small></label>
+          <label class="field">Client ID<input v-model.trim="draft.clientId" maxlength="255" :required="configured" :readonly="bindingLocked"></label>
           <label class="field">客户端密钥环境引用<input v-model.trim="draft.clientSecretRef" maxlength="112" :required="configured" autocomplete="off" spellcheck="false"><small>仅填写 env:SCARLET_IDP_*；服务端从部署环境解析，管理配置不保存或回显密钥正文。</small></label>
           <label class="field">默认账号角色<select v-model="draft.defaultRole"><option v-for="(label,role) in gatewayRoleLabels" :key="role" :value="role">{{ label }}</option></select><small>企业身份和 SCIM 映射不能授予负责人角色。</small></label>
         </fieldset><h3>SCIM 组 externalId 与角色</h3><p class="table-secondary">多个组同时命中时采用经办人、复核人、查看人的优先顺序。</p>
@@ -88,7 +94,48 @@ onUnmounted(()=>{clearToken();controller.abort()})
         <div class="ai-security-actions"><button class="button button-secondary" :disabled="!!busy || !!token || !identity.scimEnabled || dirty" @click="issueToken">{{ busy==='token'?'正在生成…':identity.hasScimToken?'轮换 SCIM 令牌':'生成 SCIM 令牌' }}</button><span>{{ dirty?'先保存身份草稿，再生成或轮换令牌。':'轮换后旧令牌立即失效，需要更新身份提供商。' }}</span></div>
         <div v-if="token" class="ai-security-note"><strong>新令牌仅本次响应返回</strong><p>默认遮挡，60 秒后或离开页签时清除显示，不表示令牌自动过期。</p><label class="field">SCIM Bearer 令牌<input :value="token" :type="showToken?'text':'password'" readonly autocomplete="new-password" spellcheck="false"></label><div class="ai-security-actions"><button class="button button-secondary" @click="copy(token)">复制新令牌</button><button class="button button-secondary" @click="showToken=!showToken">{{ showToken?'遮挡':'临时显示' }}</button><button class="button button-secondary" @click="clearToken">清除此页令牌</button></div></div>
       </div></section>
-      <section class="panel"><div class="ai-security-heading"><div><h2>实际开通的联邦账号</h2><p>来自工作区身份管理接口；开通记录不代表已完成一次真实 OIDC 登录。</p></div></div><p v-if="usersError" class="message message-error" role="alert">{{ usersError }}{{ users.length?' 下方为上次载入记录，本次未能刷新。':'' }}</p><form class="filter-bar" @submit.prevent="loadUsers('',[],{...userFilters})"><label class="field">账号、名称或外部主体<input v-model.trim="userFilters.q" maxlength="120"></label><label class="field">开通状态<select v-model="userFilters.active"><option value="">全部状态</option><option value="true">已开通</option><option value="false">已停用</option></select></label><label class="field">组 externalId<input v-model.trim="userFilters.group" maxlength="255" placeholder="精确匹配"></label><button class="button button-secondary" :disabled="usersLoading">{{ usersLoading?'读取中…':'查询账号' }}</button></form><p class="ai-security-body" role="status">工作区共 {{ accountCount }} 个联邦账号，当前条件匹配 {{ matchingCount }} 个；本页 {{ users.length }} 个。每页读取时的开通状态分别核对。</p><div v-if="users.length" class="table-scroll" role="region" aria-label="联邦账号状态" tabindex="0"><table class="data-table"><thead><tr><th scope="col">账号</th><th scope="col">外部主体</th><th scope="col">状态与角色</th><th scope="col">组</th><th scope="col">更新时间</th></tr></thead><tbody><tr v-for="user in users" :key="user.id"><th scope="row">{{ user.displayName || user.userName }}<span class="table-secondary">{{ user.userName }}</span></th><td>{{ user.externalId }}</td><td>{{ user.active?'已开通':'已停用' }} · {{ gatewayRoleLabels[user.role as keyof typeof gatewayRoleLabels] || user.role || '无当前授权' }}</td><td>{{ user.groups.join('、') || '无组声明' }}</td><td>{{ formatDate(user.updatedAt) }}</td></tr></tbody></table></div><p v-else-if="!usersError && !usersLoading" class="empty-state">当前条件没有匹配的联邦账号。</p><div class="ai-security-actions ai-security-body"><button type="button" class="button button-secondary" :disabled="usersLoading||!usersPrevious.length" @click="loadUsers(usersPrevious[usersPrevious.length-1]||'',usersPrevious.slice(0,-1))">上一页</button><button type="button" class="button button-secondary" :disabled="usersLoading||!usersHasMore||!usersNext" @click="loadUsers(usersNext,[...usersPrevious,usersCursor])">下一页</button><button type="button" class="button button-secondary" :disabled="usersLoading" @click="loadUsers(usersCursor,[...usersPrevious])">重试或刷新本页账号</button></div></section>
+      <section class="panel identity-accounts" :aria-busy="usersLoading">
+        <div class="ai-security-heading"><div><h2>实际开通的联邦账号</h2><p>来自工作区身份管理接口；开通记录不代表已完成一次真实 OIDC 登录。</p></div><button type="button" class="button button-secondary" :disabled="usersLoading" @click="loadUsers(usersCursor,[...usersPrevious])">{{ usersLoading?'正在读取账号…':'刷新本页账号' }}</button></div>
+        <p v-if="usersError" class="message message-error" role="alert">{{ usersError }}{{ usersReadAt?' 下方保留上次成功读取的账号与筛选范围，本次查询未更新。':' 尚未取得账号数量与开通状态，不能视为没有账号。' }}<button type="button" class="button button-secondary" :disabled="usersLoading" @click="loadUsers(usersCursor,[...usersPrevious])">重试读取原范围</button></p>
+        <form class="ai-security-filter" @submit.prevent="loadUsers('',[],{...userFilters})">
+          <label class="field">账号、名称或外部主体<input v-model.trim="userFilters.q" maxlength="120" :disabled="usersLoading"></label>
+          <label class="field">开通状态<select v-model="userFilters.active" :disabled="usersLoading"><option value="">全部状态</option><option value="true">已开通</option><option value="false">已停用</option></select></label>
+          <label class="field">组 externalId<input v-model.trim="userFilters.group" maxlength="255" placeholder="精确匹配" :disabled="usersLoading"></label>
+          <button class="button button-primary" :disabled="usersLoading">{{ usersLoading?'读取中…':'查询账号' }}</button>
+        </form>
+        <div class="ai-security-body identity-account-summary">
+          <p v-if="usersLoading" role="status">正在读取账号与匹配数量，尚未更新下方范围…</p>
+          <template v-if="usersReadAt"><dl class="identity-counts"><div><dt>工作区联邦账号</dt><dd>{{ accountCount?.toLocaleString() }}</dd></div><div><dt>已应用条件匹配</dt><dd>{{ matchingCount?.toLocaleString() }}</dd></div><div><dt>本页账号</dt><dd>{{ users.length.toLocaleString() }}</dd></div></dl><p class="table-secondary">已应用范围：{{ appliedUserScope }}。读取于 <time :datetime="usersReadAt" :title="usersReadAt">{{ formatDate(usersReadAt,true) }}</time>；每页读取时的开通状态分别核对。</p></template>
+          <p v-else-if="!usersLoading" class="table-secondary">账号数量与开通状态尚未读取。请重试，不能用未知状态代替 0 个账号。</p>
+          <p v-if="userFiltersChanged" class="identity-filter-draft table-secondary">上方筛选尚未应用；列表、分页与匹配数量仍采用上次成功读取的范围。</p>
+        </div>
+        <div v-if="users.length" class="table-scroll" role="region" aria-label="联邦账号状态" tabindex="0"><table class="data-table identity-account-table"><thead><tr><th scope="col">账号</th><th scope="col">外部主体</th><th scope="col">状态与角色</th><th scope="col">组声明</th><th scope="col" class="table-date">更新时间</th></tr></thead><tbody><tr v-for="user in users" :key="user.id"><th scope="row">{{ user.displayName || user.userName }}<span class="table-secondary">{{ user.userName }}</span></th><td><code>{{ user.externalId }}</code></td><td><span class="badge" :class="user.active?'status-verified':'status-draft'">{{ user.active?'已开通':'已停用' }}</span><span class="table-secondary">{{ gatewayRoleLabels[user.role as keyof typeof gatewayRoleLabels] || user.role || '无当前授权' }}</span></td><td><details v-if="user.groups.length"><summary>核对 {{ user.groups.length }} 个组</summary><ul class="identity-group-list"><li v-for="group in user.groups" :key="group"><code>{{ group }}</code></li></ul></details><span v-else>无组声明</span></td><td class="table-date"><time :datetime="user.updatedAt" :title="user.updatedAt">{{ formatDate(user.updatedAt) }}</time></td></tr></tbody></table></div>
+        <p v-else-if="usersReadAt && !usersError && !usersLoading" class="empty-state">已应用条件没有匹配的联邦账号。</p>
+        <div v-if="usersReadAt" class="ai-security-pagination"><button type="button" class="button button-secondary" :disabled="usersLoading || !usersPrevious.length" @click="loadUsers(usersPrevious[usersPrevious.length-1] || '',usersPrevious.slice(0,-1))">上一页</button><button type="button" class="button button-secondary" :disabled="usersLoading || !usersHasMore || !usersNext" @click="loadUsers(usersNext,[...usersPrevious,usersCursor])">下一页</button><p>第 {{ usersPrevious.length+1 }} 页 · 每页最多 50 个 · {{ usersHasMore?'仍有后续账号':'已到当前条件最后一页' }}</p></div>
+      </section>
     </template>
   </template>
 </template>
+
+<style scoped>
+.identity-accounts .message {margin:16px 20px}
+.identity-accounts .message button {margin:8px 0 0;display:block}
+.identity-account-summary {display:grid;gap:14px}
+.identity-account-summary p {margin:0}
+.identity-counts {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin:0}
+.identity-counts dt {color:var(--secondary);font-size:13px}
+.identity-counts dd {margin:6px 0 0;font-size:23px;font-weight:600;line-height:1.4;font-variant-numeric:tabular-nums}
+.identity-filter-draft {padding:10px 12px;background:var(--surface-subtle);border:1px solid var(--line);border-radius:4px}
+.identity-account-table {min-width:880px;table-layout:fixed}
+.identity-account-table th:first-child {width:24%}
+.identity-account-table th:nth-child(2) {width:25%}
+.identity-account-table th:nth-child(3) {width:16%}
+.identity-account-table th:nth-child(4) {width:18%}
+.identity-account-table th:last-child {width:17%}
+.identity-account-table :is(td,th) {overflow-wrap:anywhere}
+.identity-account-table code {white-space:pre-wrap}
+.identity-account-table summary {color:var(--accent);cursor:pointer}
+.identity-group-list {margin:6px 0 0;padding-left:18px;line-height:1.8}
+.identity-group-list li+li {margin-top:6px}
+@media(max-width:480px){.identity-counts{gap:12px}.identity-counts dt{font-size:12px}.identity-counts dd{font-size:21px}.identity-accounts .message{margin:16px}}
+</style>

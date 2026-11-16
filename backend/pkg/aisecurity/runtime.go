@@ -217,7 +217,7 @@ func (h *runtimeHandler) ServeHTTP(w http.ResponseWriter, in *http.Request) {
 		return
 	}
 	auth := in.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") || len(auth) < 39 || len(auth) > 520 {
+	if len(in.Header.Values("Authorization")) != 1 || !strings.HasPrefix(auth, "Bearer ") || len(auth) < 39 || len(auth) > 520 {
 		respond(w, 401, map[string]string{"code": "authentication_required"})
 		return
 	}
@@ -228,7 +228,7 @@ func (h *runtimeHandler) ServeHTTP(w http.ResponseWriter, in *http.Request) {
 		return
 	}
 	in = in.WithContext(context.WithValue(in.Context(), gatewayCredentialHashKey{}, hex.EncodeToString(sum[:])))
-	if in.Header.Get("Content-Type") != "application/json" || in.Header.Get("Content-Encoding") != "" {
+	if len(in.Header.Values("Content-Type")) != 1 || in.Header.Get("Content-Type") != "application/json" || len(in.Header.Values("Content-Encoding")) > 1 || in.Header.Get("Content-Encoding") != "" {
 		respond(w, 415, map[string]string{"code": "json_uncompressed_required"})
 		return
 	}

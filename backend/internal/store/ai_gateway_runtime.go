@@ -115,6 +115,11 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		if e != nil {
 			return e
 		}
+		toolFact := gatewaygovernance.TaskCheckInput{TaskContext: in.TaskContext, ApprovalID: in.ApprovalID, RequestID: in.RequestID, RequestDigest: in.RequestDigest, Kind: in.Kind, CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, ToolID: in.ToolID, Action: in.Action, Target: in.Target}
+		toolPolicy, e := gatewayCurrentToolPolicy(ctx, tx, ws, toolFact)
+		if e != nil {
+			return e
+		}
 		c, e := gatewayConfig(ctx, tx, ws, " FOR SHARE")
 		if e != nil {
 			return e
@@ -151,6 +156,9 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		}
 		var reserved, spent int64
 		if e = tx.QueryRow(ctx, `SELECT reserved_micros,spent_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, appID).Scan(&reserved, &spent); e != nil {
+			return e
+		}
+		if e = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, toolFact, in.LeaseChainDigest, in.LeaseProtocolVersion); e != nil {
 			return e
 		}
 
@@ -224,6 +232,7 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 			return e
 		}
 		out = GatewayAuthorization{ProjectionBytes: in.ProjectionBytes, MediaBytes: in.MediaBytes, MediaDigests: in.MediaDigests, MediaInspectionVersion: in.MediaInspectionVersion, ParentRequestID: in.ParentRequestID, RootModelID: in.RootModelID, PreviousReservationID: in.PreviousReservationID, Attempt: in.Attempt, FallbackModelIDs: append([]string{}, provider.FallbackModelIDs...), ConfigRevision: c.Revision, RequestID: in.RequestID, RequestDigest: in.RequestDigest, CatalogDigest: in.CatalogDigest, Kind: in.Kind, CredentialID: credID, ReservationID: id, ApplicationID: appID, PrincipalID: app.PrincipalID, ModelID: in.ModelID, ProviderID: provider.ID, Provider: provider.Provider, UpstreamModel: provider.UpstreamModel, EndpointRef: provider.EndpointRef, SecretRef: provider.SecretRef, Region: provider.Region, ResponseFormat: provider.ResponseFormat, MaxCostMicros: cost, MaxTokens: tokens}
+		out.ApprovalID = in.ApprovalID
 		out.TaskContext = in.TaskContext
 		out.SourceDigests = append([]string{}, in.SourceDigests...)
 		raw, e := json.Marshal(gatewayReservationEvidence{GatewayAuthorization: out, RequiredMediaInspectionVersion: aisecurity.MediaInspectionVersion})

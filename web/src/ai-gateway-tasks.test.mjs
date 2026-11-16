@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {taskDraft,taskCreatePayload,taskStatusPayload,taskAvailableBudget,taskHeaderTemplate,taskLifecycleState} from './ai-gateway-tasks.ts'
+import {taskDraft,taskCreatePayload,taskStatusPayload,taskAvailableBudget,taskHeaderTemplate,taskLifecycleState,taskDelegationIssue,taskStatusReview,taskStatusReviewReady,taskStatusReviewFailed,taskStatusReviewReadBack} from './ai-gateway-tasks.ts'
 
 const now=Date.parse('2026-11-16T08:00:00+08:00')
 const config={revision:2,enabled:true,catalogDigest:'a'.repeat(64),applications:[{id:'app',name:'app',enabled:true,principalId:'alice',allowRag:true,modelIds:['model'],toolIds:['tool']}],providers:[]}
@@ -13,6 +13,56 @@ test('task display respects expiry without hiding terminal status or unknown dat
   assert.equal(taskLifecycleState(parent,Date.parse(parent.expiresAt)),'expired')
   assert.equal(taskLifecycleState({...parent,expiresAt:'invalid'},now),'unknown')
   assert.equal(taskLifecycleState({...parent,status:'cancelled'},Date.parse(parent.expiresAt)),'cancelled')
+})
+
+test('delegation availability follows the current deadline, terminal state and remaining tree limits',()=>{
+  assert.equal(taskDelegationIssue(parent,now),'')
+  assert.match(taskDelegationIssue(parent,Date.parse(parent.expiresAt)),/期限已过/)
+  assert.match(taskDelegationIssue({...parent,expiresAt:'invalid'},now),/无法核对/)
+  for(const status of ['cancelled','completed'])assert.match(taskDelegationIssue({...parent,status},now),/不能创建子委托/)
+  for(const override of [{depth:4},{maxDelegationDepth:0}])assert.match(taskDelegationIssue({...parent,...override},now),/层数限制/)
+  assert.match(taskDelegationIssue({...parent,stepsUsed:parent.maxSteps},now),/没有剩余步骤/)
+  assert.equal(taskDelegationIssue({...parent,budgetMicros:0,reservedMicros:0,spentMicros:0},now),'')
+})
+
+test('status confirmation freezes the selected task identity and rejects another row or changed revision',()=>{
+  const plan=taskStatusReview(parent,'cancelled','Stop future work',new Set())
+  assert.equal(taskStatusReviewReady(plan,parent),true)
+  assert.equal(taskStatusReviewReady(plan,{...parent,id:'other-task'}),false)
+  assert.equal(taskStatusReviewReady(plan,{...parent,revision:parent.revision+1}),false)
+  assert.equal(taskStatusReviewReady(plan,{...parent,status:'completed'}),false)
+  const original={id:plan.id,purpose:plan.purpose,applicationId:plan.applicationId,principalId:plan.principalId,payload:{...plan.payload}}
+  const changed={...parent,id:'other-task',purpose:'different',applicationId:'other-app',principalId:'other-principal'}
+  assert.equal(taskStatusReviewReady(plan,changed),false)
+  assert.deepEqual({id:plan.id,purpose:plan.purpose,applicationId:plan.applicationId,principalId:plan.principalId,payload:plan.payload},original)
+})
+
+test('failed status submission requires a successful read of the original task and a newly frozen confirmation',()=>{
+  const unverified=new Set([parent.id])
+  const failed=taskStatusReviewFailed(taskStatusReview(parent,'completed','Keep this draft',new Set()))
+  assert.equal(taskStatusReviewReady(failed,parent),false)
+  assert.equal(failed.readBack,undefined)
+  assert.equal(failed.payload.reason,'Keep this draft')
+  assert.throws(()=>taskStatusReview(parent,'completed',failed.payload.reason,unverified),/重新读取原任务/)
+  const failedRead=taskStatusReviewFailed(failed)
+  assert.equal(taskStatusReviewReady(failedRead,parent),false)
+  assert.equal(failedRead.payload.reason,'Keep this draft')
+  assert.equal(failed.readBack,undefined)
+  assert.equal(taskStatusReviewReady(failed,parent),false)
+  assert.throws(()=>taskStatusReviewReadBack(failed,{...parent,id:'other-task'}),/不能用其他任务/)
+  assert.equal(unverified.has(parent.id),true)
+  const rechecked=taskStatusReviewReadBack(failed,parent)
+  assert.deepEqual(rechecked.readBack,{status:'active',revision:parent.revision})
+  assert.equal(taskStatusReviewReady(rechecked,parent),false)
+  assert.equal(rechecked.payload.reason,'Keep this draft')
+  const failedRefresh=taskStatusReviewFailed(rechecked)
+  assert.equal(failedRefresh.readBack,undefined)
+  assert.equal(taskStatusReviewReady(failedRefresh,parent),false)
+  unverified.delete(parent.id)
+  assert.equal(taskStatusReviewReady(taskStatusReview(parent,'completed',rechecked.payload.reason,unverified),parent),true)
+  const completed=taskStatusReviewReadBack(failed,{...parent,status:'completed',revision:parent.revision+1})
+  assert.equal(taskStatusReviewReady(completed,parent),false)
+  assert.throws(()=>taskStatusReview({...parent,status:'completed'},'completed',completed.payload.reason,new Set()))
 })
 
 test('task creation binds saved app identity/catalog and enabled credential while omitting self-reported source facts',()=>{

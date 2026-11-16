@@ -29,6 +29,9 @@ func gatewayTaskFact(in gatewaygovernance.TaskCheckInput) error {
 	if in.Kind == "model" && !gatewayRuntimeID.MatchString(in.ModelID) || in.Kind == "tool" && !gatewayRuntimeID.MatchString(in.ToolID) {
 		return ErrInvalid
 	}
+	if in.ApprovalID != "" && (in.Kind != "tool" || !gatewayRuntimeID.MatchString(in.ApprovalID) || !gatewayRuntimeID.MatchString(in.RequestID) || !gatewayHash.MatchString(in.RequestDigest)) || in.ApprovalID == "" && (in.RequestID != "" || in.RequestDigest != "") {
+		return ErrInvalid
+	}
 	return nil
 }
 
@@ -74,6 +77,13 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	if err != nil {
 		return
 	}
+	var toolPolicy gatewayToolPolicy
+	if in.Kind == "tool" && in.ApprovalID != "" {
+		toolPolicy, err = gatewayCurrentToolPolicy(ctx, tx, ws, in)
+		if err != nil {
+			return
+		}
+	}
 	c, e := gatewayConfig(ctx, tx, ws, " FOR SHARE")
 	if e != nil {
 		err = e
@@ -89,7 +99,8 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 		if app.RequireTask {
 			err = ErrForbidden
 		} else {
-			grant.Allowed = true
+			err = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, in, "", "")
+			grant.Allowed = err == nil
 		}
 		return
 	}
@@ -150,6 +161,10 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	grant.Purpose = leaf.Purpose
 	grant.LeaseChainDigest = gatewayTaskLeaseDigest(chain)
 	grant.LeaseProtocolVersion = gatewaygovernance.TaskLeaseProtocolVersion
+	if err = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, in, grant.LeaseChainDigest, grant.LeaseProtocolVersion); err != nil {
+		grant.Allowed = false
+		return
+	}
 	for _, id := range leaf.ModelIDs {
 		if slices.Contains(app.ModelIDs, id) {
 			grant.ModelIDs = append(grant.ModelIDs, id)

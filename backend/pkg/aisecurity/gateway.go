@@ -20,6 +20,7 @@ import (
 // and catalog evaluation. It is never accepted from a caller as identity proof.
 type GatewayAuthorization struct {
 	gatewaygovernance.TaskContext
+	ApprovalID             string   `json:"approvalId,omitempty"`
 	SourceDigests          []string `json:"sourceDigests,omitempty"`
 	ProjectionBytes        int64    `json:"projectionBytes,omitempty"`
 	MediaBytes             int64    `json:"mediaBytes,omitempty"`
@@ -153,20 +154,22 @@ func (g *gatewayHandler) ServeHTTP(w http.ResponseWriter, in *http.Request) {
 		gatewayError(w, 404, "not_found")
 		return
 	}
-	if in.Header.Get("Content-Type") != "application/json" || in.Header.Get("Content-Encoding") != "" {
+	if len(in.Header.Values("Content-Type")) != 1 || in.Header.Get("Content-Type") != "application/json" || len(in.Header.Values("Content-Encoding")) > 1 || in.Header.Get("Content-Encoding") != "" {
 		gatewayError(w, 415, "json_uncompressed_required")
 		return
 	}
 	auth := in.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") || len(auth) < 39 || len(auth) > 520 {
+	if len(in.Header.Values("Authorization")) != 1 || !strings.HasPrefix(auth, "Bearer ") || len(auth) < 39 || len(auth) > 520 {
 		gatewayError(w, 401, "authentication_required")
 		return
 	}
-	identity, authErr := g.runtime.authenticate(in.Context(), tokenHash(strings.TrimPrefix(auth, "Bearer ")))
+	credentialHash := tokenHash(strings.TrimPrefix(auth, "Bearer "))
+	identity, authErr := g.runtime.authenticate(in.Context(), credentialHash)
 	if authErr != nil {
 		gatewayError(w, 401, "authentication_required")
 		return
 	}
+	in = in.WithContext(context.WithValue(in.Context(), gatewayCredentialHashKey{}, credentialHash))
 	taskID, taskErr := selectedTask(in, "")
 	if taskErr != nil {
 		gatewayError(w, 400, "task_selection_invalid")
@@ -220,6 +223,11 @@ func (g *gatewayHandler) executeAttempt(w http.ResponseWriter, in *http.Request,
 }
 
 func (g *gatewayHandler) chat(w http.ResponseWriter, in *http.Request, identity Identity) {
+	nonces := in.Header.Values("Idempotency-Key")
+	if len(nonces) > 1 || len(nonces) == 1 && (len(nonces[0]) < 16 || !validID(nonces[0])) {
+		gatewayError(w, 400, "request_nonce_invalid")
+		return
+	}
 	var body modelPayload
 	if strictJSON(in.Body, &body) != nil || body.Prompt != nil || body.Input != nil || len(body.Messages) == 0 || len(body.Messages) > 128 {
 		gatewayError(w, 400, "supported_chat_json_required")
@@ -247,7 +255,7 @@ func (g *gatewayHandler) chat(w http.ResponseWriter, in *http.Request, identity 
 	input, _ := json.Marshal(body)
 	now := g.runtime.options.Now().UTC()
 	id := in.Header.Get("Idempotency-Key")
-	if id == "" {
+	if len(nonces) == 0 {
 		var nonce [16]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
 			gatewayError(w, 503, "request_reference_unavailable")
@@ -261,9 +269,13 @@ func (g *gatewayHandler) chat(w http.ResponseWriter, in *http.Request, identity 
 	}
 	issued, expires := now, now.Add(time.Duration(age)*time.Second)
 	for header, value := range map[string]*time.Time{"X-Scarlet-Issued-At": &issued, "X-Scarlet-Expires-At": &expires} {
-		if raw := in.Header.Get(header); raw != "" {
-			parsed, err := time.Parse(time.RFC3339Nano, raw)
-			if err != nil {
+		if values := in.Header.Values(header); len(values) != 0 {
+			if len(values) != 1 {
+				gatewayError(w, 400, "request_time_invalid")
+				return
+			}
+			parsed, err := time.Parse(time.RFC3339Nano, values[0])
+			if err != nil || parsed.IsZero() {
 				gatewayError(w, 400, "request_time_invalid")
 				return
 			}

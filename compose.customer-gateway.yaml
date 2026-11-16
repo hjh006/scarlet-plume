@@ -165,6 +165,96 @@ services:
       synthetic-provider: {condition: service_started}
     networks: [customer-demo, edge, backend, media]
 
+  depth-primary-provider: &depth-provider
+    profiles: [depth]
+    build:
+      context: .
+      dockerfile: docker/customer-demo/Dockerfile
+    image: scarlet-customer-fixture:depth
+    user: '${CUSTOMER_UID:-10001}:${CUSTOMER_GID:-10001}'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file: ./var/customer-demo/depth/secrets/primary-provider.env
+    command: [-mode, provider, -provider-id, primary, -models, "primary-model,primary-text-model", -fixture-image, /fixtures/synthetic-email.png, -fixture-audio, /fixtures/synthetic-speech.wav]
+    volumes:
+      - ./var/customer-demo/depth/tls/primary-provider:/certs:ro
+      - ./var/customer-demo/fixtures:/fixtures:ro
+    networks: [backend]
+
+  depth-secondary-provider:
+    <<: *depth-provider
+    env_file: ./var/customer-demo/depth/secrets/secondary-provider.env
+    command: [-mode, provider, -provider-id, secondary, -models, "secondary-model,secondary-text-model", -fixture-image, /fixtures/synthetic-email.png, -fixture-audio, /fixtures/synthetic-speech.wav]
+    volumes:
+      - ./var/customer-demo/depth/tls/secondary-provider:/certs:ro
+      - ./var/customer-demo/fixtures:/fixtures:ro
+
+  depth-mcp:
+    <<: *depth-provider
+    env_file: ./var/customer-demo/depth/secrets/mcp.env
+    command: [-mode, mcp, -listen, ':9445', -tool-delay, 3s]
+    volumes: [./var/customer-demo/depth/tls/mcp:/certs:ro]
+
+  ai-gateway-depth: &depth-gateway
+    profiles: [depth]
+    build:
+      context: .
+      dockerfile: docker/bifrost/Dockerfile
+    image: scarlet-ai-gateway:bifrost-2.5.1-media-v2
+    user: '${CUSTOMER_UID:-10001}:${CUSTOMER_GID:-10001}'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+      - /app/data:rw,nosuid,nodev,noexec,size=16m,mode=1777
+    ports: ['127.0.0.1:8907:8905']
+    env_file: ./var/customer-demo/depth/secrets/gateway.env
+    volumes:
+      - ./var/customer-demo/depth/primary/config:/config:ro
+      - ./var/customer-demo/depth/primary/state:/state
+      - ./var/customer-demo/depth/tls/gateway:/certs:ro
+      - ./var/customer-demo/tls/scanner/ca.crt:/scanner-ca/ca.crt:ro
+      - ./var/customer-demo/tls/gateway-roots.pem:/trust/gateway-roots.pem:ro
+      - ./var/customer-demo/secrets/scanner-token.txt:/scanner-token.txt:ro
+    command: [-bifrost-binary, /app/main, -listen, '0.0.0.0:8905', -catalog, /config/catalog.json,
+      -bindings, /config/bindings.json, -bifrost-profile, /config/bifrost.json, -audit, /state/audit.jsonl,
+      -journal, /state/replay.jsonl, -control-url, 'https://controller:9443', -control-token-file, /config/controller.token,
+      -workspace, customer-depth, -node-id, customer-depth-gateway, -media-inspector-token-file, /scanner-token.txt,
+      -tls-cert, /certs/tls.crt, -tls-key, /certs/tls.key]
+    healthcheck:
+      test: [CMD, /usr/local/bin/ai-gateway, -check-ready]
+      interval: 15s
+      timeout: 5s
+      start_period: 70s
+      retries: 2
+    depends_on:
+      media-inspector: {condition: service_healthy}
+      controller: {condition: service_started}
+      depth-primary-provider: {condition: service_started}
+      depth-secondary-provider: {condition: service_started}
+      depth-mcp: {condition: service_started}
+    networks: [customer-demo, edge, backend, media]
+
+  ai-gateway-other:
+    <<: *depth-gateway
+    ports: ['127.0.0.1:8909:8905']
+    volumes:
+      - ./var/customer-demo/depth/other/config:/config:ro
+      - ./var/customer-demo/depth/other/state:/state
+      - ./var/customer-demo/depth/tls/gateway:/certs:ro
+      - ./var/customer-demo/tls/scanner/ca.crt:/scanner-ca/ca.crt:ro
+      - ./var/customer-demo/tls/gateway-roots.pem:/trust/gateway-roots.pem:ro
+      - ./var/customer-demo/secrets/scanner-token.txt:/scanner-token.txt:ro
+    command: [-bifrost-binary, /app/main, -listen, '0.0.0.0:8905', -catalog, /config/catalog.json,
+      -bindings, /config/bindings.json, -bifrost-profile, /config/bifrost.json, -audit, /state/audit.jsonl,
+      -journal, /state/replay.jsonl, -control-url, 'https://controller:9443', -control-token-file, /config/controller.token,
+      -workspace, customer-depth-other, -node-id, customer-depth-other-gateway, -media-inspector-token-file, /scanner-token.txt,
+      -tls-cert, /certs/tls.crt, -tls-key, /certs/tls.key]
+
 volumes:
   customer-db:
     name: scarlet-customer-db-data

@@ -209,14 +209,6 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 		gatewayMCPError(w, 403, rpc.ID, -32000, "Identity not authorized", nil)
 		return
 	}
-	if g.discoverTools != nil {
-		allowed, err := g.discoverTools(in.Context(), identity, tokenHash(strings.TrimPrefix(in.Header.Get("Authorization"), "Bearer ")), catalogDigest)
-		if err != nil {
-			gatewayMCPError(w, 503, rpc.ID, -32603, "Tool authorization unavailable", nil)
-			return
-		}
-		tools = slices.DeleteFunc(tools, func(v gatewayMCPVisibleTool) bool { return !slices.Contains(allowed, v.tool.ID) })
-	}
 	taskID, taskErr := selectedTask(in, "")
 	if taskErr != nil {
 		gatewayMCPError(w, 400, rpc.ID, -32602, "Invalid task selector", nil)
@@ -231,6 +223,14 @@ func (g *gatewayHandler) mcpFacade(w http.ResponseWriter, in *http.Request, iden
 	if requireTask && taskID == "" {
 		gatewayMCPError(w, 403, rpc.ID, -32000, "Task required", nil)
 		return
+	}
+	if g.discoverTools != nil {
+		allowed, err := g.discoverTools(in.Context(), identity, tokenHash(strings.TrimPrefix(in.Header.Get("Authorization"), "Bearer ")), catalogDigest)
+		if err != nil {
+			gatewayMCPError(w, 503, rpc.ID, -32603, "Tool authorization unavailable", nil)
+			return
+		}
+		tools = slices.DeleteFunc(tools, func(v gatewayMCPVisibleTool) bool { return !slices.Contains(allowed, v.tool.ID) })
 	}
 	var discoveryRequest Request
 	var discoveryDecision Decision

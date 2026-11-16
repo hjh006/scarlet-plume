@@ -17,19 +17,26 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 )
 
 func main() {
-	mode := flag.String("mode", "provider", "provider or controller-proxy")
+	mode := flag.String("mode", "provider", "provider, mcp, or controller-proxy")
+	models := flag.String("models", "synthetic-media-model", "explicit comma-separated synthetic model IDs")
+	providerID := flag.String("provider-id", "legacy", "content-free fixture identifier")
+	toolDelay := flag.Duration("tool-delay", 0, "bounded synthetic tool response delay, at most five seconds")
 	addr := flag.String("listen", ":9444", "private HTTPS listener")
 	cert := flag.String("cert", "/certs/tls.crt", "TLS certificate")
 	key := flag.String("key", "/certs/tls.key", "TLS key")
 	imagePath := flag.String("fixture-image", "", "optional synthetic output PNG fixture")
 	audioPath := flag.String("fixture-audio", "", "optional synthetic output WAV fixture")
 	flag.Parse()
+	if *toolDelay < 0 || *toolDelay > 5*time.Second {
+		log.Fatal("invalid synthetic tool delay")
+	}
 	var handler http.Handler
 	if *mode == "controller-proxy" {
 		u, _ := url.Parse("http://controlplane:8080")
@@ -38,6 +45,45 @@ func main() {
 		proxy.ErrorLog = log.New(io.Discard, "", 0)
 		proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) { w.WriteHeader(502) }
 		handler = proxy
+	} else if *mode == "mcp" {
+		token := os.Getenv("SCARLET_GATEWAY_DEPTH_MCP_TOKEN")
+		if len(token) < 32 {
+			log.Fatal("synthetic MCP authentication unavailable")
+		}
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("MCP-Protocol-Version", "2026-07-28")
+			if r.Method != "POST" || r.URL.Path != "/mcp" || r.URL.RawQuery != "" {
+				w.WriteHeader(404)
+				return
+			}
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
+				w.WriteHeader(401)
+				return
+			}
+			var rpc struct {
+				JSONRPC string          `json:"jsonrpc"`
+				ID      json.RawMessage `json:"id"`
+				Method  string          `json:"method"`
+				Params  struct {
+					Name      string            `json:"name"`
+					Arguments map[string]string `json:"arguments"`
+				} `json:"params"`
+			}
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&rpc) != nil || rpc.JSONRPC != "2.0" || rpc.Method != "tools/call" || !slices.Contains([]string{"read", "close"}, rpc.Params.Name) || rpc.Params.Arguments["ticketId"] != "ticket-17" {
+				w.WriteHeader(400)
+				return
+			}
+			log.Print("synthetic MCP tool handled")
+			if *toolDelay > 0 {
+				select {
+				case <-time.After(*toolDelay):
+				case <-r.Context().Done():
+					return
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": rpc.ID, "result": map[string]any{"resultType": "complete", "content": []any{map[string]string{"type": "text", "text": "Synthetic ticket action completed"}}}})
+		})
 	} else if *mode == "provider" {
 		image, audio := "", ""
 		for path, dst := range map[string]*string{*imagePath: &image, *audioPath: &audio} {
@@ -74,7 +120,7 @@ func main() {
 				Stream   bool              `json:"stream"`
 			}
 			d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20))
-			if d.Decode(&body) != nil || body.Model != "synthetic-media-model" || len(body.Messages) == 0 {
+			if d.Decode(&body) != nil || !slices.Contains(strings.Split(*models, ","), body.Model) || len(body.Messages) == 0 {
 				w.WriteHeader(400)
 				return
 			}
@@ -84,6 +130,20 @@ func main() {
 				return
 			}
 			log.Print("synthetic provider request handled")
+			joined := string(bytesJoin(body.Messages))
+			if strings.Contains(joined, "fixture:failure-503") && *providerID == "primary" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(503)
+				io.WriteString(w, `{"error":{"message":"synthetic unavailability"}}`)
+				return
+			}
+			if strings.Contains(joined, "fixture:timeout") {
+				select {
+				case <-time.After(12 * time.Second):
+				case <-r.Context().Done():
+					return
+				}
+			}
 			answer := "Synthetic customer fixture response. No external model was called."
 			imageOutput, audioOutput := false, false
 			for _, message := range body.Messages {
@@ -115,7 +175,15 @@ func main() {
 						f.Flush()
 					}
 				}
-				chunk(map[string]string{"role": "assistant", "content": answer}, nil, false)
+				if strings.Contains(joined, "fixture:chunk-email") {
+					chunk(map[string]string{"role": "assistant", "content": "person@"}, nil, false)
+					chunk(map[string]string{"content": "example.com"}, nil, false)
+				} else {
+					chunk(map[string]string{"role": "assistant", "content": answer}, nil, false)
+				}
+				if strings.Contains(joined, "fixture:partial-stream") {
+					return
+				}
 				chunk(map[string]string{}, "stop", true)
 				io.WriteString(w, "data: [DONE]\n\n")
 				return
@@ -138,4 +206,12 @@ func main() {
 	if err := s.ListenAndServeTLS(*cert, *key); err != nil && err != http.ErrServerClosed {
 		log.Fatal("synthetic fixture listener failed")
 	}
+}
+
+func bytesJoin(parts []json.RawMessage) []byte {
+	var out []byte
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
 }

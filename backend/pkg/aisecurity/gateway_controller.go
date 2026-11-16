@@ -169,6 +169,7 @@ func (c *GatewayController) BeforeExecute(ctx context.Context, fact GatewayAutho
 	}
 	var grant struct {
 		gatewaygovernance.TaskContext
+		ApprovalID             string   `json:"approvalId,omitempty"`
 		SourceDigests          []string `json:"sourceDigests,omitempty"`
 		ProjectionBytes        int64    `json:"projectionBytes,omitempty"`
 		MediaBytes             int64    `json:"mediaBytes,omitempty"`
@@ -220,7 +221,7 @@ func (c *GatewayController) BeforeExecute(ctx context.Context, fact GatewayAutho
 	c.mu.Lock()
 	c.reservations[callID] = gatewayReservation{grant.ReservationID, fact.RequestDigest, grant.ConfigRevision}
 	c.mu.Unlock()
-	if !slices.Equal(grant.SourceDigests, fact.SourceDigests) || grant.TaskContext != fact.TaskContext || grant.Identity != fact.Identity || grant.Kind != fact.Kind || grant.RequestID != fact.RequestID || grant.CatalogDigest != fact.CatalogDigest || grant.ModelID != fact.ModelID {
+	if !slices.Equal(grant.SourceDigests, fact.SourceDigests) || grant.TaskContext != fact.TaskContext || grant.ApprovalID != fact.ApprovalID || grant.Identity != fact.Identity || grant.Kind != fact.Kind || grant.RequestID != fact.RequestID || grant.CatalogDigest != fact.CatalogDigest || grant.ModelID != fact.ModelID {
 		return errors.New("gateway authorization scope mismatch")
 	}
 	if fact.Kind == "model" {

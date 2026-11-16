@@ -16,6 +16,15 @@ export function taskLifecycleState(task:Pick<GatewayTask,'status'|'expiresAt'>,n
   const expiry=Date.parse(task.expiresAt)
   return !Number.isFinite(expiry)?'unknown':expiry<=now?'expired':'active'
 }
+export function taskDelegationIssue(task:GatewayTask,now=Date.now()):string {
+  const state=taskLifecycleState(task,now)
+  if(state==='expired')return '任务期限已过，不能创建子委托。'
+  if(state==='unknown')return '任务期限无法核对，请重新读取任务后再创建委托。'
+  if(state!=='active')return '任务已停止或关闭后续执行，不能创建子委托。'
+  if(task.depth>=4 || task.maxDelegationDepth<1)return '此任务已达到委托层数限制。'
+  if(task.stepsUsed>=task.maxSteps)return '此任务没有剩余步骤，不能创建子委托。'
+  return ''
+}
 const identifier=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
 export function taskScope(value:string):string[] {return value.split(/[,，\n]+/).map(part=>part.trim()).filter(Boolean)}
 export function taskDraft(parent?:GatewayTask,now=Date.now()):GatewayTaskDraft {
@@ -60,5 +69,25 @@ export function taskStatusPayload(task:GatewayTask,status:string,reason:string) 
   const text=reason.trim()
   if(!text || Array.from(text).length>240 || /\p{Cc}/u.test(text))throw new Error('请填写 1—240 字且不含控制字符的结束原因，不填写敏感正文。')
   return {expectedRevision:task.revision,status,reason:text}
+}
+export interface GatewayTaskStatusReview {
+  id:string;purpose:string;applicationId:string;principalId:string
+  payload:ReturnType<typeof taskStatusPayload>
+  requiresReadback:boolean
+  readBack?:{status:string;revision:number}
+}
+export function taskStatusReview(task:GatewayTask,status:string,reason:string,unverifiedTasks:ReadonlySet<string>):GatewayTaskStatusReview {
+  if(unverifiedTasks.has(task.id))throw new Error('上次状态提交结果尚未核实，请先重新读取原任务，再确认后续操作。')
+  return {id:task.id,purpose:task.purpose,applicationId:task.applicationId,principalId:task.principalId,payload:taskStatusPayload(task,status,reason),requiresReadback:false}
+}
+export function taskStatusReviewReady(plan:GatewayTaskStatusReview|undefined,task:GatewayTask|undefined):boolean {
+  return !!plan && !plan.requiresReadback && task?.id===plan.id && task.status==='active' && task.revision===plan.payload.expectedRevision
+}
+export function taskStatusReviewFailed(plan:GatewayTaskStatusReview):GatewayTaskStatusReview {
+  return {...plan,requiresReadback:true,readBack:undefined}
+}
+export function taskStatusReviewReadBack(plan:GatewayTaskStatusReview,task:GatewayTask):GatewayTaskStatusReview {
+  if(task.id!==plan.id)throw new Error('返回任务与原状态确认不一致，不能用其他任务的记录核实提交结果。')
+  return {...plan,requiresReadback:true,readBack:{status:task.status,revision:task.revision}}
 }
 export function taskHeaderTemplate(task:GatewayTask):string {return `X-Scarlet-Task-Id: ${task.id}\nIdempotency-Key: <每次逻辑请求使用新的稳定请求标识>`}

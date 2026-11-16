@@ -34,6 +34,9 @@ type TaskToolScope struct {
 
 type TaskCheckInput struct {
 	TaskContext
+	ApprovalID    string   `json:"approvalId,omitempty"`
+	RequestID     string   `json:"requestId,omitempty"`
+	RequestDigest string   `json:"requestDigest,omitempty"`
 	WorkspaceSlug string   `json:"workspaceSlug"`
 	TokenHash     string   `json:"tokenHash"`
 	ApplicationID string   `json:"applicationId"`

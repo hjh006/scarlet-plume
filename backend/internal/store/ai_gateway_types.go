@@ -113,6 +113,7 @@ type GatewayOverview struct {
 // A request ID is unique within a workspace for its entire retention period.
 type GatewayAuthorizeInput struct {
 	gatewaygovernance.TaskContext
+	ApprovalID             string   `json:"approvalId,omitempty"`
 	SourceDigests          []string `json:"sourceDigests,omitempty"`
 	ProjectionBytes        int64    `json:"projectionBytes,omitempty"`
 	MediaBytes             int64    `json:"mediaBytes,omitempty"`
@@ -141,6 +142,7 @@ type GatewayAuthorizeInput struct {
 
 type GatewayAuthorization struct {
 	gatewaygovernance.TaskContext
+	ApprovalID             string   `json:"approvalId,omitempty"`
 	SourceDigests          []string `json:"sourceDigests,omitempty"`
 	ProjectionBytes        int64    `json:"projectionBytes,omitempty"`
 	MediaBytes             int64    `json:"mediaBytes,omitempty"`

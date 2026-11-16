@@ -55,9 +55,13 @@ one assistant choice. Provider usage is omitted:
 the current runtime does not preserve independently verified provider accounting.
 
 Use `Idempotency-Key` (16–80 characters matching the runtime request-ID syntax) for
-a stable execution nonce. Without one the gateway generates a fresh nonce. Optional
-`X-Scarlet-Issued-At`/`X-Scarlet-Expires-At` are RFC3339 timestamps, validated by the
-runtime. Ordinary callers receive a validity window of at most 60 seconds. Retries
+a stable execution nonce. Only an omitted header generates a fresh nonce; explicit
+empty or duplicate values are rejected, including identical duplicates. Optional
+`X-Scarlet-Issued-At`/`X-Scarlet-Expires-At` must each contain a single nonempty
+RFC3339 timestamp, validated by the runtime; invalid explicit values never become
+a new validity window. Authentication and JSON content-type headers must also be
+unambiguous, and duplicate content-encoding headers are rejected. Ordinary callers
+receive a validity window of at most 60 seconds. Retries
 with an already consumed nonce are refused; a new nonce is a new operation.
 
 `POST /v1/execute` preserves the explicit runtime request contract, including RAG.
