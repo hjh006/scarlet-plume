@@ -74,4 +74,4 @@ docker compose -f compose.ai-gateway.yaml -f compose.media-inspector.yaml \
 
 ## 验收
 
-至少核对：已批准 PNG/JPEG 与 WAV 的真实允许请求、含敏感文本或语音的拒绝、未识别文本的保守分类、模型摘要不符、扫描器不可用、超时、错误 MIME 和超限内容。检查每条回执的 `mediaDigests` 与 `mediaInspectionVersion`，确认被拒绝媒体没有抵达上游。不要将构建成功、`/healthz` 成功、配置发布或节点能力上报当作检测验收完成。
+至少核对：已批准 PNG/JPEG 与 WAV 的真实允许请求、含敏感文本或语音的拒绝、未识别文本的保守分类、模型摘要不符、扫描器不可用、超时、错误 MIME 和超限内容。检查每条回执的 `mediaDigests` 与 `mediaInspectionVersion`；输入媒体被拒绝时确认未送往上游，输出媒体被拦截时确认未交付客户端，同时保留已经执行的上游调用与未知费用状态。不要将构建成功、`/healthz` 成功、配置发布或节点能力上报当作检测验收完成。
