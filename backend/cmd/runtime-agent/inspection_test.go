@@ -30,9 +30,17 @@ func TestOptInJSONInspectionPreservesProxyTraffic(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(207)
-				_, _ = io.WriteString(w, responseBody[:5])
-				w.(http.Flusher).Flush()
-				_, _ = io.WriteString(w, responseBody[5:])
+				if n, err := io.WriteString(w, responseBody[:5]); err != nil || n != 5 {
+					t.Errorf("upstream prefix write failed: error=%v written=%d expected=5", err, n)
+					return
+				}
+				if err := http.NewResponseController(w).Flush(); err != nil {
+					t.Errorf("upstream prefix flush failed: %v", err)
+					return
+				}
+				if n, err := io.WriteString(w, responseBody[5:]); err != nil || n != len(responseBody)-5 {
+					t.Errorf("upstream remainder write failed: error=%v written=%d expected=%d", err, n, len(responseBody)-5)
+				}
 			}))
 			defer upstream.Close()
 			target, _ := url.Parse(upstream.URL)
@@ -52,7 +60,7 @@ func TestOptInJSONInspectionPreservesProxyTraffic(t *testing.T) {
 			body, err := io.ReadAll(response.Body)
 			_ = response.Body.Close()
 			if err != nil || response.StatusCode != 207 || string(body) != responseBody {
-				t.Fatal("inspection changed the response stream or status")
+				t.Fatalf("inspection changed the response stream or status: read error=%v status=%d received=%d expected=%d", err, response.StatusCode, len(body), len(responseBody))
 			}
 			event := <-telemetry.queue
 			if large {
@@ -100,3 +108,80 @@ func TestInspectionKeepsUpstreamErrors(t *testing.T) {
 		t.Fatal("an unread request was represented as complete inspection")
 	}
 }
+
+// The real HTTP fixture above leaves Read boundaries to the transport. These
+// responses deterministically cross the capture ceiling, including a final
+// Read that returns data and EOF together.
+func TestJSONInspectionPreservesResponseReadBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		size        int
+		cuts        []int
+		eofWithData bool
+	}{
+		{"exact-limit", runtimesecurity.MaxJSONCaptureBytes, []int{5}, false},
+		{"one-byte-over", runtimesecurity.MaxJSONCaptureBytes + 1, []int{runtimesecurity.MaxJSONCaptureBytes - 1, runtimesecurity.MaxJSONCaptureBytes}, false},
+		{"crossing-read-with-eof", runtimesecurity.MaxJSONCaptureBytes + 11, []int{runtimesecurity.MaxJSONCaptureBytes - 2, runtimesecurity.MaxJSONCaptureBytes + 2}, true},
+		{"flushed-prefix-with-eof", runtimesecurity.MaxJSONCaptureBytes + 11, []int{5}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const prefix = `{"value":"`
+			const suffix = `"}`
+			body := prefix + strings.Repeat("x", tc.size-len(prefix)-len(suffix)) + suffix
+			chunks := []string{}
+			start := 0
+			for _, cut := range tc.cuts {
+				chunks = append(chunks, body[start:cut])
+				start = cut
+			}
+			chunks = append(chunks, body[start:])
+			transport := captureResponseTransport{body: &captureChunkReader{chunks: chunks, eofWithData: tc.eofWithData}}
+			target, _ := url.Parse("http://upstream.invalid")
+			telemetry := newObserver("http://127.0.0.1/unused", "fixture-token")
+			defer telemetry.client.CloseIdleConnections()
+			response := httptest.NewRecorder()
+			proxyHandlerWithInspection(target, transport, testRoutes(t, "/contacts"), telemetry, true).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://proxy/contacts", nil))
+			result := response.Result()
+			got, err := io.ReadAll(result.Body)
+			_ = result.Body.Close()
+			if err != nil || result.StatusCode != 207 || string(got) != body {
+				t.Fatalf("response read boundaries changed traffic: read error=%v status=%d received=%d expected=%d", err, result.StatusCode, len(got), len(body))
+			}
+			event := <-telemetry.queue
+			limited := slices.Contains(event.CaptureWarnings, "json_size_limit")
+			if limited != (tc.size > runtimesecurity.MaxJSONCaptureBytes) {
+				t.Fatalf("wrong size-limit evidence: warnings=%v bytes=%d", event.CaptureWarnings, tc.size)
+			}
+			if limited && slices.Contains(event.InspectedLocations, "response") {
+				t.Fatal("truncated capture declared complete response inspection")
+			}
+		})
+	}
+}
+
+type captureResponseTransport struct{ body io.ReadCloser }
+
+func (t captureResponseTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: 207, Header: http.Header{"Content-Type": []string{"application/json"}}, ContentLength: -1, Body: t.body, Request: r}, nil
+}
+
+type captureChunkReader struct {
+	chunks      []string
+	eofWithData bool
+}
+
+func (r *captureChunkReader) Read(p []byte) (int, error) {
+	if len(r.chunks) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.chunks[0])
+	r.chunks[0] = r.chunks[0][n:]
+	if len(r.chunks[0]) == 0 {
+		r.chunks = r.chunks[1:]
+	}
+	if len(r.chunks) == 0 && r.eofWithData {
+		return n, io.EOF
+	}
+	return n, nil
+}
+func (r *captureChunkReader) Close() error { return nil }
