@@ -13,17 +13,20 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const gatewayTaskColumns = `id,parent_task_id,root_task_id,depth,application_id,principal_id,credential_id,configuration,scope_digest,status,revision,steps_used,reserved_micros,spent_micros,observed_categories,sources,created_at,updated_at`
+const gatewayTaskColumns = `id,parent_task_id,root_task_id,depth,application_id,principal_id,credential_id,configuration,scope_digest,status,revision,steps_used,reserved_micros,spent_micros,observed_categories,sources,created_at,updated_at,(SELECT jsonb_build_object('credentialId',l.credential_id,'revision',l.revision,'mode',l.mode,'updatedAt',l.updated_at) FROM plume.ai_gateway_task_execution_leases l WHERE l.workspace_id=plume.ai_gateway_tasks.workspace_id AND l.task_id=plume.ai_gateway_tasks.id)`
 
 func scanGatewayTask(row pgx.Row) (out GatewayTask, err error) {
 	var raw, categories, sources []byte
 	var app, principal, parent string
 	var credential int64
-	err = row.Scan(&out.ID, &parent, &out.RootTaskID, &out.Depth, &app, &principal, &credential, &raw, &out.ScopeDigest, &out.Status, &out.Revision, &out.StepsUsed, &out.ReservedMicros, &out.SpentMicros, &categories, &sources, &out.CreatedAt, &out.UpdatedAt)
+	err = row.Scan(&out.ID, &parent, &out.RootTaskID, &out.Depth, &app, &principal, &credential, &raw, &out.ScopeDigest, &out.Status, &out.Revision, &out.StepsUsed, &out.ReservedMicros, &out.SpentMicros, &categories, &sources, &out.CreatedAt, &out.UpdatedAt, &out.ExecutionLease)
 	if err != nil {
 		return out, storeError(err)
 	}
 	if json.Unmarshal(raw, &out.GatewayTaskInput) != nil || json.Unmarshal(categories, &out.ObservedCategories) != nil || json.Unmarshal(sources, &out.Sources) != nil || app != out.ApplicationID || principal != out.PrincipalID || parent != out.ParentTaskID || credential != out.CredentialID {
+		return out, ErrInvalid
+	}
+	if out.ExecutionLease.CredentialID < 1 || out.ExecutionLease.Revision < 1 {
 		return out, ErrInvalid
 	}
 	if out.ObservedCategories == nil {
@@ -216,7 +219,7 @@ func (s *Store) CreateGatewayTask(ctx context.Context, ws, actor int64, in Gatew
 				if p.Status != "active" || !p.ExpiresAt.After(now) || p.ApplicationID != in.ApplicationID || p.PrincipalID != in.PrincipalID || p.CatalogDigest != in.CatalogDigest {
 					return ErrForbidden
 				}
-				if e = gatewayTaskCredential(ctx, tx, ws, p.CredentialID, p.ApplicationID); e != nil {
+				if e = gatewayTaskCredential(ctx, tx, ws, p.ExecutionLease.CredentialID, p.ApplicationID); e != nil {
 					return e
 				}
 				if in.MaxSteps > p.MaxSteps-p.StepsUsed || in.BudgetMicros > p.BudgetMicros-p.ReservedMicros-p.SpentMicros {
@@ -248,6 +251,9 @@ func (s *Store) CreateGatewayTask(ctx context.Context, ws, actor int64, in Gatew
 		_, e = tx.Exec(ctx, `INSERT INTO plume.ai_gateway_tasks(workspace_id,id,parent_task_id,root_task_id,depth,application_id,principal_id,credential_id,configuration,scope_digest,observed_categories,sources) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, ws, out.ID, in.ParentTaskID, out.RootTaskID, out.Depth, in.ApplicationID, in.PrincipalID, in.CredentialID, raw, out.ScopeDigest, cats, sources)
 		if e != nil {
 			return storeError(e)
+		}
+		if _, e = tx.Exec(ctx, `INSERT INTO plume.ai_gateway_task_execution_leases(workspace_id,task_id,credential_id)VALUES($1,$2,$3)`, ws, out.ID, in.CredentialID); e != nil {
+			return e
 		}
 		if e = identityAudit(ctx, tx, ws, actor, "gateway.task_created", out.ID, map[string]any{"scope": in, "scopeDigest": out.ScopeDigest, "rootTaskId": out.RootTaskID, "depth": out.Depth}); e != nil {
 			return e
@@ -358,6 +364,9 @@ func (s *Store) SetGatewayTaskStatus(ctx context.Context, ws, actor int64, id st
 		}
 		_, e = tx.Exec(ctx, `WITH RECURSIVE tree AS (SELECT id FROM plume.ai_gateway_tasks WHERE workspace_id=$1 AND id=$2 UNION ALL SELECT c.id FROM plume.ai_gateway_tasks c JOIN tree p ON c.parent_task_id=p.id WHERE c.workspace_id=$1) UPDATE plume.ai_security_approvals SET status='invalidated' WHERE workspace_id=$1 AND request_metadata->>'taskId' IN (SELECT id FROM tree) AND status IN ('proposed','approved')`, ws, id)
 		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, `WITH RECURSIVE tree AS(SELECT id FROM plume.ai_gateway_tasks WHERE workspace_id=$1 AND id=$2 UNION ALL SELECT c.id FROM plume.ai_gateway_tasks c JOIN tree p ON c.parent_task_id=p.id WHERE c.workspace_id=$1)UPDATE plume.ai_gateway_task_lease_proposals SET status='invalidated',revision=revision+1,note='task or ancestor terminated' WHERE workspace_id=$1 AND status='proposed' AND path_ids && ARRAY(SELECT id FROM tree)`, ws, id); e != nil {
 			return e
 		}
 		if e = identityAudit(ctx, tx, ws, actor, "gateway.task_"+in.Status, id, map[string]any{"reason": in.Reason, "scopeDigest": t.ScopeDigest, "revision": t.Revision + 1, "descendantsStopped": true, "sideEffectsRolledBack": false}); e != nil {

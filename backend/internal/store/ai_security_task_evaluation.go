@@ -46,7 +46,10 @@ func aiEngineTaskCandidate(cfg aisecurity.Config, r aisecurity.Request, now time
 		candidate := r
 		candidate.TaskID = "configuration-gate-task"
 		expires := now.Add(60 * time.Second)
-		candidate, err := aisecurity.ApplyTaskGrant(candidate, gatewaygovernance.TaskGrant{Allowed: true, Required: true, TaskID: candidate.TaskID, Purpose: purpose, ScopeDigest: aisecurity.ConfigDigest(cfg), ExpiresAt: &expires})
+		// This namespaced synthetic epoch is only a pure-engine fixture. No
+		// controller lease, credential, admission or runtime proof is created.
+		lease := gatewayDigest(struct{ Boundary, Catalog, Purpose string }{"synthetic-configuration-gate-task-lease", aisecurity.ConfigDigest(cfg), purpose})
+		candidate, err := aisecurity.ApplyTaskGrant(candidate, gatewaygovernance.TaskGrant{Allowed: true, Required: true, TaskID: candidate.TaskID, Purpose: purpose, ScopeDigest: aisecurity.ConfigDigest(cfg), LeaseChainDigest: lease, LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion, ExpiresAt: &expires})
 		if err != nil {
 			continue
 		}

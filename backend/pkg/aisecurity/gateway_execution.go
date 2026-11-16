@@ -173,7 +173,7 @@ func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identi
 	chain := &gatewayFallbackChain{ParentRequestID: root.RequestID, RootModelID: root.ModelID}
 	ctx := context.WithValue(in.Context(), gatewayFallbackKey{}, chain)
 	if root.TaskID != "" {
-		ctx = context.WithValue(ctx, gatewayTaskExecutionKey{}, &gatewayTaskExecution{Binding: gatewaygovernance.TaskContext{TaskID: root.TaskID, TaskStepID: root.RequestID, TaskStepDigest: RequestDigest(requestFromWire(root, identity))}})
+		ctx = context.WithValue(ctx, gatewayTaskExecutionKey{}, &gatewayTaskExecution{Binding: gatewaygovernance.TaskContext{TaskID: root.TaskID, TaskStepID: root.RequestID, TaskStepDigest: RequestDigest(requestFromWire(root, identity)), LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion}})
 	}
 	openModels := map[string]bool{}
 	ctx = context.WithValue(ctx, gatewayOpenModelsKey{}, openModels)

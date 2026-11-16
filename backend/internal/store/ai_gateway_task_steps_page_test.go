@@ -13,7 +13,7 @@ func TestGatewayTaskStepPagesAreStableAndTaskScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 5; i++ {
-		if _, err = f.repo.AdmitGatewayTask(t.Context(), taskTestFact(task, in, fmt.Sprintf("paged-step-%016d", i))); err != nil {
+		if _, err = f.repo.AdmitGatewayTask(t.Context(), taskTestFact(t, f, task, in, fmt.Sprintf("paged-step-%016d", i))); err != nil {
 			t.Fatal(err)
 		}
 	}

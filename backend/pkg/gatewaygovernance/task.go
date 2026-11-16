@@ -5,12 +5,18 @@ import (
 	"time"
 )
 
+// TaskLeaseProtocolVersion requires every task execution to pin the complete
+// ancestor execution-lease chain before admission and keep it until delivery.
+const TaskLeaseProtocolVersion = "scarlet-task-lease-v1"
+
 // TaskContext is derived by the trusted gateway from the selected task and the
 // original logical request. It is not a caller-supplied identity or label.
 type TaskContext struct {
-	TaskID         string `json:"taskId,omitempty"`
-	TaskStepID     string `json:"taskStepId,omitempty"`
-	TaskStepDigest string `json:"taskStepDigest,omitempty"`
+	TaskID               string `json:"taskId,omitempty"`
+	TaskStepID           string `json:"taskStepId,omitempty"`
+	TaskStepDigest       string `json:"taskStepDigest,omitempty"`
+	LeaseChainDigest     string `json:"leaseChainDigest,omitempty"`
+	LeaseProtocolVersion string `json:"leaseProtocolVersion,omitempty"`
 }
 
 type TaskSource struct {
@@ -43,22 +49,24 @@ type TaskCheckInput struct {
 }
 
 type TaskGrant struct {
-	Allowed           bool            `json:"allowed"`
-	Required          bool            `json:"required"`
-	TaskID            string          `json:"taskId,omitempty"`
-	Revision          int64           `json:"revision,omitempty"`
-	ScopeDigest       string          `json:"scopeDigest,omitempty"`
-	Purpose           string          `json:"purpose,omitempty"`
-	Categories        []string        `json:"categories"`
-	ModelIDs          []string        `json:"modelIds"`
-	ToolIDs           []string        `json:"toolIds"`
-	ToolScopes        []TaskToolScope `json:"toolScopes"`
-	DocumentIDs       []string        `json:"documentIds"`
-	SourceDocumentIDs []string        `json:"sourceDocumentIds"`
-	Sources           []TaskSource    `json:"sources"`
-	ExpiresAt         *time.Time      `json:"expiresAt,omitempty"`
-	Admitted          bool            `json:"admitted"`
-	Replayed          bool            `json:"replayed"`
+	Allowed              bool            `json:"allowed"`
+	Required             bool            `json:"required"`
+	TaskID               string          `json:"taskId,omitempty"`
+	Revision             int64           `json:"revision,omitempty"`
+	ScopeDigest          string          `json:"scopeDigest,omitempty"`
+	LeaseChainDigest     string          `json:"leaseChainDigest,omitempty"`
+	LeaseProtocolVersion string          `json:"leaseProtocolVersion,omitempty"`
+	Purpose              string          `json:"purpose,omitempty"`
+	Categories           []string        `json:"categories"`
+	ModelIDs             []string        `json:"modelIds"`
+	ToolIDs              []string        `json:"toolIds"`
+	ToolScopes           []TaskToolScope `json:"toolScopes"`
+	DocumentIDs          []string        `json:"documentIds"`
+	SourceDocumentIDs    []string        `json:"sourceDocumentIds"`
+	Sources              []TaskSource    `json:"sources"`
+	ExpiresAt            *time.Time      `json:"expiresAt,omitempty"`
+	Admitted             bool            `json:"admitted"`
+	Replayed             bool            `json:"replayed"`
 }
 
 // RawMessage avoids importing the runtime package back into its governance

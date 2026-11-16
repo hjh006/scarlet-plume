@@ -20,6 +20,8 @@ type GatewayTaskCredentialIssue struct {
 	Message string `json:"message"`
 }
 type GatewayTaskCredentialNode struct {
+	OriginalCredentialID   int64                        `json:"originalCredentialId"`
+	LeaseRevision          int64                        `json:"leaseRevision"`
 	TaskID                 string                       `json:"taskId"`
 	Depth                  int                          `json:"depth"`
 	TaskRevision           int64                        `json:"taskRevision"`
@@ -54,7 +56,7 @@ type GatewayTaskCredentialStatus struct {
 }
 
 func (s *Store) GatewayTaskCredentialStatus(ctx context.Context, ws, actor int64, id string) (out GatewayTaskCredentialStatus, err error) {
-	out = GatewayTaskCredentialStatus{TaskID: id, CredentialChainStatus: "current", AncestorPath: []GatewayTaskCredentialNode{}, Blockers: []GatewayTaskCredentialIssue{}, RenewalBlockers: []GatewayTaskCredentialIssue{{Code: "renewal_not_supported", State: "blocked", Message: "当前没有任务凭据续期或重绑接口；兑换新令牌不会自动迁移既有任务。"}}, Boundary: GatewayTaskCredentialBoundary}
+	out = GatewayTaskCredentialStatus{TaskID: id, CredentialChainStatus: "current", AncestorPath: []GatewayTaskCredentialNode{}, Blockers: []GatewayTaskCredentialIssue{}, RenewalSupported: true, RenewalBlockers: []GatewayTaskCredentialIssue{}, Boundary: TaskLeaseBoundary}
 	if !gatewayRuntimeID.MatchString(id) {
 		return out, ErrInvalid
 	}
@@ -159,7 +161,7 @@ func (s *Store) GatewayTaskCredentialStatus(ctx context.Context, ws, actor int64
 			}
 		}
 		for _, task := range chain {
-			node := GatewayTaskCredentialNode{TaskID: task.ID, Depth: task.Depth, TaskRevision: task.Revision, TaskStatus: task.Status, TaskExpiresAt: task.ExpiresAt, ScopeDigest: task.ScopeDigest, CredentialState: "unknown", BindingStatus: "not_applicable", Blockers: []GatewayTaskCredentialIssue{}, RenewalBlockers: []GatewayTaskCredentialIssue{}}
+			node := GatewayTaskCredentialNode{OriginalCredentialID: task.CredentialID, LeaseRevision: task.ExecutionLease.Revision, TaskID: task.ID, Depth: task.Depth, TaskRevision: task.Revision, TaskStatus: task.Status, TaskExpiresAt: task.ExpiresAt, ScopeDigest: task.ScopeDigest, CredentialState: "unknown", BindingStatus: "not_applicable", Blockers: []GatewayTaskCredentialIssue{}, RenewalBlockers: []GatewayTaskCredentialIssue{}}
 			issue := func(code, state, message string) {
 				node.Blockers = append(node.Blockers, GatewayTaskCredentialIssue{TaskID: task.ID, Code: code, State: state, Message: message})
 			}
@@ -177,9 +179,9 @@ func (s *Store) GatewayTaskCredentialStatus(ctx context.Context, ws, actor int64
 				out.Authorization.CatalogStatus = "changed"
 			}
 			var rawEnabled bool
-			e = tx.QueryRow(ctx, `SELECT id,application_id,name,prefix,enabled,created_at,expires_at,workload_binding_id,workload_binding_revision,revoked_at,COALESCE(revocation_reason,'') FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND id=$2`, ws, task.CredentialID).Scan(&node.Credential.ID, &node.Credential.ApplicationID, &node.Credential.Name, &node.Credential.Prefix, &rawEnabled, &node.Credential.CreatedAt, &node.Credential.ExpiresAt, &node.Credential.WorkloadBindingID, &node.Credential.WorkloadBindingRevision, &node.Credential.RevokedAt, &node.Credential.RevocationReason)
+			e = tx.QueryRow(ctx, `SELECT id,application_id,name,prefix,enabled,created_at,expires_at,workload_binding_id,workload_binding_revision,revoked_at,COALESCE(revocation_reason,'') FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND id=$2`, ws, task.ExecutionLease.CredentialID).Scan(&node.Credential.ID, &node.Credential.ApplicationID, &node.Credential.Name, &node.Credential.Prefix, &rawEnabled, &node.Credential.CreatedAt, &node.Credential.ExpiresAt, &node.Credential.WorkloadBindingID, &node.Credential.WorkloadBindingRevision, &node.Credential.RevokedAt, &node.Credential.RevocationReason)
 			if errors.Is(e, pgx.ErrNoRows) {
-				node.Credential.ID = task.CredentialID
+				node.Credential.ID = task.ExecutionLease.CredentialID
 				issue("credential_missing", "blocked", "本工作区没有该任务绑定的凭据，不能采用其他工作区的凭据。")
 			} else if e != nil {
 				return e

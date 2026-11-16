@@ -114,11 +114,13 @@ export function workspacePath(slug: string) {
 export class ApiError extends Error {
   readonly status: number
   readonly retryAfterSeconds?: number
-  constructor(status: number, message: string, retryAfterSeconds?: number) {
+  readonly details?: unknown
+  constructor(status: number, message: string, retryAfterSeconds?: number, details?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.retryAfterSeconds = retryAfterSeconds
+    this.details = details
   }
 }
 
@@ -140,7 +142,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   const body = await response.json().catch(() => null)
   if (!response.ok) {
     const message = typeof body?.error === 'string' ? body.error.slice(0, 300) : ''
-    throw new ApiError(response.status, message, retryAfterSeconds(response.headers.get('Retry-After')))
+    throw new ApiError(response.status, message, retryAfterSeconds(response.headers.get('Retry-After')), body)
   }
   if (body === null) throw new Error('服务返回的响应格式无效。')
   return body as T

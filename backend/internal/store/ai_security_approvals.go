@@ -41,7 +41,7 @@ func (s *Store) RequestAISecurityApproval(ctx context.Context, ws, actor, expect
 		if e != nil {
 			return e
 		}
-		e = tx.QueryRow(ctx, `INSERT INTO plume.ai_security_approvals(workspace_id,configuration_revision,catalog_digest,request_digest,request_metadata,requested_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, ws, v.Revision, decision.CatalogDigest, decision.RequestDigest, raw, actor, r.ExpiresAt).Scan(&out.ID)
+		e = tx.QueryRow(ctx, `INSERT INTO plume.ai_security_approvals(workspace_id,configuration_revision,catalog_digest,request_digest,request_metadata,requested_by,expires_at,task_lease_digest) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,'')) RETURNING id`, ws, v.Revision, decision.CatalogDigest, decision.RequestDigest, raw, actor, r.ExpiresAt, aisecurity.TaskLeaseDigest(r)).Scan(&out.ID)
 		if e != nil {
 			return e
 		}
@@ -70,9 +70,9 @@ func (s *Store) ReviewAISecurityApproval(ctx context.Context, ws, actor, id int6
 		if e = gatewayTaskLock(ctx, tx, ws); e != nil {
 			return e
 		}
-		var current, digest string
+		var current, digest, leaseDigest string
 		var expires time.Time
-		e = tx.QueryRow(ctx, `SELECT configuration_revision,requested_by,status,catalog_digest,expires_at FROM plume.ai_security_approvals WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, ws, id).Scan(&revision, &requester, &current, &digest, &expires)
+		e = tx.QueryRow(ctx, `SELECT configuration_revision,requested_by,status,catalog_digest,expires_at,COALESCE(task_lease_digest,'') FROM plume.ai_security_approvals WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, ws, id).Scan(&revision, &requester, &current, &digest, &expires, &leaseDigest)
 		if e != nil {
 			return storeError(e)
 		}
@@ -94,6 +94,9 @@ func (s *Store) ReviewAISecurityApproval(ctx context.Context, ws, actor, id int6
 			request, e = gatewayApprovalTaskContext(ctx, tx, ws, request, digest, nil)
 			if e != nil {
 				return e
+			}
+			if leaseDigest == "" || aisecurity.TaskLeaseDigest(request) != leaseDigest {
+				return ErrForbidden
 			}
 			decision := aisecurity.Evaluate(v.Configuration, request, time.Now().UTC())
 			if !decision.RequiresApproval {
@@ -128,10 +131,10 @@ func gatewayApprovalTaskContext(ctx context.Context, tx pgx.Tx, ws int64, r aise
 		return r, e
 	}
 	var slug, hash string
-	if e = tx.QueryRow(ctx, `SELECT w.slug,c.token_hash FROM plume.workspaces w JOIN plume.ai_gateway_credentials c ON c.workspace_id=w.id WHERE w.id=$1 AND c.id=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())`, ws, task.CredentialID).Scan(&slug, &hash); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT w.slug,c.token_hash FROM plume.workspaces w JOIN plume.ai_gateway_credentials c ON c.workspace_id=w.id WHERE w.id=$1 AND c.id=$2 AND c.enabled AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())`, ws, task.ExecutionLease.CredentialID).Scan(&slug, &hash); e != nil {
 		return r, ErrForbidden
 	}
-	fact := gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: r.TaskID, TaskStepID: r.RequestID, TaskStepDigest: aisecurity.RequestDigest(r)}, WorkspaceSlug: slug, TokenHash: hash, ApplicationID: r.ApplicationID, PrincipalID: r.PrincipalID, CatalogDigest: catalog, Kind: r.Kind, ToolID: r.ToolID, Action: r.Action, Target: r.Target, DocumentIDs: r.DocumentIDs, Categories: categories}
+	fact := gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: r.TaskID, LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion, LeaseChainDigest: aisecurity.TaskLeaseDigest(r), TaskStepID: r.RequestID, TaskStepDigest: aisecurity.RequestDigest(r)}, WorkspaceSlug: slug, TokenHash: hash, ApplicationID: r.ApplicationID, PrincipalID: r.PrincipalID, CatalogDigest: catalog, Kind: r.Kind, ToolID: r.ToolID, Action: r.Action, Target: r.Target, DocumentIDs: r.DocumentIDs, Categories: categories}
 	_, _, grant, e := gatewayCheckTask(ctx, tx, fact)
 	if e != nil {
 		return r, e

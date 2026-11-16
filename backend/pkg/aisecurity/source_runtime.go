@@ -302,5 +302,5 @@ func taskContextCache(r Request) string {
 	if r.taskContext == nil {
 		return ""
 	}
-	return strings.Join([]string{r.TaskID, r.taskContext.ScopeDigest, r.taskContext.Purpose, hash(r.taskContext.Categories)}, "\x00")
+	return strings.Join([]string{r.TaskID, r.taskContext.ScopeDigest, r.taskContext.Purpose, hash(r.taskContext.Categories), r.taskContext.LeaseProtocolVersion, r.taskContext.LeaseChainDigest}, "\x00")
 }

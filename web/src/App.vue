@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { containDialogTab } from './dialog-keyboard'
 import { computed, defineAsyncComponent, h, nextTick, onMounted, onUnmounted, ref, watch, type AsyncComponentLoader, type Component } from 'vue'
 import { ApiError, describeError, request, roleLabels, sessionPath, type Session } from './api'
 import Brand from './Brand.vue'
@@ -154,10 +155,11 @@ const isProfessionalPage = computed(() => route.value.page === 'tools' || config
 const scenarioReturn = ref<{ slug: string; path: string; label: string; sceneId: string } | null>(null)
 
 async function openNavigation() {
+  if (navigationDialog.value?.open) { navigationInput.value?.focus({ preventScroll: true }); return }
   navigationQuery.value = ''
   navigationDialog.value?.showModal()
   await nextTick()
-  navigationInput.value?.focus()
+  navigationInput.value?.focus({ preventScroll: true })
 }
 function closeNavigation() { navigationDialog.value?.close() }
 function navigationShortcut(event: KeyboardEvent) {
@@ -416,11 +418,10 @@ onUnmounted(() => {
                   :disabled="busy" @click="signOut"><Icon name="logout" /></button>
         </div>
       </header>
-      <dialog ref="navigationDialog" class="navigation-dialog" aria-labelledby="navigation-dialog-title" @click="event => event.target === navigationDialog && closeNavigation()">
-        <div class="navigation-dialog-heading"><h2 id="navigation-dialog-title">查找场景或功能</h2><button class="icon-button" type="button" aria-label="关闭功能查找" @click="closeNavigation"><Icon name="close" /></button></div>
-        <label class="visually-hidden" for="navigation-query">场景或功能名称</label>
-        <input id="navigation-query" ref="navigationInput" v-model="navigationQuery" placeholder="如分类分级、出境、合规审计、API" autocomplete="off">
-        <nav aria-label="功能查找结果"><a v-for="item in navigationMatches" :key="item.path" :href="scopedHref(item.path)" @click="closeNavigation"><Icon :name="item.icon" /><span>{{ item.label }}<small class="navigation-result-group">{{ item.group }}</small></span><Icon name="arrow" /></a><p v-if="!navigationMatches.length" class="empty-state">没有匹配的场景或功能，请换个关键词。</p></nav>
+      <dialog @keydown="containDialogTab" ref="navigationDialog" class="app-dialog navigation-dialog" aria-labelledby="navigation-dialog-title" aria-describedby="navigation-search-status" @close="navigationQuery = ''" @click="event => event.target === navigationDialog && closeNavigation()">
+        <header class="dialog-heading"><h2 id="navigation-dialog-title">查找场景或功能</h2><button class="icon-button" type="button" aria-label="关闭功能查找" @click="closeNavigation"><Icon name="close" /></button></header>
+        <div class="navigation-dialog-search"><label class="visually-hidden" for="navigation-query">场景或功能名称</label><input id="navigation-query" ref="navigationInput" v-model="navigationQuery" placeholder="如分类分级、出境、合规审计、API" autocomplete="off" autofocus><p id="navigation-search-status" role="status">{{ navigationQuery.trim() ? `找到 ${navigationMatches.length} 项匹配结果` : '输入关键词查找场景或功能，按 Esc 关闭。' }}</p></div>
+        <nav class="dialog-body" aria-label="功能查找结果"><a v-for="item in navigationMatches" :key="item.path" :href="scopedHref(item.path)" @click="closeNavigation"><Icon :name="item.icon" /><span>{{ item.label }}<small class="navigation-result-group">{{ item.group }}</small></span><Icon name="arrow" /></a><p v-if="!navigationMatches.length" class="empty-state">没有匹配的场景或功能，请换个关键词。</p></nav>
       </dialog>
       <main id="main-content" ref="mainContent" class="main-content" :data-page="route.page" tabindex="-1">
         <p v-if="actionError" class="message message-error page-feedback" role="alert">{{ actionError }}</p>

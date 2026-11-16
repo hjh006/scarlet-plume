@@ -168,7 +168,7 @@ func TestGatewayTaskCredentialStatusAncestorsAreReadOnlyAndDoNotRenew(t *testing
 	if e != nil {
 		t.Fatal(e)
 	}
-	if diagnostic.RenewalSupported || diagnostic.CredentialChainStatus != "current" || len(diagnostic.AncestorPath) != 2 || diagnostic.AncestorPath[0].TaskID != root.ID || diagnostic.AncestorPath[1].TaskID != child.ID || diagnostic.AncestorPath[0].BindingStatus != "current" {
+	if !diagnostic.RenewalSupported || diagnostic.CredentialChainStatus != "current" || len(diagnostic.AncestorPath) != 2 || diagnostic.AncestorPath[0].TaskID != root.ID || diagnostic.AncestorPath[1].TaskID != child.ID || diagnostic.AncestorPath[0].BindingStatus != "current" {
 		t.Fatal("ancestor diagnostics not bounded/trusted", diagnostic)
 	}
 	after, e := f.repo.GatewayTaskDetail(t.Context(), f.ws.ID, viewer, child.ID, 100)
@@ -189,7 +189,7 @@ func TestGatewayTaskCredentialStatusAncestorsAreReadOnlyAndDoNotRenew(t *testing
 	if diagnostic.CredentialChainStatus != "blocked" || diagnostic.AncestorPath[0].CredentialState != "expired" || diagnostic.AncestorPath[1].CredentialState != "active" || diagnostic.AncestorPath[0].Credential.RevokedAt != nil {
 		t.Fatal("expired ancestor obscured by live child or false manual cause", diagnostic)
 	}
-	if _, e = f.repo.CheckGatewayTask(t.Context(), taskTestFact(child, in, "diagnostic-expired-ancestor-0001")); !errors.Is(e, ErrForbidden) {
+	if _, e = f.repo.CheckGatewayTask(t.Context(), taskTestFact(t, f, child, in, "diagnostic-expired-ancestor-0001")); !errors.Is(e, ErrForbidden) {
 		t.Fatal("diagnostic no longer matches actual expired-chain rejection", e)
 	}
 	fresh, e := f.repo.ExchangeGatewayWorkloadToken(t.Context(), f.ws.Slug, binding.ID, sign("task-chain-provenance-0002"))

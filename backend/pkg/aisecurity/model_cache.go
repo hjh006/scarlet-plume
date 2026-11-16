@@ -37,6 +37,10 @@ type CacheEvidence struct {
 }
 type cacheEvidenceKey struct{}
 
+// Per-call task authorization is transported separately from the reusable
+// cache key: including step nonces in ModelCacheScope would disable cache hits.
+type cacheTaskContextKey struct{}
+
 func modelCacheScope(r Request, d Decision) ModelCacheScope {
 	docs, _ := json.Marshal(r.DocumentIDs)
 	if len(r.sourceEvidence) > 0 || r.taskContext != nil {

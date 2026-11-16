@@ -31,7 +31,7 @@ func TestGatewayTaskCredentialStatusHTTPIsReadOnlyScopedAndExplicitAboutUnknown(
 	identityHTTPRequest(t, f.handler, "GET", path, "", nil, "", 401)
 	w := identityHTTPRequest(t, f.handler, "GET", path, "", f.viewerCookie, "", 200)
 	var result store.GatewayTaskCredentialStatus
-	if e := json.Unmarshal(w.Body.Bytes(), &result); e != nil || result.RenewalSupported || result.CredentialChainStatus != "unknown" || result.Authorization.PrincipalStatus != "unknown" || len(result.AncestorPath) != 1 || result.AncestorPath[0].CredentialState != "active" || result.AncestorPath[0].ScopeDigest != task.ScopeDigest {
+	if e := json.Unmarshal(w.Body.Bytes(), &result); e != nil || !result.RenewalSupported || result.CredentialChainStatus != "unknown" || result.Authorization.PrincipalStatus != "unknown" || len(result.AncestorPath) != 1 || result.AncestorPath[0].CredentialState != "active" || result.AncestorPath[0].ScopeDigest != task.ScopeDigest {
 		t.Fatal("invalid diagnostic semantics", e, result)
 	}
 	if strings.Contains(w.Body.String(), issued.Token) || strings.Contains(w.Body.String(), sessionHash(issued.Token)) || strings.Contains(w.Body.String(), `"tokenHash"`) {

@@ -26,6 +26,7 @@ type GatewayTaskInput struct {
 
 type GatewayTask struct {
 	GatewayTaskInput
+	ExecutionLease     GatewayTaskExecutionLease      `json:"executionLease"`
 	ID                 string                         `json:"id"`
 	RootTaskID         string                         `json:"rootTaskId"`
 	Depth              int                            `json:"depth"`

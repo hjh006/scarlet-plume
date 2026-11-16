@@ -77,7 +77,7 @@ func (s *Store) ExchangeGatewayWorkloadToken(ctx context.Context, slug string, b
 		if _, e = tx.Exec(ctx, `DELETE FROM plume.ai_gateway_workload_exchanges WHERE ctid IN (SELECT ctid FROM plume.ai_gateway_workload_exchanges WHERE workspace_id=$1 AND expires_at<=clock_timestamp() ORDER BY expires_at LIMIT 500)`, ws); e != nil {
 			return e
 		}
-		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false WHERE id IN (SELECT id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND enabled AND expires_at<=clock_timestamp() ORDER BY expires_at,id LIMIT 500)`, ws); e != nil {
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false,expiry_disabled_at=COALESCE(expiry_disabled_at,clock_timestamp()) WHERE id IN (SELECT id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND enabled AND expires_at<=clock_timestamp() ORDER BY expires_at,id LIMIT 500)`, ws); e != nil {
 			return e
 		}
 		var liveExchanges, liveCredentials int

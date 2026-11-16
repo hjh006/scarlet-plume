@@ -249,6 +249,9 @@ func (s *Store) SaveGatewayConfig(ctx context.Context, ws, actor, expected int64
 		if _, e = tx.Exec(ctx, `DELETE FROM plume.ai_gateway_cache WHERE workspace_id=$1`, ws); e != nil {
 			return e
 		}
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_lease_proposals SET status='invalidated',revision=revision+1,note='网关配置已变化，请重新核对范围。' WHERE workspace_id=$1 AND status='proposed'`, ws); e != nil {
+			return e
+		}
 		if e = identityAudit(ctx, tx, ws, actor, "gateway.config_saved", fmt.Sprint(in.Revision), in); e != nil {
 			return e
 		}
@@ -306,10 +309,16 @@ func (s *Store) RevokeGatewayCredential(ctx context.Context, ws, actor, id int64
 		if e := gatewayRole(ctx, tx, ws, actor, false); e != nil {
 			return e
 		}
+		if e := gatewayWorkloadLock(ctx, tx, ws); e != nil {
+			return e
+		}
 		var revoked time.Time
 		var reason string
 		if e := tx.QueryRow(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false,revoked_at=COALESCE(revoked_at,clock_timestamp()),revocation_reason=COALESCE(revocation_reason,'manual') WHERE workspace_id=$1 AND id=$2 RETURNING revoked_at,revocation_reason`, ws, id).Scan(&revoked, &reason); e != nil {
 			return storeError(e)
+		}
+		if e := invalidateCredentialLeaseProposals(ctx, tx, ws, id, "相关来源或目标凭据已撤销。"); e != nil {
+			return e
 		}
 		return identityAudit(ctx, tx, ws, actor, "gateway.credential_revoked", fmt.Sprint(id), map[string]any{"credentialId": id, "revokedAt": revoked, "revocationReason": reason, "requestedReason": "manual"})
 	})

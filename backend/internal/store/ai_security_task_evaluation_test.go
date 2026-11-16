@@ -1,11 +1,13 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
+	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 )
 
 func TestTaskRequiredCatalogCanPassPureEnginePublicationGate(t *testing.T) {
@@ -32,6 +34,22 @@ func TestTaskRequiredCatalogCanPassPureEnginePublicationGate(t *testing.T) {
 	r := aisecurity.Request{RequestID: "untrusted-task-preview", Kind: "model", ApplicationID: "enterprise-app", PrincipalID: "branch-user", TaskID: "configuration-gate-task", ModelID: "approved-model", Input: `{"prompt":"safe"}`, IssuedAt: now, ExpiresAt: now.Add(time.Minute)}
 	if d := aisecurity.Evaluate(c, r, now); d.Outcome != "deny" || d.Code != "task_context_required_or_invalid" {
 		t.Fatal("preview gained synthetic execution authority", d)
+	}
+	r.TaskID = ""
+	candidate := aiEngineTaskCandidate(c, r, now)
+	if len(aisecurity.TaskLeaseDigest(candidate)) != 64 || aisecurity.TaskLeaseProtocol(candidate) != gatewaygovernance.TaskLeaseProtocolVersion {
+		t.Fatal("pure publication fixture lacks its explicit synthetic lease pin")
+	}
+	raw, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var preview aisecurity.Request
+	if err := json.Unmarshal(raw, &preview); err != nil {
+		t.Fatal(err)
+	}
+	if d := aisecurity.Evaluate(c, preview, now); aisecurity.TaskLeaseDigest(preview) != "" || d.Outcome != "deny" || d.Code != "task_context_required_or_invalid" {
+		t.Fatal("serialized pure-engine fixture became runtime authority", d)
 	}
 	c.Models[0].Handling.RetentionHours = 2
 	if result := aiEvaluateConfiguration(c, 4, now); result.Status == "passed" {

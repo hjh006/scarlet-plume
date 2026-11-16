@@ -41,9 +41,14 @@ func TestGatewayTaskManagementAndAuthenticatedMachineHTTP(t *testing.T) {
 	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/missing", "", f.cookie, "", 404)
 	control := strings.Repeat("task-control-token", 3)
 	t.Setenv("SCARLET_GATEWAY_CONTROL_TOKENS", gatewayHTTPJSON(t, map[string]string{f.ws.Slug: control}))
-	fact := gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: task.ID, TaskStepID: "http-task-step-0001", TaskStepDigest: strings.Repeat("d", 64)}, WorkspaceSlug: f.ws.Slug, TokenHash: sessionHash(credential.Token), ApplicationID: "app", PrincipalID: "principal", CatalogDigest: cfg.CatalogDigest, Kind: "model", ModelID: "model"}
+	fact := gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: task.ID, LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion, TaskStepID: "http-task-step-0001", TaskStepDigest: strings.Repeat("d", 64)}, WorkspaceSlug: f.ws.Slug, TokenHash: sessionHash(credential.Token), ApplicationID: "app", PrincipalID: "principal", CatalogDigest: cfg.CatalogDigest, Kind: "model", ModelID: "model"}
 	identityHTTPRequest(t, f.handler, "POST", machine+"/task/check", gatewayHTTPJSON(t, fact), nil, "", 401)
-	identityHTTPRequest(t, f.handler, "POST", machine+"/task/check", gatewayHTTPJSON(t, fact), nil, control, 200)
+	checked := identityHTTPRequest(t, f.handler, "POST", machine+"/task/check", gatewayHTTPJSON(t, fact), nil, control, 200)
+	var grant gatewaygovernance.TaskGrant
+	if json.Unmarshal(checked.Body.Bytes(), &grant) != nil || grant.LeaseChainDigest == "" {
+		t.Fatal("missing lease pin")
+	}
+	fact.LeaseChainDigest = grant.LeaseChainDigest
 	identityHTTPRequest(t, f.handler, "POST", machine+"/task/steps/admit", gatewayHTTPJSON(t, fact), nil, control, 200)
 	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/"+task.ID+"/steps?limit=1", "", f.viewerCookie, "", 200)
 	identityHTTPRequest(t, f.handler, "GET", base+"/tasks/"+task.ID+"/steps?before=invalid", "", f.cookie, "", 400)

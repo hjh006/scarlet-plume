@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { containDialogTab } from './dialog-keyboard'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiError, describeError, formatDate, providerLabel, request, workspacePath, type Asset, type AssetPage, type Workspace } from './api'
 import { activityKindLabels, type Activity, type ActivityPage } from './activity'
@@ -49,11 +50,14 @@ const applicationError = ref('')
 const sourceActionBusy = ref(false)
 const sourceActionError = ref('')
 const registrationName = ref('')
+const registrationNameInput = ref<HTMLInputElement | null>(null)
 const setupSourceId = ref<string>('')
 const visibleApplicationSources = computed(() => applicationSources.value.filter(item => !registrationAssetId.value || item.assetIds.includes(registrationAssetId.value)))
 const setupSource = computed(() => visibleApplicationSources.value.find(item => String(item.id) === setupSourceId.value && !item.revokedAt && item.status !== 'revoked'))
 const collectorExample = computed(() => setupSource.value?.assetIds[0] ? JSON.stringify({ items: [{ assetId: setupSource.value.assetIds[0], facts: { application_model: '<模型配置>' } }] }, null, 2) : '')
 const tokenDialog = ref<HTMLDialogElement | null>(null)
+let tokenReturnFocus: HTMLElement | undefined
+let pendingTokenFocus = false
 const oneTimeToken = ref('')
 const issuedSourceName = ref('')
 const copied = ref(false)
@@ -199,6 +203,8 @@ async function loadApplicationSources() {
 async function registerSource() {
   const assetId = registrationAssetId.value
   if (!owner.value || sourceActionBusy.value || !assetId || !registrationName.value.trim()) return
+  tokenReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+  pendingTokenFocus = false
   actionController?.abort()
   const operation = new AbortController()
   actionController = operation
@@ -260,6 +266,29 @@ function closeToken() {
   clearToken()
 }
 
+function tokenClosed() {
+  clearToken()
+  if (sourceActionBusy.value) { pendingTokenFocus = true; return }
+  restoreTokenFocus()
+}
+
+function restoreTokenFocus() {
+  pendingTokenFocus = false
+  const target = tokenReturnFocus
+  tokenReturnFocus = undefined
+  if (!target || !tokenDialog.value?.isConnected || tokenDialog.value.open) return
+  const active = document.activeElement
+  if (active instanceof HTMLElement && active !== document.body && active !== tokenDialog.value && active.isConnected && !active.matches(':disabled')) return
+  if (target?.isConnected && !target.matches(':disabled')) target.focus({ preventScroll: true })
+  else registrationNameInput.value?.focus({ preventScroll: true })
+}
+
+watch(sourceActionBusy, async value => {
+  if (value || !pendingTokenFocus) return
+  await nextTick()
+  if (pendingTokenFocus) restoreTokenFocus()
+})
+
 async function copyToken() {
   if (!oneTimeToken.value) return
   const value = oneTimeToken.value
@@ -286,6 +315,13 @@ async function ensureSelections() {
   } catch (cause) { error.value = handleError(cause) }
 }
 watch(() => [context.value.assetId, context.value.activityId, props.assetId, props.activityId, currentScenario.value, currentTask.value], () => {
+  const actionPending = sourceActionBusy.value
+  actionController?.abort()
+  sourceActionBusy.value = false
+  pendingTokenFocus = false
+  tokenReturnFocus = undefined
+  closeToken()
+  if (actionPending) sourceActionError.value = '范围已切换。上一次来源操作可能已提交，请回到原范围核对结果；不要直接重复创建。'
   selectedAssetId.value = props.assetId ?? context.value.assetId
   selectedActivityId.value = props.activityId ?? context.value.activityId
   if (!props.compact) void ensureSelections()
@@ -303,6 +339,8 @@ onBeforeUnmount(() => {
   activityController?.abort()
   applicationController?.abort()
   actionController?.abort()
+  pendingTokenFocus = false
+  tokenReturnFocus = undefined
   closeToken()
 })
 </script>
@@ -346,10 +384,14 @@ onBeforeUnmount(() => {
 
       <div v-if="setupSource" class="scenario-collector-setup"><h4>{{ setupSource.name }} · 客户侧采集配置</h4><p>允许上报的资产 ID：<code>{{ setupSource.assetIds.join('、') }}</code>。请按已批准的资产映射上报，不能凭名称自动匹配。</p><p>在能访问获准业务 API 的客户侧环境中设置下列变量。业务 API 的认证凭据只在客户侧配置，不提交到赤翎。HTTPS 地址不能包含账号、查询参数或片段。</p><pre>{{ collectorSetup }}</pre><p>运行采集器，每分钟读取并上报一次：</p><pre>scarlet-application-agent -interval 1m</pre><p>单次读取与上报核验可使用 <code>scarlet-application-agent -once</code>。</p><h4 class="scenario-response-example-title">响应格式示例（不是已采集结果）</h4><p>来源接口需返回 <code>application/json</code>，事实字段使用字符串。现有厂商 API 若不符合约定格式，需要在客户侧配置获批的只读适配接口与字段映射；填写任意 API 地址不会自动完成适配。</p><pre v-if="collectorExample">{{ collectorExample }}</pre><p>只上报允许的配置字段，不包含用户记录、对话正文或凭据。来源令牌仅在创建时显示一次；已有来源无法再次读取令牌，需要替换时由负责人撤销旧来源并创建新来源。</p></div>
 
-      <form v-if="owner" class="scenario-source-registration" @submit.prevent="registerSource"><h4>接入应用 API 采集</h4><p v-if="!registrationAssetId">先选择已有资产或处理活动，来源将绑定其关联资产。</p><template v-else><p>绑定资产：{{ selectedActivity?.assetName || selectedAsset?.name || '所选资产' }}。上报事实按该范围核对，有效期 60 分钟。</p><label class="field" for="scenario-application-name">来源名称<input id="scenario-application-name" v-model="registrationName" maxlength="80" placeholder="例如，客服 AI 配置 API" autocomplete="off" required :disabled="sourceActionBusy"></label><button class="button button-primary" type="submit" :disabled="sourceActionBusy || !registrationName.trim()">{{ sourceActionBusy ? '正在处理…' : '创建来源与一次性令牌' }}</button></template><p v-if="sourceActionError" class="message message-error" role="alert">{{ sourceActionError }}</p></form><p v-else class="scenario-source-readonly">当前账号可读取来源与事实；创建和撤销来源由工作区负责人办理。</p>
+      <form v-if="owner" class="scenario-source-registration" @submit.prevent="registerSource"><h4>接入应用 API 采集</h4><p v-if="!registrationAssetId">先选择已有资产或处理活动，来源将绑定其关联资产。</p><template v-else><p>绑定资产：{{ selectedActivity?.assetName || selectedAsset?.name || '所选资产' }}。上报事实按该范围核对，有效期 60 分钟。</p><label class="field" for="scenario-application-name">来源名称<input id="scenario-application-name" ref="registrationNameInput" v-model="registrationName" maxlength="80" placeholder="例如，客服 AI 配置 API" autocomplete="off" required :disabled="sourceActionBusy"></label><button class="button button-primary" type="submit" :disabled="sourceActionBusy || !registrationName.trim()">{{ sourceActionBusy ? '正在处理…' : '创建来源与一次性令牌' }}</button></template><p v-if="sourceActionError" class="message message-error" role="alert">{{ sourceActionError }}</p></form><p v-else class="scenario-source-readonly">当前账号可读取来源与事实；创建和撤销来源由工作区负责人办理。</p>
     </section></details>
 
-    <dialog ref="tokenDialog" class="scenario-token-dialog" aria-labelledby="scenario-token-title" @cancel="clearToken" @close="clearToken"><h2 id="scenario-token-title">保存一次性采集令牌</h2><p>{{ issuedSourceName }} 已创建。令牌只显示本次，关闭后将从当前页面清除。</p><label class="field" for="scenario-one-time-token">来源令牌<input id="scenario-one-time-token" :value="oneTimeToken" type="password" readonly autocomplete="off" spellcheck="false"></label><div class="scenario-token-actions"><button class="button button-primary" type="button" :disabled="!oneTimeToken" @click="copyToken">{{ copied ? '已复制令牌' : '复制令牌' }}</button><button class="button button-secondary" type="button" @click="closeToken">关闭并清除</button></div><p v-if="copied" role="status">令牌已复制。请仅在客户侧采集器环境中配置。</p><p v-if="copyError" role="alert">{{ copyError }}</p></dialog>
+    <dialog @keydown="containDialogTab" ref="tokenDialog" class="app-dialog scenario-token-dialog" aria-labelledby="scenario-token-title" aria-describedby="scenario-token-description" @cancel="clearToken" @close="tokenClosed">
+      <header class="dialog-heading"><h2 id="scenario-token-title">保存一次性采集令牌</h2><button class="icon-button" type="button" aria-label="关闭并清除一次性令牌" @click="closeToken"><Icon name="close" /></button></header>
+      <div class="dialog-body"><p id="scenario-token-description" class="dialog-description">{{ issuedSourceName }} 已创建。令牌只显示本次，关闭后将从当前页面清除。</p><label class="field" for="scenario-one-time-token">来源令牌<input id="scenario-one-time-token" :value="oneTimeToken" type="password" readonly autocomplete="off" spellcheck="false"></label><p v-if="copied" class="message message-success" role="status">令牌已复制。请仅在客户侧采集器环境中配置。</p><p v-if="copyError" class="message message-error" role="alert">{{ copyError }}</p></div>
+      <footer class="dialog-actions"><button class="button button-primary" type="button" :disabled="!oneTimeToken" autofocus @click="copyToken">{{ copied ? '已复制令牌' : '复制令牌' }}</button><button class="button button-secondary" type="button" @click="closeToken">关闭并清除</button></footer>
+    </dialog>
   </section>
 </template>
 
@@ -411,13 +453,10 @@ onBeforeUnmount(() => {
 .scenario-source-registration > p { margin: 0; }
 .scenario-source-registration .field { width: min(100%, 520px); min-width: 0; margin: 0; font-size: 12px; }
 .scenario-source-registration input { width: 100%; }
-.scenario-token-dialog { width: min(540px, calc(100vw - 40px)); padding: 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); }
-.scenario-token-dialog::backdrop { background: rgb(12 22 49 / 42%); }
-.scenario-token-dialog h2 { margin: 0 0 14px; font-size: 20px; }
-.scenario-token-dialog p { margin: 12px 0; font-size: 13px; line-height: 1.8; }
-.scenario-token-dialog .field { margin: 22px 0; font-size: 12px; }
-.scenario-token-dialog input { width: 100%; }
-.scenario-token-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.scenario-token-dialog { width: min(560px, calc(100vw - 32px)); }
+.scenario-token-dialog .field { display: grid; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; }
+.scenario-token-dialog .field input { margin-top: 0; }
+.scenario-token-dialog .message { margin: 16px 0 0; }
 @media (max-width: 1399px) { .scenario-source-connections { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 699px) { .scenario-data-scope, .scenario-source-connections { grid-template-columns: minmax(0, 1fr); }.scenario-application-heading, .scenario-application-list li { flex-wrap: wrap; }.scenario-source-actions { justify-content: flex-start; } }
 @media print { .scenario-token-dialog { display: none !important; } }

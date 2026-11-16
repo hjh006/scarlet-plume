@@ -52,5 +52,5 @@ func taskContextFromAudit(ctx context.Context, a AuditRecord) gatewaygovernance.
 	if current, ok := ctx.Value(gatewayTaskExecutionKey{}).(*gatewayTaskExecution); ok {
 		return current.Binding
 	}
-	return gatewaygovernance.TaskContext{TaskID: a.Decision.TaskID, TaskStepID: a.RequestID, TaskStepDigest: a.Decision.RequestDigest}
+	return gatewaygovernance.TaskContext{TaskID: a.Decision.TaskID, TaskStepID: a.RequestID, TaskStepDigest: a.Decision.RequestDigest, LeaseChainDigest: a.Decision.LeaseChainDigest, LeaseProtocolVersion: a.Decision.LeaseProtocolVersion}
 }

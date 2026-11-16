@@ -63,6 +63,8 @@ type AISecurityEvaluation struct {
 	CreatedAt             time.Time                        `json:"createdAt"`
 }
 type AISecurityApproval struct {
+	LeaseChainDigest      string            `json:"leaseChainDigest,omitempty"`
+	LeaseProtocolVersion  string            `json:"leaseProtocolVersion,omitempty"`
 	TaskID                string            `json:"taskId,omitempty"`
 	ID                    int64             `json:"id"`
 	ConfigurationRevision int64             `json:"configurationRevision"`

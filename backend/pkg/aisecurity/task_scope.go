@@ -13,9 +13,27 @@ import (
 // TaskContext is supplied by a trusted controller, never decoded from a request.
 type TaskContext struct {
 	TaskID, Purpose, ScopeDigest                 string
+	LeaseChainDigest, LeaseProtocolVersion       string
 	Categories, SourceDocumentIDs, SourceDigests []string
 	Sources                                      []gatewaygovernance.TaskSource
 	ExpiresAt                                    time.Time
+}
+
+// TaskLeaseDigest exposes only the controller-derived execution epoch. Runtime
+// wire requests cannot set the private task context.
+func TaskLeaseDigest(r Request) string {
+	if r.taskContext == nil {
+		return ""
+	}
+	return r.taskContext.LeaseChainDigest
+}
+
+// TaskLeaseProtocol returns the protocol of the trusted task grant, if present.
+func TaskLeaseProtocol(r Request) string {
+	if r.taskContext == nil {
+		return ""
+	}
+	return r.taskContext.LeaseProtocolVersion
 }
 
 // SourceEvidence binds an actual private source to its reviewed metadata.
@@ -33,10 +51,13 @@ func ApplyTaskGrant(r Request, g gatewaygovernance.TaskGrant) (Request, error) {
 		}
 		return r, nil
 	}
-	if !validID(g.TaskID) || !validID(g.Purpose) || !digest.MatchString(g.ScopeDigest) || g.ExpiresAt == nil || !categories(g.Categories) || !list(g.SourceDocumentIDs, 64, validID) || len(g.Sources) > 64 || len(g.Sources) != len(g.SourceDocumentIDs) {
+	if !validID(g.TaskID) || !validID(g.Purpose) || !digest.MatchString(g.ScopeDigest) || !digest.MatchString(g.LeaseChainDigest) || g.LeaseProtocolVersion != gatewaygovernance.TaskLeaseProtocolVersion || g.ExpiresAt == nil || !categories(g.Categories) || !list(g.SourceDocumentIDs, 64, validID) || len(g.Sources) > 64 || len(g.Sources) != len(g.SourceDocumentIDs) {
 		return r, errors.New("task grant invalid")
 	}
-	t := &TaskContext{TaskID: g.TaskID, Purpose: g.Purpose, ScopeDigest: g.ScopeDigest, Categories: append([]string(nil), g.Categories...), SourceDocumentIDs: append([]string(nil), g.SourceDocumentIDs...), Sources: append([]gatewaygovernance.TaskSource(nil), g.Sources...), ExpiresAt: *g.ExpiresAt}
+	if r.taskContext != nil && (r.taskContext.TaskID != g.TaskID || r.taskContext.ScopeDigest != g.ScopeDigest || r.taskContext.LeaseChainDigest != g.LeaseChainDigest || r.taskContext.LeaseProtocolVersion != g.LeaseProtocolVersion) {
+		return r, errors.New("task lease changed")
+	}
+	t := &TaskContext{TaskID: g.TaskID, Purpose: g.Purpose, ScopeDigest: g.ScopeDigest, LeaseChainDigest: g.LeaseChainDigest, LeaseProtocolVersion: g.LeaseProtocolVersion, Categories: append([]string(nil), g.Categories...), SourceDocumentIDs: append([]string(nil), g.SourceDocumentIDs...), Sources: append([]gatewaygovernance.TaskSource(nil), g.Sources...), ExpiresAt: *g.ExpiresAt}
 	seen := map[string]bool{}
 	for _, s := range t.Sources {
 		if !validID(s.DocumentID) || !slices.Contains(g.SourceDocumentIDs, s.DocumentID) || seen[s.DocumentID] || !validID(s.Version) || !validID(s.ACLVersion) || !digest.MatchString(s.ContentDigest) {
@@ -66,7 +87,7 @@ func taskBinding(ctx context.Context, r Request) gatewaygovernance.TaskContext {
 	if current, ok := ctx.Value(gatewayTaskExecutionKey{}).(*gatewayTaskExecution); ok {
 		return current.Binding
 	}
-	return gatewaygovernance.TaskContext{TaskID: r.TaskID, TaskStepID: r.RequestID, TaskStepDigest: RequestDigest(r)}
+	return gatewaygovernance.TaskContext{TaskID: r.TaskID, TaskStepID: r.RequestID, TaskStepDigest: RequestDigest(r), LeaseChainDigest: TaskLeaseDigest(r), LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion}
 }
 
 func selectedTask(in *http.Request, wire string) (string, error) {
@@ -105,6 +126,12 @@ func (h *runtimeHandler) task(ctx context.Context, r Request, d Decision, stage 
 	if h.options.TaskControl == nil {
 		return r, gatewaygovernance.TaskGrant{}, errors.New("task_controller_required")
 	}
+	if r.TaskID != "" && stage != "check" && (!digest.MatchString(TaskLeaseDigest(r)) || TaskLeaseProtocol(r) != gatewaygovernance.TaskLeaseProtocolVersion) {
+		return r, gatewaygovernance.TaskGrant{}, errors.New("task_lease_required")
+	}
+	if d.TaskID != "" && (!digest.MatchString(d.LeaseChainDigest) || d.LeaseProtocolVersion != gatewaygovernance.TaskLeaseProtocolVersion) {
+		return r, gatewaygovernance.TaskGrant{}, errors.New("task_lease_required")
+	}
 	g, err := h.options.TaskControl(ctx, TaskOperation{Stage: stage, Request: r, Decision: d, Audit: audit})
 	if err != nil {
 		return r, g, err
@@ -112,11 +139,30 @@ func (h *runtimeHandler) task(ctx context.Context, r Request, d Decision, stage 
 	if d.TaskScopeDigest != "" && d.TaskScopeDigest != g.ScopeDigest {
 		return r, g, errors.New("task_scope_changed")
 	}
-	if current, ok := ctx.Value(gatewayTaskExecutionKey{}).(*gatewayTaskExecution); ok {
+	if d.LeaseChainDigest != "" && (d.LeaseChainDigest != g.LeaseChainDigest || d.LeaseProtocolVersion != g.LeaseProtocolVersion) {
+		return r, g, errors.New("task_lease_changed")
+	}
+	updated, err := ApplyTaskGrant(r, g)
+	if err != nil {
+		return r, g, err
+	}
+	if r.TaskID != "" && (updated.taskContext == nil || !updated.taskContext.ExpiresAt.After(h.options.Now())) {
+		return r, g, errors.New("task_expired")
+	}
+	if current, ok := ctx.Value(gatewayTaskExecutionKey{}).(*gatewayTaskExecution); ok && r.TaskID != "" {
 		if current.ScopeDigest == "" {
 			current.ScopeDigest = g.ScopeDigest
 		} else if current.ScopeDigest != g.ScopeDigest {
 			return r, g, errors.New("task_scope_changed")
+		}
+		if current.Binding.LeaseChainDigest == "" {
+			if stage != "check" {
+				return r, g, errors.New("task_lease_required")
+			}
+			current.Binding.LeaseChainDigest = g.LeaseChainDigest
+			current.Binding.LeaseProtocolVersion = g.LeaseProtocolVersion
+		} else if current.Binding.LeaseChainDigest != g.LeaseChainDigest || current.Binding.LeaseProtocolVersion != g.LeaseProtocolVersion {
+			return r, g, errors.New("task_lease_changed")
 		}
 	}
 	if stage == "admit" {
@@ -128,11 +174,7 @@ func (h *runtimeHandler) task(ctx context.Context, r Request, d Decision, stage 
 			current.Admitted = true
 		}
 	}
-	updated, err := ApplyTaskGrant(r, g)
-	if err == nil && r.TaskID != "" && (updated.taskContext == nil || !updated.taskContext.ExpiresAt.After(h.options.Now())) {
-		err = errors.New("task_expired")
-	}
-	return updated, g, err
+	return updated, g, nil
 }
 
 func (h *runtimeHandler) watchTask(in *http.Request, r Request, d Decision) (*http.Request, func()) {

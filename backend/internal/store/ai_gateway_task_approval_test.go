@@ -69,7 +69,7 @@ func TestGatewayTaskIndependentApprovalUsesTrustedContextAndCancellation(t *test
 	if e != nil || approved.Status != "approved" || approved.TaskID != task.ID {
 		t.Fatal(approved, e)
 	}
-	resolved, e := f.repo.CheckGatewayTask(ctx, gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: task.ID, TaskStepID: request.RequestID, TaskStepDigest: aisecurity.RequestDigest(request)}, WorkspaceSlug: f.ws.Slug, TokenHash: fmt.Sprintf("%x", sum), ApplicationID: input.ApplicationID, PrincipalID: input.PrincipalID, CatalogDigest: config.CatalogDigest, Kind: "tool", ToolID: request.ToolID, Action: request.Action, Target: request.Target})
+	resolved, e := f.repo.CheckGatewayTask(ctx, gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: task.ID, LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion, TaskStepID: request.RequestID, TaskStepDigest: aisecurity.RequestDigest(request)}, WorkspaceSlug: f.ws.Slug, TokenHash: fmt.Sprintf("%x", sum), ApplicationID: input.ApplicationID, PrincipalID: input.PrincipalID, CatalogDigest: config.CatalogDigest, Kind: "tool", ToolID: request.ToolID, Action: request.Action, Target: request.Target})
 	if e != nil || !resolved.Allowed {
 		t.Fatal(e)
 	}

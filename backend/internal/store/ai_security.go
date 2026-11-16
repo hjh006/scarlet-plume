@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
+	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 	"github.com/jackc/pgx/v5"
 	"strings"
 	"time"
@@ -78,23 +79,29 @@ func (s *Store) SaveAISecurityConfiguration(ctx context.Context, ws, actor, expe
 		if e != nil {
 			return e
 		}
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_lease_proposals SET status='invalidated',revision=revision+1,note='当前AI目录配置已变化。' WHERE workspace_id=$1 AND status='proposed'`, ws); e != nil {
+			return e
+		}
 		out, e = aiConfiguration(ctx, tx, ws, false)
 		return e
 	})
 	return
 }
 
-const aiApprovalColumns = `id,configuration_revision,request_digest,catalog_digest,request_metadata,status,requested_by,reviewed_by,expires_at,created_at,note`
+const aiApprovalColumns = `id,configuration_revision,request_digest,catalog_digest,request_metadata,status,requested_by,reviewed_by,expires_at,created_at,note,COALESCE(task_lease_digest,'')`
 
 func aiScanApproval(row pgx.Row) (v AISecurityApproval, e error) {
 	var raw []byte
-	e = row.Scan(&v.ID, &v.ConfigurationRevision, &v.RequestDigest, &v.CatalogDigest, &raw, &v.Status, &v.RequestedBy, &v.ReviewedBy, &v.ExpiresAt, &v.CreatedAt, &v.Note)
+	e = row.Scan(&v.ID, &v.ConfigurationRevision, &v.RequestDigest, &v.CatalogDigest, &raw, &v.Status, &v.RequestedBy, &v.ReviewedBy, &v.ExpiresAt, &v.CreatedAt, &v.Note, &v.LeaseChainDigest)
 	if e != nil {
 		return v, storeError(e)
 	}
 	var r aisecurity.Request
 	if e = json.Unmarshal(raw, &r); e != nil {
 		return
+	}
+	if v.LeaseChainDigest != "" {
+		v.LeaseProtocolVersion = gatewaygovernance.TaskLeaseProtocolVersion
 	}
 	v.RequestID = r.RequestID
 	v.TaskID = r.TaskID
@@ -145,7 +152,7 @@ func aiAttachApprovals(ctx context.Context, tx pgx.Tx, ws, revision int64, cfg *
 		if v.ReviewedBy == nil {
 			continue
 		}
-		cfg.Approvals = append(cfg.Approvals, aisecurity.Approval{ID: fmt.Sprint(v.ID), RequestDigest: v.RequestDigest, CatalogDigest: v.CatalogDigest, ApplicationID: v.ApplicationID, PrincipalID: v.PrincipalID, ToolID: v.ToolID, Action: v.Action, Target: v.Target, ApprovedBy: fmt.Sprintf("user:%d", *v.ReviewedBy), ExpiresAt: v.ExpiresAt})
+		cfg.Approvals = append(cfg.Approvals, aisecurity.Approval{ID: fmt.Sprint(v.ID), LeaseChainDigest: v.LeaseChainDigest, LeaseProtocolVersion: v.LeaseProtocolVersion, RequestDigest: v.RequestDigest, CatalogDigest: v.CatalogDigest, ApplicationID: v.ApplicationID, PrincipalID: v.PrincipalID, ToolID: v.ToolID, Action: v.Action, Target: v.Target, ApprovedBy: fmt.Sprintf("user:%d", *v.ReviewedBy), ExpiresAt: v.ExpiresAt})
 	}
 	return rows.Err()
 }
@@ -343,6 +350,9 @@ func (s *Store) PublishAISecurity(ctx context.Context, ws, actor, expected, eval
 		raw, _ := json.Marshal(v.Configuration)
 		_, e = tx.Exec(ctx, `UPDATE plume.ai_security_configurations SET published_revision=revision,published_configuration=$2,published_digest=$3,published_by=$4,published_at=now() WHERE workspace_id=$1`, ws, raw, digest, actor)
 		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_lease_proposals SET status='invalidated',revision=revision+1,note='当前AI目录配置已变化。' WHERE workspace_id=$1 AND status='proposed'`, ws); e != nil {
 			return e
 		}
 		out, e = aiConfiguration(ctx, tx, ws, false)

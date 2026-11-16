@@ -331,7 +331,8 @@ func (c *GatewayController) FallbackModels(ctx context.Context, rootModel string
 }
 func (c *GatewayController) cacheScope(ctx context.Context, s ModelCacheScope) gatewaygovernance.CacheScope {
 	token, _ := ctx.Value(gatewayCredentialHashKey{}).(string)
-	return gatewaygovernance.CacheScope{WorkspaceSlug: c.options.WorkspaceSlug, TokenHash: token, ApplicationID: s.ApplicationID, PrincipalID: s.PrincipalID, ModelID: s.ModelID, CatalogDigest: s.CatalogDigest, InspectionVersion: s.InspectionVersion, InputHash: s.InputHash, DocumentHash: s.DocumentHash, PolicyHash: s.PolicyHash}
+	task, _ := ctx.Value(cacheTaskContextKey{}).(gatewaygovernance.TaskContext)
+	return gatewaygovernance.CacheScope{TaskContext: task, WorkspaceSlug: c.options.WorkspaceSlug, TokenHash: token, ApplicationID: s.ApplicationID, PrincipalID: s.PrincipalID, ModelID: s.ModelID, CatalogDigest: s.CatalogDigest, InspectionVersion: s.InspectionVersion, InputHash: s.InputHash, DocumentHash: s.DocumentHash, PolicyHash: s.PolicyHash}
 }
 func (c *GatewayController) Get(ctx context.Context, s ModelCacheScope) ([]byte, bool, error) {
 	var result gatewaygovernance.CacheResult

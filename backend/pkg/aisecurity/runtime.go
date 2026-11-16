@@ -520,6 +520,9 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 		}
 		r.modelWireBytes = int64(len(body))
 	}
+	if r.TaskID != "" {
+		in = in.WithContext(context.WithValue(in.Context(), cacheTaskContextKey{}, taskBinding(in.Context(), r)))
+	}
 	scope := modelCacheScope(r, d)
 	cacheable := r.Kind == "model" && h.options.Cache != nil
 	if cacheable {

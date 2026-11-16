@@ -1,12 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {taskDraft,taskCreatePayload,taskStatusPayload,taskAvailableBudget,taskHeaderTemplate} from './ai-gateway-tasks.ts'
+import {taskDraft,taskCreatePayload,taskStatusPayload,taskAvailableBudget,taskHeaderTemplate,taskLifecycleState} from './ai-gateway-tasks.ts'
 
 const now=Date.parse('2026-11-16T08:00:00+08:00')
 const config={revision:2,enabled:true,catalogDigest:'a'.repeat(64),applications:[{id:'app',name:'app',enabled:true,principalId:'alice',allowRag:true,modelIds:['model'],toolIds:['tool']}],providers:[]}
 const credentials=[{id:1,applicationId:'app',enabled:true},{id:2,applicationId:'app',enabled:true},{id:3,applicationId:'other',enabled:true}]
 const root={...taskDraft(undefined,now),applicationId:'app',credentialId:1,purpose:'support-answer',modelIds:['model'],toolIds:['tool'],toolScopes:[{toolId:'tool',actions:['read','close'],targets:['record,one','record-two']}],documentIds:['doc'],allowedCategories:['confidential'],budgetUSD:'1.000001',maxSteps:20,maxDelegationDepth:2}
 const parent={...taskCreatePayload(root,config,credentials,undefined,now),id:'task-parent',rootTaskId:'task-parent',depth:0,status:'active',revision:4,scopeDigest:'b'.repeat(64),stepsUsed:3,reservedMicros:100000,spentMicros:100000,observedCategories:[],sources:[],createdAt:new Date(now).toISOString(),updatedAt:new Date(now).toISOString()}
+
+test('task display respects expiry without hiding terminal status or unknown dates',()=>{
+  assert.equal(taskLifecycleState(parent,now),'active')
+  assert.equal(taskLifecycleState(parent,Date.parse(parent.expiresAt)),'expired')
+  assert.equal(taskLifecycleState({...parent,expiresAt:'invalid'},now),'unknown')
+  assert.equal(taskLifecycleState({...parent,status:'cancelled'},Date.parse(parent.expiresAt)),'cancelled')
+})
 
 test('task creation binds saved app identity/catalog and enabled credential while omitting self-reported source facts',()=>{
   const value=taskCreatePayload({...root,principalId:'forged',catalogDigest:'c'.repeat(64),sources:[{content:'never-send'}],observedCategories:['public']},config,credentials,undefined,now)

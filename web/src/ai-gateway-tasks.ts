@@ -10,7 +10,12 @@ export interface GatewayTaskPage {items:GatewayTask[];nextCursor:string;hasMore:
 export interface GatewayTaskDetail {task:GatewayTask;steps:GatewayTaskStep[];stepsTruncated:boolean}
 export interface GatewayTaskStepPage {items:GatewayTaskStep[];nextCursor:string;hasMore:boolean}
 export interface GatewayTaskDraft extends Omit<GatewayTaskInput,'budgetMicros'|'catalogDigest'|'principalId'> {budgetUSD:string}
-export const taskStatusLabels:Record<string,string>={active:'活动任务',cancelled:'已停止后续执行',completed:'已关闭后续执行',expired:'期限已过'}
+export const taskStatusLabels:Record<string,string>={active:'活动任务',cancelled:'已停止后续执行',completed:'已关闭后续执行',expired:'期限已过',unknown:'期限待核对'}
+export function taskLifecycleState(task:Pick<GatewayTask,'status'|'expiresAt'>,now=Date.now()):string {
+  if(task.status!=='active')return task.status
+  const expiry=Date.parse(task.expiresAt)
+  return !Number.isFinite(expiry)?'unknown':expiry<=now?'expired':'active'
+}
 const identifier=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/
 export function taskScope(value:string):string[] {return value.split(/[,，\n]+/).map(part=>part.trim()).filter(Boolean)}
 export function taskDraft(parent?:GatewayTask,now=Date.now()):GatewayTaskDraft {

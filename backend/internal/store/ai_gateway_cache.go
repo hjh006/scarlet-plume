@@ -83,13 +83,16 @@ func gatewayCacheScope(ctx context.Context, tx pgx.Tx, in GatewayCacheScope) (ws
 		err = ErrForbidden
 		return
 	}
+	if in.TaskID == "" && app.RequireTask {
+		return ws, p, "", ErrForbidden
+	}
 	p = app.CachePolicy
 	// Disabled policies are a cache miss, never an authorization bypass.
 	scope = gatewayDigest(struct {
-		WorkspaceID                                                                                                                        int64
-		ApplicationID, PrincipalID, CatalogDigest, ProviderID, ModelID, InspectionVersion, InputHash, DocumentHash, PolicyHash, KeyVersion string
-		Revision                                                                                                                           int64
-	}{ws, in.ApplicationID, in.PrincipalID, in.CatalogDigest, providerID, in.ModelID, in.InspectionVersion, in.InputHash, in.DocumentHash, in.PolicyHash, p.KeyVersion, c.Revision})
+		WorkspaceID                                                                                                                                                                        int64
+		ApplicationID, PrincipalID, CatalogDigest, ProviderID, ModelID, InspectionVersion, InputHash, DocumentHash, PolicyHash, KeyVersion, TaskID, LeaseChainDigest, LeaseProtocolVersion string
+		Revision                                                                                                                                                                           int64
+	}{ws, in.ApplicationID, in.PrincipalID, in.CatalogDigest, providerID, in.ModelID, in.InspectionVersion, in.InputHash, in.DocumentHash, in.PolicyHash, p.KeyVersion, in.TaskID, in.LeaseChainDigest, in.LeaseProtocolVersion, c.Revision})
 	return
 }
 
@@ -111,6 +114,9 @@ func (s *Store) GetGatewayCache(ctx context.Context, in GatewayCacheScope) (out 
 		}
 		var dummy int64
 		if e = tx.QueryRow(ctx, `SELECT reserved_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, in.ApplicationID).Scan(&dummy); e != nil {
+			return e
+		}
+		if e = gatewayCacheTaskCurrent(ctx, tx, ws, in, false); e != nil {
 			return e
 		}
 		var payload []byte
@@ -161,6 +167,9 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 		if e = tx.QueryRow(ctx, `SELECT reserved_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, in.ApplicationID).Scan(&dummy); e != nil {
 			return e
 		}
+		if e = gatewayCacheTaskCurrent(ctx, tx, ws, in.CacheScope, true); e != nil {
+			return e
+		}
 		var state, app string
 		var raw, auth []byte
 		if e = tx.QueryRow(ctx, `SELECT state,application_id,last_audit,authorized FROM plume.ai_gateway_reservations WHERE workspace_id=$1 AND id=$2`, ws, in.ReservationID).Scan(&state, &app, &raw, &auth); e != nil {
@@ -171,7 +180,7 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 			return e
 		}
 		var admission GatewayAuthorization
-		if json.Unmarshal(auth, &admission) != nil || state != "settled" || app != in.ApplicationID || admission.ModelID != in.ModelID || admission.PrincipalID != in.PrincipalID || admission.CatalogDigest != in.CatalogDigest || admission.Kind != "model" || admission.ConfigRevision != revision {
+		if json.Unmarshal(auth, &admission) != nil || state != "settled" || app != in.ApplicationID || admission.ModelID != in.ModelID || admission.PrincipalID != in.PrincipalID || admission.CatalogDigest != in.CatalogDigest || admission.Kind != "model" || admission.ConfigRevision != revision || admission.TaskContext != in.TaskContext {
 			return ErrForbidden
 		}
 		// Binding the checked output digest and complete scope prevents a successful
@@ -183,11 +192,13 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 				Outcome   string `json:"outcome"`
 			} `json:"execution"`
 			Decision struct {
-				Outcome string `json:"outcome"`
+				Outcome              string `json:"outcome"`
+				LeaseChainDigest     string `json:"leaseChainDigest"`
+				LeaseProtocolVersion string `json:"leaseProtocolVersion"`
 			} `json:"decision"`
 			CacheEvidence *aisecurity.CacheEvidence `json:"cacheEvidence"`
 		}
-		if json.Unmarshal(raw, &receipt) != nil || receipt.Stage != "completed" || !receipt.Execution.Attempted || receipt.Execution.Outcome != "succeeded" || receipt.Decision.Outcome != "allow" || receipt.CacheEvidence == nil {
+		if json.Unmarshal(raw, &receipt) != nil || receipt.Stage != "completed" || !receipt.Execution.Attempted || receipt.Execution.Outcome != "succeeded" || receipt.Decision.Outcome != "allow" || receipt.CacheEvidence == nil || receipt.Decision.LeaseChainDigest != admission.LeaseChainDigest || receipt.Decision.LeaseProtocolVersion != admission.LeaseProtocolVersion {
 			return ErrForbidden
 		}
 		evidence := receipt.CacheEvidence
@@ -238,4 +249,12 @@ func (s *Store) InvalidateGatewayCache(ctx context.Context, ws, actor int64, app
 		return identityAudit(ctx, tx, ws, actor, "gateway.cache_invalidated", app, map[string]any{"invalidated": count})
 	})
 	return
+}
+
+func gatewayCacheTaskCurrent(ctx context.Context, tx pgx.Tx, ws int64, in GatewayCacheScope, allowCompleted bool) error {
+	if in.TaskID == "" {
+		return nil
+	}
+	fact := GatewayAuthorizeInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: "model", ModelID: in.ModelID, RequestID: in.TaskStepID, RequestDigest: in.TaskStepDigest}
+	return gatewayTaskCacheCurrentStatus(ctx, tx, ws, fact, allowCompleted)
 }

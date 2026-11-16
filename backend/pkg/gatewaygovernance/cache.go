@@ -3,6 +3,7 @@ package gatewaygovernance
 // CacheScope is metadata only. Runtime nodes hash the full generation request,
 // selected documents and current inspection policy before calling the cache.
 type CacheScope struct {
+	TaskContext
 	WorkspaceSlug     string `json:"workspaceSlug"`
 	TokenHash         string `json:"tokenHash"`
 	ApplicationID     string `json:"applicationId"`

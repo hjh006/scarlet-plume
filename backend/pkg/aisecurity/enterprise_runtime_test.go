@@ -34,7 +34,7 @@ type testTaskController struct {
 
 func newTestTaskController() *testTaskController {
 	expiry := time.Now().Add(time.Hour)
-	return &testTaskController{grant: gatewaygovernance.TaskGrant{Allowed: true, Required: true, TaskID: "task-one", Purpose: "support", ScopeDigest: strings.Repeat("a", 64), ExpiresAt: &expiry, Categories: []string{}, SourceDocumentIDs: []string{}, Sources: []gatewaygovernance.TaskSource{}, ModelIDs: []string{"enterprise", "public"}, ToolIDs: []string{"ticket"}, DocumentIDs: []string{"doc"}, ToolScopes: []gatewaygovernance.TaskToolScope{{ToolID: "ticket", Actions: []string{"close"}, Targets: []string{"ticket-17"}}}}}
+	return &testTaskController{grant: gatewaygovernance.TaskGrant{Allowed: true, Required: true, TaskID: "task-one", Purpose: "support", ScopeDigest: strings.Repeat("a", 64), LeaseChainDigest: strings.Repeat("b", 64), LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion, ExpiresAt: &expiry, Categories: []string{}, SourceDocumentIDs: []string{}, Sources: []gatewaygovernance.TaskSource{}, ModelIDs: []string{"enterprise", "public"}, ToolIDs: []string{"ticket"}, DocumentIDs: []string{"doc"}, ToolScopes: []gatewaygovernance.TaskToolScope{{ToolID: "ticket", Actions: []string{"close"}, Targets: []string{"ticket-17"}}}}}
 }
 func (s *testTaskController) call(ctx context.Context, op TaskOperation) (gatewaygovernance.TaskGrant, error) {
 	s.mu.Lock()
@@ -423,7 +423,7 @@ func TestTaskFallbackConsumesOneLogicalStepAndBindsEveryAttempt(t *testing.T) {
 	if out.Code != 200 || primary.Load() != 1 || secondary.Load() != 1 || len(attempts) != 2 {
 		t.Fatal("fallback execution failed", out.Code, out.Body.String(), primary.Load(), secondary.Load(), len(attempts))
 	}
-	if attempts[0].TaskContext != attempts[1].TaskContext || attempts[0].TaskStepID != r.RequestID || attempts[0].TaskStepDigest != RequestDigest(r) {
+	if attempts[0].TaskContext != attempts[1].TaskContext || attempts[0].TaskStepID != r.RequestID || attempts[0].TaskStepDigest != RequestDigest(r) || attempts[0].LeaseChainDigest != tasks.grant.LeaseChainDigest || attempts[0].LeaseProtocolVersion != gatewaygovernance.TaskLeaseProtocolVersion {
 		t.Fatal("fallback lost logical task binding", attempts)
 	}
 	tasks.mu.Lock()

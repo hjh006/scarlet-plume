@@ -17,6 +17,10 @@ test('rate limits retain bounded Retry-After and safe actionable text', () => {
 test('HTTP requests retain cancellation and structured failure status', async () => {
   const server = createServer((req, res) => {
     if (req.url === '/slow') return
+    if (req.url === '/lease-conflict') {
+      res.writeHead(409, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({error:'仍有未决步骤',code:'inflight_unresolved',blockers:[{stepId:'step-1',message:'保留未知执行结果'}],recovery:['核对原调用审计']}))
+    }
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '9' })
     res.end(JSON.stringify({ error: 'retry later' }))
   })
@@ -25,6 +29,7 @@ test('HTTP requests retain cancellation and structured failure status', async ()
   try {
     const url = `http://127.0.0.1:${server.address().port}`
     await assert.rejects(request(url), e => e instanceof ApiError && e.status === 429 && e.retryAfterSeconds === 9)
+    await assert.rejects(request(url+'/lease-conflict'),e=>e instanceof ApiError && e.status===409 && e.details.code==='inflight_unresolved' && e.details.blockers[0].stepId==='step-1')
     await assert.rejects(request(url + '/slow', { signal: AbortSignal.timeout(30) }), e => e.name === 'TimeoutError')
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
 })

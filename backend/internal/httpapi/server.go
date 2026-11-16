@@ -80,6 +80,7 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 	s.securityPlatformRoutes(mux)
 	s.securityNetworkPageRoutes(mux)
 	s.gatewayTaskCredentialStatusRoutes(mux)
+	s.gatewayTaskLeaseRoutes(mux)
 	s.aiSecurityRuntimeRoutes(mux)
 	s.aiSecurityRoutes(mux)
 	s.identityRoutes(mux)
@@ -93,7 +94,7 @@ func NewWithClassificationAI(st *store.Store, origin string, secure bool, manage
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("Origin") != s.origin && !strings.HasPrefix(r.URL.Path, "/scim/v2/") && !gatewayMachineOriginExempt(r) && !gatewayWorkloadTokenOriginExempt(r) && !(r.Method == http.MethodPost && (r.URL.Path == aiSecurityRuntimePath || r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath || r.URL.Path == endpointSessionEventsPath)) {
+			r.Header.Get("Origin") != s.origin && !strings.HasPrefix(r.URL.Path, "/scim/v2/") && !gatewayMachineOriginExempt(r) && !gatewayWorkloadTokenOriginExempt(r) && !gatewayTaskLeaseRenewalOriginExempt(r) && !(r.Method == http.MethodPost && (r.URL.Path == aiSecurityRuntimePath || r.URL.Path == applicationObservationsPath || r.URL.Path == automationRunPath || r.URL.Path == gatewayRuntimePath || r.URL.Path == otlpRuntimePath || r.URL.Path == CatalogDiscoveryClaimPath || r.URL.Path == CatalogDiscoveryRunPath || r.URL.Path == securityEventsPath || r.URL.Path == runtimeControlReceiptsPath || r.URL.Path == postgresControlClaimPath || r.URL.Path == postgresControlReceiptsPath || r.URL.Path == apiValidationClaimPath || r.URL.Path == apiValidationResultPath || r.URL.Path == classificationDeliveryClaimPath || r.URL.Path == classificationDeliveryReceiptPath || r.URL.Path == CryptoTransformPath || r.URL.Path == endpointHeartbeatPath || r.URL.Path == endpointReceiptsPath || r.URL.Path == endpointSessionEventsPath)) {
 			fail(w, http.StatusForbidden, "请求来源不受信任。")
 			return
 		}

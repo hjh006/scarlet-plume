@@ -82,12 +82,12 @@ function describeFact(fact: ClassificationFact) {
       <summary>采集事实 · {{ evaluation.facts?.length ?? 0 }} 项</summary>
       <div v-if="evaluation.facts?.length" class="table-scroll" role="region" tabindex="0" aria-label="自动判定所用采集事实">
         <table class="data-table classification-facts-table">
-          <thead><tr><th scope="col">事实</th><th scope="col">字段与识别类型</th><th scope="col">计数</th><th scope="col">来源与范围</th></tr></thead>
+          <thead><tr><th scope="col">事实</th><th scope="col">字段与识别类型</th><th scope="col" class="table-number">计数</th><th scope="col">来源与范围</th></tr></thead>
           <tbody>
             <tr v-for="(fact, index) in evaluation.facts" :key="index">
               <th scope="row">{{ factLabels[fact.kind] || fact.kind }}</th>
               <td><span v-if="fact.column" class="mono">{{ fact.column }}</span><span v-if="fact.category" class="table-secondary">{{ postgresSensitivityLabel(fact.category) }}</span><span v-if="!fact.column && !fact.category">—</span></td>
-              <td>{{ fact.count ?? '—' }}</td>
+              <td class="table-number">{{ fact.count ?? '—' }}</td>
               <td>{{ sourceLabels[fact.source] || fact.source }}<span v-if="fact.note" class="table-secondary">{{ describeFact(fact) }}</span></td>
             </tr>
           </tbody>

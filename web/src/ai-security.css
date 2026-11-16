@@ -60,8 +60,7 @@
 .ai-security-facts dd { margin: 0; overflow-wrap: anywhere; }
 .ai-security-workspace .table-scroll { max-width: 100%; }
 .ai-security-workspace .data-table { width: 100%; }
-.ai-security-workspace .data-table td { vertical-align: top; }
-.ai-security-workspace .table-secondary { display: block; margin-top: 5px; max-width: 68ch; color: var(--secondary); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.ai-security-workspace .table-secondary { max-width: 68ch; }
 .ai-security-workspace .badge { max-width: 100%; white-space: normal; }
 .ai-security-workspace .ai-security-code { margin: 0; max-height: 430px; overflow: auto; padding: 14px; background: var(--surface-subtle); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ai-security-links { display: flex; flex-wrap: wrap; gap: 8px 20px; }

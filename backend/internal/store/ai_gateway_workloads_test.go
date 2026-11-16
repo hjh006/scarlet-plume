@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func workloadStoreFixture(t *testing.T, f assessmentSourceFixture) (GatewayWorkloadBinding, func(string) string) {
+func workloadStoreFixture(t *testing.T, f assessmentSourceFixture, subjects ...string) (GatewayWorkloadBinding, func(string) string) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -27,6 +27,9 @@ func workloadStoreFixture(t *testing.T, f assessmentSourceFixture) (GatewayWorkl
 	encode := base64.RawURLEncoding.EncodeToString
 	keys, _ := json.Marshal(map[string]any{"keys": []any{map[string]string{"kty": "OKP", "crv": "Ed25519", "kid": "synthetic-key-1", "use": "sig", "alg": "EdDSA", "x": encode(pub)}}})
 	in := GatewayWorkloadInput{Name: "Synthetic workload", ApplicationID: "app", Issuer: "https://issuer.example.invalid/workload", Audience: "scarlet-workload:" + f.ws.Slug, Subject: "spiffe://example.invalid/agent/support", JWKS: keys, MaxTTLSeconds: 60}
+	if len(subjects) > 0 {
+		in.Subject = "spiffe://example.invalid/agent/" + subjects[0]
+	}
 	binding, err := f.repo.SaveGatewayWorkload(t.Context(), f.ws.ID, f.user.ID, 0, 0, in, true)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +166,7 @@ func TestGatewayWorkloadCredentialExpiryDeniesResolveAdmissionCacheTasksAndAppro
 	if err != nil {
 		t.Fatal(err)
 	}
-	fact := taskTestFact(task, in, "expiry-task-step-0001")
+	fact := taskTestFact(t, f, task, in, "expiry-task-step-0001")
 	if _, err = f.repo.CheckGatewayTask(t.Context(), fact); err != nil {
 		t.Fatal("live short credential cannot access task", err)
 	}

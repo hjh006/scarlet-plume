@@ -139,6 +139,9 @@ func (s *Store) SaveGatewayWorkload(ctx context.Context, ws, actor, id, expected
 		if e != nil {
 			return e
 		}
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_lease_proposals SET status='invalidated',revision=revision+1,note='工作负载信任绑定已变化。' WHERE workspace_id=$1 AND status='proposed' AND EXISTS(SELECT 1 FROM plume.ai_gateway_credentials c WHERE c.workspace_id=$1 AND c.workload_binding_id=$2 AND (c.id=ANY(source_ids) OR c.id=ANY(target_ids)))`, ws, id); e != nil {
+			return e
+		}
 		return identityAudit(ctx, tx, ws, actor, "gateway.workload_binding_saved", fmt.Sprint(out.ID), gatewayWorkloadAudit(out))
 	})
 	return out, storeError(err)
@@ -167,6 +170,9 @@ func (s *Store) RevokeGatewayWorkload(ctx context.Context, ws, actor, id, expect
 			return e
 		}
 		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_credentials SET enabled=false,revoked_at=COALESCE(revoked_at,clock_timestamp()),revocation_reason=COALESCE(revocation_reason,'binding_revoked') WHERE workspace_id=$1 AND workload_binding_id=$2 AND (enabled OR revoked_at IS NULL)`, ws, id); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_lease_proposals SET status='invalidated',revision=revision+1,note='工作负载信任绑定已变化。' WHERE workspace_id=$1 AND status='proposed' AND EXISTS(SELECT 1 FROM plume.ai_gateway_credentials c WHERE c.workspace_id=$1 AND c.workload_binding_id=$2 AND (c.id=ANY(source_ids) OR c.id=ANY(target_ids)))`, ws, id); e != nil {
 			return e
 		}
 		return identityAudit(ctx, tx, ws, actor, "gateway.workload_binding_revoked", fmt.Sprint(out.ID), gatewayWorkloadAudit(out))

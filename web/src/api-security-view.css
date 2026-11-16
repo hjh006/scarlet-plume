@@ -130,15 +130,15 @@
   border-radius: .4rem;
 }
 .api-table { width: 100%; border-spacing: 0; text-align: start; }
-.api-table th, .api-table td { padding: .8rem .9rem; text-align: start; vertical-align: middle; }
+.api-table th, .api-table td { padding: 13px 16px; text-align: start; vertical-align: top; overflow-wrap: anywhere; }
 .api-table thead {
   color: var(--secondary);
   background: var(--surface-subtle);
-  font-size: .78rem;
+  font-size: 13px;
 }
 .api-table tbody tr + tr :is(th, td) { border-top: 1px solid var(--api-line); }
 .api-table tbody th { font-weight: 700; }
-.api-table tbody td { font-size: .875rem; }
+.api-table tbody td { font-size: inherit; }
 .api-history-table th:first-child { width: 33%; }
 .api-operations-table thead th:nth-child(1) { width: 29%; }
 .api-operations-table thead th:nth-child(2) { width: 12%; }

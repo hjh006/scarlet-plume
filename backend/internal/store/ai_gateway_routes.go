@@ -126,15 +126,16 @@ func gatewayAuthorizeAttempt(ctx context.Context, tx pgx.Tx, ws int64, in Gatewa
 		}
 		var app, principal, rootID, parent, catalog string
 		var revision int64
+		var pin, protocol string
 		var raw []byte
-		e := tx.QueryRow(ctx, `SELECT application_id,authorized->>'principalId',root_model_id,parent_request_id,attempt,last_audit,authorized->>'catalogDigest',(authorized->>'configRevision')::bigint FROM plume.ai_gateway_reservations WHERE workspace_id=$1 AND id=$2`, ws, in.PreviousReservationID).Scan(&app, &principal, &rootID, &parent, &previousAttempt, &raw, &catalog, &revision)
+		e := tx.QueryRow(ctx, `SELECT application_id,authorized->>'principalId',root_model_id,parent_request_id,attempt,last_audit,authorized->>'catalogDigest',(authorized->>'configRevision')::bigint,COALESCE(authorized->>'leaseChainDigest',''),COALESCE(authorized->>'leaseProtocolVersion','') FROM plume.ai_gateway_reservations WHERE workspace_id=$1 AND id=$2`, ws, in.PreviousReservationID).Scan(&app, &principal, &rootID, &parent, &previousAttempt, &raw, &catalog, &revision, &pin, &protocol)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return ErrForbidden
 		}
 		if e != nil {
 			return e
 		}
-		if app != in.ApplicationID || principal != in.PrincipalID || rootID != in.RootModelID || parent != in.ParentRequestID || previousAttempt >= in.Attempt || catalog != in.CatalogDigest || revision != c.Revision || len(raw) == 0 {
+		if app != in.ApplicationID || principal != in.PrincipalID || rootID != in.RootModelID || parent != in.ParentRequestID || previousAttempt >= in.Attempt || catalog != in.CatalogDigest || revision != c.Revision || pin != in.LeaseChainDigest || protocol != in.LeaseProtocolVersion || len(raw) == 0 {
 			return ErrForbidden
 		}
 		var audit struct {

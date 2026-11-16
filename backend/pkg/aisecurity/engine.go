@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/hjh006/scarlet-plume/backend/pkg/datasafety"
+	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 	"regexp"
 	"slices"
 	"strings"
@@ -187,6 +188,9 @@ func ValidateConfig(c Config) error {
 		if !addID(seen, a.ID) || !digest.MatchString(a.RequestDigest) || !digest.MatchString(a.CatalogDigest) || !apps[a.ApplicationID] || !principals[a.PrincipalID] || !tools[a.ToolID] || !validID(a.ApprovedBy) || a.ApprovedBy == a.PrincipalID || !validID(a.Action) || a.Target == "" || !bounded(a.Target, 256) || a.ExpiresAt.IsZero() {
 			return ErrConfig
 		}
+		if (a.LeaseChainDigest != "" || a.LeaseProtocolVersion != "") && (!digest.MatchString(a.LeaseChainDigest) || a.LeaseProtocolVersion != gatewaygovernance.TaskLeaseProtocolVersion) {
+			return ErrConfig
+		}
 	}
 	return nil
 }
@@ -347,12 +351,13 @@ func Evaluate(c Config, r Request, now time.Time) Decision {
 	}
 	if r.TaskID != "" || r.taskContext != nil {
 		ctx := r.taskContext
-		if !validID(r.TaskID) || ctx == nil || ctx.TaskID != r.TaskID || !validID(ctx.Purpose) || !digest.MatchString(ctx.ScopeDigest) || !ctx.ExpiresAt.After(now) || !categories(ctx.Categories) || !list(ctx.SourceDocumentIDs, 64, validID) {
+		if !validID(r.TaskID) || ctx == nil || ctx.TaskID != r.TaskID || !validID(ctx.Purpose) || !digest.MatchString(ctx.ScopeDigest) || !digest.MatchString(ctx.LeaseChainDigest) || ctx.LeaseProtocolVersion != gatewaygovernance.TaskLeaseProtocolVersion || !ctx.ExpiresAt.After(now) || !categories(ctx.Categories) || !list(ctx.SourceDocumentIDs, 64, validID) {
 			return deny("task_context_required_or_invalid")
 		}
 		purpose = ctx.Purpose
 		d.TaskID, d.TaskPurpose, d.TaskScopeDigest = r.TaskID, purpose, ctx.ScopeDigest
-		d.Coverage = append(d.Coverage, "trusted_task_scope_and_context_labels")
+		d.LeaseChainDigest, d.LeaseProtocolVersion = ctx.LeaseChainDigest, ctx.LeaseProtocolVersion
+		d.Coverage = append(d.Coverage, "trusted_task_scope_and_context_labels", "immutable_task_execution_lease_chain")
 	}
 	if !ids(r.DocumentIDs) || len(r.DocumentIDs) > 64 {
 		return deny("document_scope_invalid")
@@ -574,7 +579,7 @@ func Evaluate(c Config, r Request, now time.Time) Decision {
 					a = &c.Approvals[i]
 				}
 			}
-			if a == nil || a.Revoked || !a.ExpiresAt.After(now) || a.RequestDigest != d.RequestDigest || a.CatalogDigest != d.CatalogDigest || a.ApplicationID != r.ApplicationID || a.PrincipalID != r.PrincipalID || a.ToolID != r.ToolID || a.Action != r.Action || a.Target != r.Target || a.ApprovedBy == r.PrincipalID {
+			if a == nil || a.Revoked || !a.ExpiresAt.After(now) || a.RequestDigest != d.RequestDigest || a.CatalogDigest != d.CatalogDigest || a.ApplicationID != r.ApplicationID || a.PrincipalID != r.PrincipalID || a.ToolID != r.ToolID || a.Action != r.Action || a.Target != r.Target || a.ApprovedBy == r.PrincipalID || a.LeaseChainDigest != d.LeaseChainDigest || a.LeaseProtocolVersion != d.LeaseProtocolVersion {
 				return deny("tool_approval_required_or_mismatched")
 			}
 		}

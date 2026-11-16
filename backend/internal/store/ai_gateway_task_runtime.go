@@ -20,7 +20,7 @@ func gatewayTaskFact(in gatewaygovernance.TaskCheckInput) error {
 		return ErrInvalid
 	}
 	if in.TaskID == "" {
-		if in.TaskStepID != "" || in.TaskStepDigest != "" {
+		if in.TaskStepID != "" || in.TaskStepDigest != "" || in.LeaseChainDigest != "" || in.LeaseProtocolVersion != "" {
 			return ErrInvalid
 		}
 	} else if !gatewayRuntimeID.MatchString(in.TaskID) || in.Kind != "discovery" && (!gatewayText(in.TaskStepID, 200) || !gatewayHash.MatchString(in.TaskStepDigest)) {
@@ -100,6 +100,9 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	if err != nil {
 		return
 	}
+	if err = gatewayTaskLeasePin(in.TaskContext, chain, false); err != nil {
+		return
+	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return
@@ -109,7 +112,7 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 			err = ErrForbidden
 			return
 		}
-		if err = gatewayTaskCredential(ctx, tx, ws, task.CredentialID, task.ApplicationID); err != nil {
+		if err = gatewayTaskCredential(ctx, tx, ws, task.ExecutionLease.CredentialID, task.ApplicationID); err != nil {
 			return
 		}
 		if in.Kind == "model" && (!slices.Contains(task.ModelIDs, in.ModelID) || !slices.Contains(app.ModelIDs, in.ModelID)) || in.Kind == "tool" && (!slices.Contains(task.ToolIDs, in.ToolID) || !slices.Contains(app.ToolIDs, in.ToolID)) || in.Kind == "rag" && !app.AllowRag {
@@ -127,7 +130,7 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 		}
 	}
 	leaf := chain[len(chain)-1]
-	if leaf.CredentialID != credential {
+	if leaf.ExecutionLease.CredentialID != credential {
 		err = ErrForbidden
 		return
 	}
@@ -145,6 +148,8 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	grant.Revision = leaf.Revision
 	grant.ScopeDigest = leaf.ScopeDigest
 	grant.Purpose = leaf.Purpose
+	grant.LeaseChainDigest = gatewayTaskLeaseDigest(chain)
+	grant.LeaseProtocolVersion = gatewaygovernance.TaskLeaseProtocolVersion
 	for _, id := range leaf.ModelIDs {
 		if slices.Contains(app.ModelIDs, id) {
 			grant.ModelIDs = append(grant.ModelIDs, id)
@@ -171,6 +176,12 @@ func gatewayAdmitTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	if err != nil || in.TaskID == "" {
 		return
 	}
+	if e := gatewayTaskLeasePin(in.TaskContext, chain, true); e != nil {
+		return out, e
+	}
+	if e := taskLeasePendingPreviousEpoch(ctx, tx, ws, chain, ""); e != nil {
+		return out, e
+	}
 	if in.Kind == "discovery" {
 		return out, ErrInvalid
 	}
@@ -194,7 +205,12 @@ func gatewayAdmitTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	}
 	docs, _ := json.Marshal(in.DocumentIDs)
 	cats, _ := json.Marshal(in.Categories)
-	if _, e = tx.Exec(ctx, `INSERT INTO plume.ai_gateway_task_steps(workspace_id,task_id,step_id,step_digest,kind,model_id,tool_id,document_ids,categories) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, ws, in.TaskID, in.TaskStepID, in.TaskStepDigest, in.Kind, in.ModelID, in.ToolID, docs, cats); e != nil {
+	snapshot := []TaskLeaseExpected{}
+	for _, t := range chain {
+		snapshot = append(snapshot, TaskLeaseExpected{TaskID: t.ID, TaskRevision: t.Revision, LeaseRevision: t.ExecutionLease.Revision, CredentialID: t.ExecutionLease.CredentialID})
+	}
+	snapshotRaw, _ := json.Marshal(snapshot)
+	if _, e = tx.Exec(ctx, `INSERT INTO plume.ai_gateway_task_steps(workspace_id,task_id,step_id,step_digest,kind,model_id,tool_id,document_ids,categories,lease_chain_digest,lease_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, ws, in.TaskID, in.TaskStepID, in.TaskStepDigest, in.Kind, in.ModelID, in.ToolID, docs, cats, in.LeaseChainDigest, snapshotRaw); e != nil {
 		return out, storeError(e)
 	}
 	for _, task := range chain {
@@ -202,7 +218,7 @@ func gatewayAdmitTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 			return out, e
 		}
 	}
-	if e = identityAudit(ctx, tx, ws, 0, "gateway.task_step_admitted", in.TaskID, map[string]any{"stepId": in.TaskStepID, "stepDigest": in.TaskStepDigest, "kind": in.Kind, "modelId": in.ModelID, "toolId": in.ToolID, "documentIds": in.DocumentIDs, "categories": in.Categories, "scopeDigest": out.ScopeDigest}); e != nil {
+	if e = identityAudit(ctx, tx, ws, 0, "gateway.task_step_admitted", in.TaskID, map[string]any{"stepId": in.TaskStepID, "stepDigest": in.TaskStepDigest, "kind": in.Kind, "modelId": in.ModelID, "toolId": in.ToolID, "documentIds": in.DocumentIDs, "categories": in.Categories, "scopeDigest": out.ScopeDigest, "leaseChainDigest": out.LeaseChainDigest, "leaseProtocolVersion": out.LeaseProtocolVersion, "leaseSnapshot": snapshot}); e != nil {
 		return out, e
 	}
 	out.Admitted = true
@@ -221,27 +237,46 @@ func (s *Store) CompleteGatewayTask(ctx context.Context, in gatewaygovernance.Ta
 	var audit aisecurity.AuditRecord
 	decoder := json.NewDecoder(bytes.NewReader(in.Audit))
 	decoder.DisallowUnknownFields()
-	if len(in.Audit) > 65536 || decoder.Decode(&audit) != nil || decoder.Decode(new(any)) != io.EOF || !validGatewayRuntimeEvidence(audit) || audit.RuntimeProtocolVersion != aisecurity.RuntimeProtocolVersion || audit.InspectionVersion != aisecurity.InspectionVersion || audit.Stage != "completed" || audit.Decision.Outcome != "allow" || !gatewayRuntimeID.MatchString(audit.EventID) || !gatewayRuntimeID.MatchString(audit.AttemptID) || !gatewayText(audit.RequestID, 200) || audit.Decision.ApplicationID != in.ApplicationID || audit.Decision.PrincipalID != in.PrincipalID || audit.Decision.CatalogDigest != in.CatalogDigest || audit.Decision.Kind != in.Kind || !gatewayTaskIDs(audit.Decision.Categories, 64) || !gatewayTaskIDs(audit.Decision.AllowedDocumentIDs, 64) || audit.ObservedAt.IsZero() || audit.ObservedAt.After(time.Now().Add(5*time.Minute)) {
+	if len(in.Audit) > 65536 || decoder.Decode(&audit) != nil || decoder.Decode(new(any)) != io.EOF || !validGatewayRuntimeEvidence(audit) || audit.RuntimeProtocolVersion != aisecurity.RuntimeProtocolVersion || audit.InspectionVersion != aisecurity.InspectionVersion || (audit.Stage != "completed" && !(audit.Stage == "decision" && audit.Decision.Outcome == "deny" && !audit.Execution.Attempted && audit.Execution.Outcome == "not_attempted")) || !slices.Contains([]string{"allow", "deny"}, audit.Decision.Outcome) || !gatewayRuntimeID.MatchString(audit.EventID) || !gatewayRuntimeID.MatchString(audit.AttemptID) || !gatewayText(audit.RequestID, 200) || audit.Decision.ApplicationID != in.ApplicationID || audit.Decision.PrincipalID != in.PrincipalID || audit.Decision.CatalogDigest != in.CatalogDigest || audit.Decision.Kind != in.Kind || !gatewayTaskIDs(audit.Decision.Categories, 64) || !gatewayTaskIDs(audit.Decision.AllowedDocumentIDs, 64) || audit.ObservedAt.IsZero() || audit.ObservedAt.After(time.Now().Add(5*time.Minute)) {
 		return out, ErrInvalid
 	}
-	if audit.Execution.Outcome != "succeeded" && !(audit.Execution.CacheHit && audit.Execution.Outcome == "not_attempted") {
+	successful := audit.Decision.Outcome == "allow" && (audit.Execution.Outcome == "succeeded" || (audit.Execution.CacheHit && audit.Execution.Outcome == "not_attempted"))
+	if !successful && (audit.Execution.OutputReleased || audit.Execution.CacheHit || !slices.Contains([]string{"failed", "not_attempted", "blocked_output"}, audit.Execution.Outcome)) {
 		return out, ErrInvalid
 	}
-	if !audit.Execution.CacheHit && !audit.Execution.Attempted {
+	if successful && !audit.Execution.CacheHit && !audit.Execution.Attempted {
 		return out, ErrInvalid
 	}
 	in.Categories = gatewayTaskUnion(in.Categories, audit.Decision.Categories)
-	digest := gatewayDigest(in)
+	completionIntent := in
+	completionIntent.TokenHash = ""
+	completionIntent.LeaseChainDigest = audit.Decision.LeaseChainDigest
+	completionIntent.LeaseProtocolVersion = audit.Decision.LeaseProtocolVersion
+	digest := gatewayDigest(completionIntent)
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		ws, chain, grant, e := gatewayCheckTask(ctx, tx, in.TaskCheckInput)
 		out = grant
 		if e != nil {
 			return e
 		}
+		if e = gatewayTaskLeasePin(in.TaskContext, chain, true); e != nil {
+			return e
+		}
+		if audit.Decision.LeaseProtocolVersion != gatewaygovernance.TaskLeaseProtocolVersion {
+			return ErrForbidden
+		}
+		if audit.Decision.LeaseChainDigest != grant.LeaseChainDigest {
+			if e = taskLeaseHistoricalCompletion(ctx, tx, ws, chain, in.TaskID, in.TaskStepID, audit.Decision.LeaseChainDigest); e != nil {
+				return e
+			}
+		}
 		if audit.Decision.TaskID != in.TaskID || audit.Decision.TaskPurpose != grant.Purpose || audit.Decision.TaskScopeDigest != grant.ScopeDigest {
 			return ErrForbidden
 		}
-		if e = gatewayTaskCompletionAudit(ctx, tx, ws, in, audit); e != nil {
+		receiptIn := in
+		receiptIn.LeaseChainDigest = audit.Decision.LeaseChainDigest
+		receiptIn.LeaseProtocolVersion = audit.Decision.LeaseProtocolVersion
+		if e = gatewayTaskCompletionAudit(ctx, tx, ws, receiptIn, audit); e != nil {
 			return e
 		}
 		var bound, kind, status, previous string
@@ -256,7 +291,7 @@ func (s *Store) CompleteGatewayTask(ctx context.Context, in gatewaygovernance.Ta
 		if bound != in.TaskStepDigest || kind != in.Kind {
 			return ErrConflict
 		}
-		if status == "completed" {
+		if status == "completed" || status == "closed" {
 			if previous == digest {
 				out.Replayed = true
 				return nil
@@ -317,10 +352,20 @@ func (s *Store) CompleteGatewayTask(ctx context.Context, in gatewaygovernance.Ta
 		}
 		cats, _ := json.Marshal(in.Categories)
 		sources, _ := json.Marshal(in.Sources)
-		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_steps SET status='completed',completion_hash=$4,categories=$5,sources=$6,completed_at=clock_timestamp() WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID, digest, cats, sources); e != nil {
+		if _, e = tx.Exec(ctx, `UPDATE plume.ai_gateway_task_steps SET status=$7,completion_hash=$4,categories=$5,sources=$6,completed_at=clock_timestamp(),closure_evidence=$8 WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID, digest, cats, sources, func() string {
+			if successful {
+				return "completed"
+			}
+			return "closed"
+		}(), in.Audit); e != nil {
 			return e
 		}
-		if e = identityAudit(ctx, tx, ws, 0, "gateway.task_step_completed", in.TaskID, map[string]any{"stepId": in.TaskStepID, "stepDigest": in.TaskStepDigest, "audit": audit, "sources": in.Sources, "scopeDigest": out.ScopeDigest, "deliveryConfirmed": false}); e != nil {
+		if e = identityAudit(ctx, tx, ws, 0, "gateway.task_step_completed", in.TaskID, map[string]any{"stepId": in.TaskStepID, "stepDigest": in.TaskStepDigest, "audit": audit, "sources": in.Sources, "scopeDigest": out.ScopeDigest, "completionLeaseChainDigest": out.LeaseChainDigest, "receiptLeaseChainDigest": audit.Decision.LeaseChainDigest, "completionStatus": func() string {
+			if successful {
+				return "completed"
+			}
+			return "closed"
+		}(), "deliveryConfirmed": false}); e != nil {
 			return e
 		}
 		_, _, out, e = gatewayCheckTask(ctx, tx, in.TaskCheckInput)
@@ -349,6 +394,9 @@ func gatewayTaskReserve(ctx context.Context, tx pgx.Tx, ws int64, in GatewayAuth
 	if actualWS != ws {
 		return ErrForbidden
 	}
+	if e = gatewayTaskLeasePin(in.TaskContext, chain, true); e != nil {
+		return e
+	}
 	logical := in.ParentRequestID
 	if logical == "" {
 		logical = in.RequestID
@@ -359,11 +407,11 @@ func gatewayTaskReserve(ctx context.Context, tx pgx.Tx, ws int64, in GatewayAuth
 	if in.Attempt == 0 && in.TaskStepDigest != in.RequestDigest {
 		return ErrForbidden
 	}
-	var digest, kind, status string
-	if e = tx.QueryRow(ctx, `SELECT step_digest,kind,status FROM plume.ai_gateway_task_steps WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID).Scan(&digest, &kind, &status); e != nil {
+	var digest, kind, status, pin string
+	if e = tx.QueryRow(ctx, `SELECT step_digest,kind,status,COALESCE(lease_chain_digest,'') FROM plume.ai_gateway_task_steps WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID).Scan(&digest, &kind, &status, &pin); e != nil {
 		return ErrForbidden
 	}
-	if digest != in.TaskStepDigest || kind != in.Kind || status != "admitted" {
+	if digest != in.TaskStepDigest || kind != in.Kind || status != "admitted" || pin != in.LeaseChainDigest {
 		return ErrConflict
 	}
 	for _, task := range chain {
@@ -402,16 +450,22 @@ func gatewayTaskSettle(ctx context.Context, tx pgx.Tx, ws int64, admission Gatew
 }
 
 func gatewayTaskCacheCurrent(ctx context.Context, tx pgx.Tx, ws int64, in GatewayAuthorizeInput) error {
+	return gatewayTaskCacheCurrentStatus(ctx, tx, ws, in, false)
+}
+func gatewayTaskCacheCurrentStatus(ctx context.Context, tx pgx.Tx, ws int64, in GatewayAuthorizeInput, allowCompleted bool) error {
 	if in.TaskID == "" {
 		return gatewayTaskReserve(ctx, tx, ws, in, 0)
 	}
 	fact := gatewaygovernance.TaskCheckInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: in.Kind, ModelID: in.ModelID}
-	actualWS, _, _, e := gatewayCheckTask(ctx, tx, fact)
+	actualWS, chain, _, e := gatewayCheckTask(ctx, tx, fact)
 	if e != nil {
 		return e
 	}
 	if actualWS != ws {
 		return ErrForbidden
+	}
+	if e = gatewayTaskLeasePin(in.TaskContext, chain, true); e != nil {
+		return e
 	}
 	logical := in.ParentRequestID
 	if logical == "" {
@@ -423,11 +477,11 @@ func gatewayTaskCacheCurrent(ctx context.Context, tx pgx.Tx, ws int64, in Gatewa
 	if in.Attempt == 0 && in.TaskStepDigest != in.RequestDigest {
 		return ErrForbidden
 	}
-	var digest, kind string
-	if e = tx.QueryRow(ctx, `SELECT step_digest,kind FROM plume.ai_gateway_task_steps WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID).Scan(&digest, &kind); e != nil {
+	var digest, kind, status, pin string
+	if e = tx.QueryRow(ctx, `SELECT step_digest,kind,status,COALESCE(lease_chain_digest,'') FROM plume.ai_gateway_task_steps WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID).Scan(&digest, &kind, &status, &pin); e != nil {
 		return ErrForbidden
 	}
-	if digest != in.TaskStepDigest || kind != "model" {
+	if digest != in.TaskStepDigest || kind != "model" || (status != "admitted" && !(allowCompleted && status == "completed")) || pin != in.LeaseChainDigest {
 		return ErrConflict
 	}
 	return nil

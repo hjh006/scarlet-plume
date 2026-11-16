@@ -1,6 +1,7 @@
 package aisecurity
 
 import (
+	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ func dataUseFixture() (Config, Request) {
 	c.Models[0].Handling = &DataHandling{RetentionHours: 0, TrainingUse: "prohibited", EvidenceRef: "dpa-reviewed-v1", AuthorizationExpiresAt: time.Now().Add(time.Hour)}
 	r := testRequest("model")
 	r.ModelID, r.Input, r.TaskID = "enterprise", `{"prompt":"synthetic safe summary"}`, "task-data-use-01"
-	r.taskContext = &TaskContext{TaskID: r.TaskID, Purpose: "customer-support", ScopeDigest: strings.Repeat("a", 64), Categories: []string{"confidential"}, SourceDocumentIDs: []string{"doc"}, ExpiresAt: time.Now().Add(time.Hour)}
+	r.taskContext = &TaskContext{TaskID: r.TaskID, Purpose: "customer-support", ScopeDigest: strings.Repeat("a", 64), LeaseChainDigest: strings.Repeat("b", 64), LeaseProtocolVersion: gatewaygovernance.TaskLeaseProtocolVersion, Categories: []string{"confidential"}, SourceDocumentIDs: []string{"doc"}, ExpiresAt: time.Now().Add(time.Hour)}
 	return c, r
 }
 

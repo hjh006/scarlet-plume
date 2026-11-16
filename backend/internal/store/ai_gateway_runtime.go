@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
+	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 	"slices"
 	"time"
 
@@ -152,6 +153,22 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		if e = tx.QueryRow(ctx, `SELECT reserved_micros,spent_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, appID).Scan(&reserved, &spent); e != nil {
 			return e
 		}
+
+		// Even an idempotent reservation replay must present the current execution
+		// epoch. Older nodes and loaded old approved catalog snapshots cannot admit.
+		if in.TaskID != "" {
+			fact := gatewaygovernance.TaskCheckInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: in.Kind, ModelID: in.ModelID, ToolID: in.ToolID, Action: in.Action, Target: in.Target}
+			actual, chain, _, e := gatewayCheckTask(ctx, tx, fact)
+			if e != nil {
+				return e
+			}
+			if actual != ws {
+				return ErrForbidden
+			}
+			if e = gatewayTaskLeasePin(in.TaskContext, chain, true); e != nil {
+				return e
+			}
+		}
 		var priorHash string
 		var prior []byte
 		e = tx.QueryRow(ctx, `SELECT request_hash,authorized FROM plume.ai_gateway_reservations WHERE workspace_id=$1 AND request_id=$2`, ws, in.RequestID).Scan(&priorHash, &prior)
@@ -275,7 +292,7 @@ func (s *Store) SettleGateway(ctx context.Context, in GatewaySettlement) error {
 		if admission.RequestDigest != in.RequestDigest || admission.RequestID != audit.RequestID || admission.CatalogDigest != audit.Decision.CatalogDigest || admission.ApplicationID != audit.Decision.ApplicationID || admission.PrincipalID != audit.Decision.PrincipalID || admission.Kind != audit.Decision.Kind {
 			return ErrForbidden
 		}
-		if admission.TaskID != audit.Decision.TaskID {
+		if admission.TaskID != audit.Decision.TaskID || admission.LeaseChainDigest != audit.Decision.LeaseChainDigest || admission.LeaseProtocolVersion != audit.Decision.LeaseProtocolVersion {
 			return ErrForbidden
 		}
 		if (admission.TaskID != "" || len(admission.SourceDigests) > 0) && (audit.RuntimeProtocolVersion != aisecurity.RuntimeProtocolVersion || audit.InspectionVersion != aisecurity.InspectionVersion) {

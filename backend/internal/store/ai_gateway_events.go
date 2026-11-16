@@ -91,6 +91,29 @@ func (s *Store) RecordGatewayDenied(ctx context.Context, in GatewayDeniedEvent) 
 		}) {
 			reasons = append(reasons, "identity_not_current")
 		}
+
+		if a.Execution.CacheHit {
+			// A metadata replay must not resurrect a retired execution epoch. Keep the
+			// global account -> task order before touching the idempotency event row.
+			if in.TaskID != a.Decision.TaskID || in.LeaseChainDigest != a.Decision.LeaseChainDigest || in.LeaseProtocolVersion != a.Decision.LeaseProtocolVersion {
+				return ErrForbidden
+			}
+			var credential string
+			if e = tx.QueryRow(ctx, `SELECT application_id FROM plume.ai_gateway_credentials WHERE workspace_id=$1 AND token_hash=$2 AND enabled AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp()) FOR SHARE`, ws, in.TokenHash).Scan(&credential); e != nil {
+				return ErrForbidden
+			}
+			if credential != a.Decision.ApplicationID {
+				return ErrForbidden
+			}
+			var account int64
+			if e = tx.QueryRow(ctx, `SELECT reserved_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, credential).Scan(&account); e != nil {
+				return e
+			}
+			fact := GatewayAuthorizeInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: a.Decision.ApplicationID, PrincipalID: a.Decision.PrincipalID, CatalogDigest: a.Decision.CatalogDigest, Kind: "model", ModelID: in.ModelID, RequestID: a.RequestID, RequestDigest: a.Decision.RequestDigest, ParentRequestID: in.ParentRequestID, Attempt: in.Attempt}
+			if e = gatewayTaskCacheCurrentStatus(ctx, tx, ws, fact, true); e != nil {
+				return e
+			}
+		}
 		out = GatewayDeniedReceipt{Accepted: true, Verified: len(reasons) == 0, VerificationReasons: reasons}
 		raw, _ := json.Marshal(reasons)
 		var inserted string
@@ -113,7 +136,7 @@ func (s *Store) RecordGatewayDenied(ctx context.Context, in GatewayDeniedEvent) 
 			return e
 		}
 		if a.Execution.CacheHit {
-			if in.TaskID != a.Decision.TaskID {
+			if in.TaskID != a.Decision.TaskID || in.LeaseChainDigest != a.Decision.LeaseChainDigest || in.LeaseProtocolVersion != a.Decision.LeaseProtocolVersion {
 				return ErrForbidden
 			}
 			if in.TaskID != "" {
@@ -161,10 +184,10 @@ func (s *Store) RecordGatewayDenied(ctx context.Context, in GatewayDeniedEvent) 
 				return ErrForbidden
 			}
 			fact := GatewayAuthorizeInput{WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: a.Decision.ApplicationID, PrincipalID: a.Decision.PrincipalID, Kind: "model", RequestID: a.RequestID, RequestDigest: a.Decision.RequestDigest, CatalogDigest: a.Decision.CatalogDigest, ModelID: in.ModelID, ParentRequestID: in.ParentRequestID, RootModelID: in.RootModelID, PreviousReservationID: in.PreviousReservationID, Attempt: in.Attempt}
+			fact.TaskContext = in.TaskContext
 			if e = gatewayAuthorizeAttempt(ctx, tx, ws, fact, cfg, provider); e != nil {
 				return e
 			}
-			fact.TaskContext = in.TaskContext
 			if e = gatewayCacheTerminalRate(ctx, tx, ws, cacheApp, a.CacheEvidence); e != nil {
 				return e
 			}

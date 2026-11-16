@@ -24,8 +24,13 @@ func taskTestInput(t *testing.T, f assessmentSourceFixture, in GatewayAuthorizeI
 	}
 	return GatewayTaskInput{ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CredentialID: identity.CredentialID, Purpose: "support", CatalogDigest: in.CatalogDigest, ModelIDs: []string{"model"}, ToolIDs: []string{"tool"}, ToolScopes: []gatewaygovernance.TaskToolScope{{ToolID: "tool", Actions: []string{"close"}, Targets: []string{"ticket-17"}}}, DocumentIDs: []string{"doc"}, AllowedCategories: []string{"confidential", "email"}, MaxSteps: 100, BudgetMicros: 1000, MaxDelegationDepth: 3, ExpiresAt: time.Now().UTC().Add(time.Hour)}
 }
-func taskTestFact(task GatewayTask, in GatewayAuthorizeInput, label string) gatewaygovernance.TaskCheckInput {
-	return gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: task.ID, TaskStepID: label, TaskStepDigest: gatewayDigest(label)}, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: "model", ModelID: in.ModelID}
+func taskTestFact(t *testing.T, f assessmentSourceFixture, task GatewayTask, in GatewayAuthorizeInput, label string) gatewaygovernance.TaskCheckInput {
+	t.Helper()
+	view, e := f.repo.GatewayTaskLeaseView(t.Context(), f.ws.ID, f.user.ID, task.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return gatewaygovernance.TaskCheckInput{TaskContext: gatewaygovernance.TaskContext{TaskID: task.ID, TaskStepID: label, TaskStepDigest: gatewayDigest(label), LeaseChainDigest: view.LeaseChainDigest, LeaseProtocolVersion: view.LeaseProtocolVersion}, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: "model", ModelID: in.ModelID}
 }
 func taskTestAuthorize(t *testing.T, f assessmentSourceFixture, in GatewayAuthorizeInput, fact gatewaygovernance.TaskCheckInput) GatewayAuthorization {
 	t.Helper()
@@ -52,6 +57,8 @@ func taskTestSettlement(t *testing.T, f assessmentSourceFixture, in GatewayAutho
 		if e != nil {
 			t.Fatal(e)
 		}
+		out.Audit.Decision.LeaseChainDigest = g.LeaseChainDigest
+		out.Audit.Decision.LeaseProtocolVersion = g.LeaseProtocolVersion
 		out.Audit.Decision.TaskID = g.TaskID
 		out.Audit.Decision.TaskPurpose = task.Task.Purpose
 		out.Audit.Decision.TaskScopeDigest = task.Task.ScopeDigest
@@ -74,7 +81,7 @@ func TestGatewayTaskRequiredBindingAndExactToolScopes(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "task-bound-request-0001")
+	fact := taskTestFact(t, f, task, in, "task-bound-request-0001")
 	if g, e := f.repo.CheckGatewayTask(t.Context(), fact); e != nil || !g.Allowed || g.Purpose != "support" || len(g.ToolScopes) != 1 {
 		t.Fatal(g, e)
 	}
@@ -128,7 +135,7 @@ func TestGatewayTaskConcurrentStepAndAncestorProviderBudget(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			fact := taskTestFact(task, in, fmt.Sprintf("step-concurrent-%04d", i))
+			fact := taskTestFact(t, f, task, in, fmt.Sprintf("step-concurrent-%04d", i))
 			if _, e := nodes[i%2].AdmitGatewayTask(t.Context(), fact); e == nil {
 				results <- fact
 			} else if !errors.Is(e, ErrGatewayTaskSteps) {
@@ -213,7 +220,7 @@ func TestGatewayTaskDelegationAttenuatesAndCancellationCascades(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(child, in, "child-request-0001")
+	fact := taskTestFact(t, f, child, in, "child-request-0001")
 	grant := taskTestAuthorize(t, f, in, fact)
 	for _, id := range []string{parent.ID, child.ID} {
 		d, e := f.repo.GatewayTaskDetail(t.Context(), f.ws.ID, f.user.ID, id, 100)
@@ -255,7 +262,7 @@ func TestGatewayTaskCompletionRequiresActualReceiptAndPersistsSourceTaint(t *tes
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "rag-source-step-0001")
+	fact := taskTestFact(t, f, task, in, "rag-source-step-0001")
 	fact.Kind = "rag"
 	fact.ModelID = ""
 	fact.DocumentIDs = []string{"doc"}
@@ -294,7 +301,7 @@ func TestGatewayTaskCompletionRequiresActualReceiptAndPersistsSourceTaint(t *tes
 	if g, e := f.repo.CompleteGatewayTask(t.Context(), complete); e != nil || !g.Replayed {
 		t.Fatal("completion replay", g, e)
 	}
-	model := taskTestFact(task, in, "next-model-step-0001")
+	model := taskTestFact(t, f, task, in, "next-model-step-0001")
 	g, e := f.repo.CheckGatewayTask(t.Context(), model)
 	if e != nil || len(g.SourceDocumentIDs) != 1 || g.SourceDocumentIDs[0] != "doc" || g.ScopeDigest != task.ScopeDigest {
 		t.Fatal("omitted docIDs erased source taint", g, e)
@@ -309,7 +316,7 @@ func TestGatewayTaskCompletionRequiresActualReceiptAndPersistsSourceTaint(t *tes
 	if e != nil || len(narrow.DocumentIDs) != 0 || len(narrow.Sources) != 1 || len(narrow.ObservedCategories) != 1 {
 		t.Fatal("derived source constraints expanded direct read authority", narrow, e)
 	}
-	narrowFact := taskTestFact(narrow, in, "narrow-derived-model")
+	narrowFact := taskTestFact(t, f, narrow, in, "narrow-derived-model")
 	if g, e := f.repo.CheckGatewayTask(t.Context(), narrowFact); e != nil || len(g.Sources) != 1 || len(g.SourceDocumentIDs) != 1 || len(g.Categories) != 1 {
 		t.Fatal("narrow child washed historical source constraints", g, e)
 	}
@@ -336,7 +343,7 @@ func TestGatewayTaskCredentialRevocationAndLogicalStepBinding(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "bound-step-000001")
+	fact := taskTestFact(t, f, task, in, "bound-step-000001")
 	if _, e = f.repo.AdmitGatewayTask(t.Context(), fact); e != nil {
 		t.Fatal(e)
 	}
@@ -362,7 +369,7 @@ func TestGatewayTaskDirectModelSourcePersistsIntoToolAndCannotBeForged(t *testin
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "direct-model-source-0001")
+	fact := taskTestFact(t, f, task, in, "direct-model-source-0001")
 	fact.DocumentIDs = []string{"doc"}
 	grant := taskTestAuthorize(t, f, in, fact)
 	req := in
@@ -388,7 +395,7 @@ func TestGatewayTaskDirectModelSourcePersistsIntoToolAndCannotBeForged(t *testin
 	if _, e = f.repo.CompleteGatewayTask(t.Context(), complete); e != nil {
 		t.Fatal(e)
 	}
-	tool := taskTestFact(task, in, "tool-after-model-source")
+	tool := taskTestFact(t, f, task, in, "tool-after-model-source")
 	tool.Kind = "tool"
 	tool.ModelID = ""
 	tool.ToolID = "tool"
@@ -441,7 +448,7 @@ func TestGatewayTaskConcurrentConfigSettlementAndMutation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "lock-order-request-0001")
+	fact := taskTestFact(t, f, task, in, "lock-order-request-0001")
 	grant := taskTestAuthorize(t, f, in, fact)
 	req := in
 	req.TaskContext = grant.TaskContext
@@ -490,8 +497,8 @@ func TestGatewayTaskCacheTerminalRequiresTaskStepAndNoProviderCharge(t *testing.
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "cache-task-step-00001")
-	audit := aisecurity.AuditRecord{RuntimeProtocolVersion: aisecurity.RuntimeProtocolVersion, InspectionVersion: aisecurity.InspectionVersion, EventID: "cache-task-event-0001", AttemptID: "cache-task-attempt-01", RequestID: fact.TaskStepID, Stage: "completed", ObservedAt: time.Now().UTC(), Decision: aisecurity.Decision{Kind: "model", Outcome: "allow", Code: "allowed", CatalogVersion: "test-v1", ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, RequestDigest: fact.TaskStepDigest, TaskID: task.ID, TaskPurpose: task.Purpose, TaskScopeDigest: task.ScopeDigest}, Execution: aisecurity.Execution{Outcome: "not_attempted", CacheHit: true}, CacheEvidence: &aisecurity.CacheEvidence{ModelID: "model", InputBytes: 4, OutputBytes: 20, InputHash: strings.Repeat("b", 64), DocumentHash: strings.Repeat("c", 64), PolicyHash: in.CatalogDigest, OutputHash: strings.Repeat("d", 64), InspectionVersion: aisecurity.InspectionVersion, CacheHit: true}}
+	fact := taskTestFact(t, f, task, in, "cache-task-step-00001")
+	audit := aisecurity.AuditRecord{RuntimeProtocolVersion: aisecurity.RuntimeProtocolVersion, InspectionVersion: aisecurity.InspectionVersion, EventID: "cache-task-event-0001", AttemptID: "cache-task-attempt-01", RequestID: fact.TaskStepID, Stage: "completed", ObservedAt: time.Now().UTC(), Decision: aisecurity.Decision{Kind: "model", Outcome: "allow", Code: "allowed", CatalogVersion: "test-v1", ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, RequestDigest: fact.TaskStepDigest, TaskID: task.ID, TaskPurpose: task.Purpose, TaskScopeDigest: task.ScopeDigest, LeaseChainDigest: fact.LeaseChainDigest, LeaseProtocolVersion: fact.LeaseProtocolVersion}, Execution: aisecurity.Execution{Outcome: "not_attempted", CacheHit: true}, CacheEvidence: &aisecurity.CacheEvidence{ModelID: "model", InputBytes: 4, OutputBytes: 20, InputHash: strings.Repeat("b", 64), DocumentHash: strings.Repeat("c", 64), PolicyHash: in.CatalogDigest, OutputHash: strings.Repeat("d", 64), InspectionVersion: aisecurity.InspectionVersion, CacheHit: true}}
 	overview, e := f.repo.GatewayOverview(t.Context(), f.ws.ID, f.user.ID)
 	if e != nil {
 		t.Fatal(e)
@@ -531,7 +538,7 @@ func TestGatewayTaskCacheTerminalRequiresTaskStepAndNoProviderCharge(t *testing.
 	if _, e = f.repo.RecordGatewayDenied(t.Context(), other); !errors.Is(e, ErrConflict) {
 		t.Fatal("cache node replay", e)
 	}
-	second := taskTestFact(task, in, "cache-task-step-00002")
+	second := taskTestFact(t, f, task, in, "cache-task-step-00002")
 	if _, e = f.repo.AdmitGatewayTask(t.Context(), second); !errors.Is(e, ErrGatewayTaskSteps) {
 		t.Fatal("cache evaded task lifetime step bound", e)
 	}
@@ -565,7 +572,7 @@ func TestGatewayTaskFallbackOneLogicalStepAndIndependentUnknownReservations(t *t
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "task-fallback-root-001")
+	fact := taskTestFact(t, f, task, in, "task-fallback-root-001")
 	if _, e = f.repo.AdmitGatewayTask(t.Context(), fact); e != nil {
 		t.Fatal(e)
 	}
@@ -623,7 +630,7 @@ func TestGatewayTaskSourceEnhancedWireQuoteAndReceiptPins(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	fact := taskTestFact(task, in, "source-wire-quote-0001")
+	fact := taskTestFact(t, f, task, in, "source-wire-quote-0001")
 	if _, e = f.repo.AdmitGatewayTask(t.Context(), fact); e != nil {
 		t.Fatal(e)
 	}
