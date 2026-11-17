@@ -69,10 +69,10 @@ function list(value: unknown): string[] {
           </td>
           <td>
             {{ item.current?'当前目录绑定':'历史目录或历史来源' }}
-            <span class="table-secondary">{{ formatDate(aiString(item,'lastObservedAt')) }}</span>
+            <time class="table-secondary table-date" :datetime="aiString(item,'lastObservedAt')" :title="aiString(item,'lastObservedAt')">{{ formatDate(aiString(item,'lastObservedAt')) }}</time>
             <details>
               <summary>核对关联证据</summary>
-              <p class="table-secondary mono">回执 {{ aiText(item.eventIds) }}</p>
+              <p v-if="Array.isArray(item.eventIds)" class="table-secondary">{{item.eventIds.length}} 条关联来源回执；不是独立调用总数。</p><p v-else class="table-secondary">关联回执编号未提供。</p><p class="table-secondary mono">回执 {{ aiText(item.eventIds) }}</p>
               <p class="table-secondary mono">目录 {{ aiString(item,'catalogDigest') }}</p>
               <p class="table-secondary mono">请求 {{ aiString(item,'requestDigest') }}</p>
             </details>
@@ -86,7 +86,9 @@ function list(value: unknown): string[] {
 </template>
 
 <style scoped>
-.ai-runtime-chains { min-width: 860px; }
+.ai-runtime-chains { min-width: 960px; table-layout:fixed; }
+.ai-runtime-chains th:first-child{width:25%}.ai-runtime-chains th:nth-child(2){width:29%}.ai-runtime-chains th:nth-child(3){width:25%}.ai-runtime-chains td{vertical-align:top}
+.ai-runtime-chains details{margin-top:10px}.ai-runtime-chains details p{white-space:pre-wrap}
 .ai-runtime-chains th { min-width: 180px; }
 .ai-runtime-chains td { min-width: 190px; overflow-wrap: anywhere; }
 .ai-runtime-issues { margin: .4rem 0 0; padding-left: 1.2rem; }

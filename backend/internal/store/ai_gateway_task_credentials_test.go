@@ -236,7 +236,9 @@ func TestGatewayTaskCredentialStatusUnknownPublicationLegacyAndPrincipalExpiry(t
 	}
 	expiry := time.Now().Add(-time.Hour)
 	in.CatalogDigest = taskCredentialPublishedFixture(t, f, &expiry)
-	input = taskTestInput(t, f, in)
+	// Retain the already known credential reference for this management-plane
+	// diagnostic fixture: live authentication now correctly denies this expiry.
+	input.CatalogDigest = in.CatalogDigest
 	task, e = f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, input)
 	if e != nil {
 		t.Fatal(e)

@@ -31,16 +31,22 @@ export function workloadPublicKeys(input:string):{keys:Record<string,unknown>[]}
   return {keys:result}
 }
 export function workloadPayload(draft:GatewayWorkloadDraft) {
-  if(!draft.name.trim() || !draft.applicationId || !draft.issuer.trim() || !draft.audience.trim() || !draft.subject.trim())throw new Error('请完整填写绑定名称、已保存应用和精确的 issuer、audience、subject。')
+  if(!draft.name.trim() || !draft.applicationId || !draft.issuer || !draft.audience || !draft.subject)throw new Error('请完整填写绑定名称、已保存应用和精确的 issuer、audience、subject。')
+  if([draft.issuer,draft.audience,draft.subject].some(value=>value!==value.trim()))throw new Error('issuer、audience 和 subject 必须精确匹配，不接受首尾空白；不会自动改写。')
   const bytes=(value:string)=>new TextEncoder().encode(value).length
-  if(bytes(draft.name.trim())>128 || bytes(draft.issuer.trim())>512 || bytes(draft.audience.trim())>512 || bytes(draft.subject.trim())>255 || [draft.name,draft.issuer,draft.audience,draft.subject].some(value=>/\p{Cc}/u.test(value)))throw new Error('名称最多 128 字节，issuer/audience 最多 512 字节，subject 最多 255 字节，不能含控制字符。')
+  if(bytes(draft.name.trim())>128 || bytes(draft.issuer)>512 || bytes(draft.audience)>512 || bytes(draft.subject)>255 || [draft.name,draft.issuer,draft.audience,draft.subject].some(value=>/\p{Cc}/u.test(value)))throw new Error('名称最多 128 字节，issuer/audience 最多 512 字节，subject 最多 255 字节，不能含控制字符。')
   let issuer:URL
-  try{issuer=new URL(draft.issuer.trim())}catch{throw new Error('issuer 必须为可信签发者的 HTTPS 地址。')}
+  try{issuer=new URL(draft.issuer)}catch{throw new Error('issuer 必须为可信签发者的 HTTPS 地址。')}
   if(issuer.protocol!=='https:' || issuer.username || issuer.password || issuer.search || issuer.hash)throw new Error('issuer 应为不含凭证、查询或片段的 HTTPS 地址。')
   if(!Number.isSafeInteger(draft.maxTtlSeconds) || draft.maxTtlSeconds<1 || draft.maxTtlSeconds>300)throw new Error('短期凭据期限须为 1—300 秒整数。')
   if(draft.id && (!Number.isSafeInteger(draft.revision) || draft.revision<1))throw new Error('缺少已保存绑定的修订，请重新读取。')
-  return {name:draft.name.trim(),applicationId:draft.applicationId,issuer:draft.issuer.trim(),audience:draft.audience.trim(),subject:draft.subject.trim(),jwks:workloadPublicKeys(draft.jwksJSON),maxTtlSeconds:draft.maxTtlSeconds,...(draft.id?{expectedRevision:draft.revision,enabled:draft.enabled}: {})}
+  return {name:draft.name.trim(),applicationId:draft.applicationId,issuer:draft.issuer,audience:draft.audience,subject:draft.subject,jwks:workloadPublicKeys(draft.jwksJSON),maxTtlSeconds:draft.maxTtlSeconds,...(draft.id?{expectedRevision:draft.revision,enabled:draft.enabled}: {})}
 }
 export function workloadExchangeExample(slug:string,id:number,origin:string):string {
   return `POST ${origin}/api/v1/workspaces/${encodeURIComponent(slug)}/ai-gateway/workload-token\nAuthorization: Bearer <工作负载以受信任私钥签发的短期 JWT>\nContent-Type: application/json\n\n${JSON.stringify({bindingId:id},null,2)}`
+}
+
+export function workloadResumeDraft(draft:GatewayWorkloadDraft,current:GatewayWorkloadBinding):GatewayWorkloadDraft {
+  if(draft.id!==current.id || !Number.isSafeInteger(current.revision) || current.revision<1)throw new Error('只能采用原绑定的有效修订，不能改用其他记录。')
+  return {...draft,revision:current.revision,enabled:current.enabled}
 }

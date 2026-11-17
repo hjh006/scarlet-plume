@@ -48,10 +48,19 @@ func (s *Store) ResolveGateway(ctx context.Context, in GatewayResolveInput) (out
 		}
 		for _, a := range cfg.Applications {
 			if a.ID == out.ApplicationID && a.Enabled {
+				// Discovery and every output-release authentication use the database
+				// clock, even when a node's local clock trails a catalog lease.
+				policy, e := gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: cfg.CatalogDigest, ApplicationID: a.ID, PrincipalID: a.PrincipalID}, false)
+				if e != nil {
+					return e
+				}
 				out.PrincipalID = a.PrincipalID
 				out.RequireTask = a.RequireTask
 				out.ConfigRevision = cfg.Revision
 				out.ToolIDs = append([]string{}, a.ToolIDs...)
+				if policy.registered {
+					out.ToolIDs = slices.DeleteFunc(out.ToolIDs, func(id string) bool { return !slices.Contains(policy.toolIDs, id) })
+				}
 				out.CatalogDigest = cfg.CatalogDigest
 				out.Fallbacks = map[string][]string{}
 				out.OpenModelIDs = []string{}
@@ -115,8 +124,8 @@ func (s *Store) AuthorizeGateway(ctx context.Context, in GatewayAuthorizeInput) 
 		if e != nil {
 			return e
 		}
-		toolFact := gatewaygovernance.TaskCheckInput{TaskContext: in.TaskContext, ApprovalID: in.ApprovalID, RequestID: in.RequestID, RequestDigest: in.RequestDigest, Kind: in.Kind, CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, ToolID: in.ToolID, Action: in.Action, Target: in.Target}
-		toolPolicy, e := gatewayCurrentToolPolicy(ctx, tx, ws, toolFact)
+		toolFact := gatewaygovernance.TaskCheckInput{TaskContext: in.TaskContext, ApprovalID: in.ApprovalID, RequestID: in.RequestID, RequestDigest: in.RequestDigest, Kind: in.Kind, CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, ModelID: in.ModelID, ToolID: in.ToolID, Action: in.Action, Target: in.Target}
+		toolPolicy, e := gatewayCurrentCatalogPolicy(ctx, tx, ws, toolFact, true)
 		if e != nil {
 			return e
 		}

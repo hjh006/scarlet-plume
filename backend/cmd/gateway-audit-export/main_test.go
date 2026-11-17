@@ -178,6 +178,11 @@ func TestExportRejectsTruncationSourceChangeAndUnsafeFiles(t *testing.T) {
 	if e = os.WriteFile(unsafe, nil, 0644); e != nil {
 		t.Fatal(e)
 	}
+	// Set the intentionally unsafe mode explicitly; a private process umask can
+	// otherwise make the fixture 0600 before the exporter ever sees it.
+	if e = os.Chmod(unsafe, 0644); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = openExporter("https://controller.invalid", "workspace", unsafe, unsafe+".checkpoint", token, http.DefaultClient); e == nil {
 		t.Fatal("public file accepted")
 	}

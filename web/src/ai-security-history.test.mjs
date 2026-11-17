@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { aiHistoryQuery, aiHistoryRecordId } from './ai-security-history.ts'
+import { aiHistoryQuery, aiHistoryRecordId, aiHistoryScopeLabel } from './ai-security-history.ts'
 
 test('four history contracts preserve opaque scoped cursors and only supported filter fields',()=>{
   const filters={kind:'tool',outcome:'deny',status:'approved'},cursor='opaque-workspace/filter+cursor='
@@ -27,4 +27,10 @@ test('direct historical IDs are exact safe positive numbers before scope-bound G
   assert.equal(aiHistoryRecordId('42'),'42')
   assert.equal(aiHistoryRecordId(42),'42')
   for(const value of ['',0,-1,1.5,'01','2/../../configuration','9007199254740993'])assert.throws(()=>aiHistoryRecordId(value))
+})
+
+test('history scope labels describe the applied server filter without relabeling stored status as live authority',()=>{
+ assert.equal(aiHistoryScopeLabel('decisions',{kind:'tool',outcome:'deny',status:''}),'工具动作 / 拒绝')
+ assert.equal(aiHistoryScopeLabel('approvals',{kind:'',outcome:'',status:'approved'}),'已批准')
+ assert.equal(aiHistoryScopeLabel('regression-packs',{kind:'tool',outcome:'deny',status:'failed'}),'全部测试包版本')
 })

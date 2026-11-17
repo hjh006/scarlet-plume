@@ -252,6 +252,11 @@ docker compose --env-file var/customer-demo/demo.env \
   -f compose.customer-gateway.yaml --profile depth up -d
 python3 docker/customer-demo/e2e.py \
   --private-dir var/customer-demo/depth \
+  --preflight-only \
+  --output var/customer-demo/depth/evidence/preflight.json
+python3 docker/customer-demo/e2e.py \
+  --private-dir var/customer-demo/depth \
+  --allow-fixture-mutations \
   --output var/customer-demo/depth/evidence/acceptance.json
 ```
 
@@ -261,11 +266,24 @@ OCR/ASR 与 MCP HTTP 调用；逐项核对独立 provider/tool 计数、HTTP 状
 媒体输入/输出、相同目录跨租户缓存、上下文变化、nonce、凭据与祖先撤销均须按实际结果记录，
 不能用节点健康、客户端目录或回执上传替代这些请求。
 
+先用 `--preflight-only` 核对已发布版本、本地功能目录、应用权限、有效凭据与独立复核角色；
+此模式只登录并读取状态，不发模型或工具请求，也不保存配置、审批或账务。`metadata.json`
+的 `publishedRevision` 是初始化记录，实际 CAS 使用实时核验后的版本，不用旧记录覆盖当前状态。
+输出路径必须尚不存在，避免重跑覆盖首败证据。同一私有目录只允许一份脚本持有运行锁。
+
+完整集合和 `--only mcp` 还要求显式传入 `--allow-fixture-mutations`，并由操作员保证专用
+工作区的独占窗口；本地文件锁不能阻止控制台的并发修改。脚本在保存前拒绝其他运行的有效审批
+或待审租约提案，检测到未发布草稿、版本或内容漂移立即停止，不刷新 CAS 重试。
+
 脚本会创建受限合成凭据、父子任务和独立审批，并执行专用凭据撤销与祖先任务取消用例。高影响批准
 失效用例保存相同配置内容后保留旧本地快照，确认旧批准仍无法执行；随后通过新回归与独立
 发布恢复可用目录。它保留旧审计、nonce journal、未知费用占额和现有计数，不通过清库使结果
 通过。准备的 `metadata.json` 须包含真实工作区、目录 digest 和由平台签发的应用凭据，
 `accounts.json` 须包含对应独立账号；仓库不附可工作的凭据或验收报告。
+每次同内容保存返回的版本会立即写入私有证据；恢复发布仅接受本轮这个确切版本和原功能目录，
+回归评估及下载的运行时配置也必须匹配。若中断后仍留有草稿，应保留证据并由操作员核对其归属，
+使用平台原生回归和独立发布流程处理；脚本不会自动发布当前任意草稿，也不能重跑初始化脚本
+或清除未决费用来恢复验收。
 
 明确的可重试 HTTP 可用性失败可以沿已批准路由切换，每次仍单独准入、检测和审计，失败尝试
 的费用未知占额继续保留。执行超时、未完成流或结果未知不自动重放；共享熔断开启后的新请求

@@ -58,6 +58,12 @@ func gatewayMergeTaskSources(a, b []gatewaygovernance.TaskSource) ([]gatewaygove
 }
 
 func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskCheckInput) (ws int64, chain []GatewayTask, grant gatewaygovernance.TaskGrant, err error) {
+	return gatewayCheckTaskScope(ctx, tx, in, true)
+}
+
+// Receipt completion retains its original execution facts after a catalog lease
+// expires. It still checks the existing credential/task scope and exact receipt.
+func gatewayCheckTaskScope(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskCheckInput, currentAuthority bool) (ws int64, chain []GatewayTask, grant gatewaygovernance.TaskGrant, err error) {
 	grant.Categories = []string{}
 	grant.Sources = []gatewaygovernance.TaskSource{}
 	grant.SourceDocumentIDs = []string{}
@@ -77,9 +83,9 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	if err != nil {
 		return
 	}
-	var toolPolicy gatewayToolPolicy
-	if in.Kind == "tool" && in.ApprovalID != "" {
-		toolPolicy, err = gatewayCurrentToolPolicy(ctx, tx, ws, in)
+	var toolPolicy gatewayCatalogPolicy
+	if currentAuthority {
+		toolPolicy, err = gatewayCurrentCatalogPolicy(ctx, tx, ws, in, true)
 		if err != nil {
 			return
 		}
@@ -99,7 +105,9 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 		if app.RequireTask {
 			err = ErrForbidden
 		} else {
-			err = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, in, "", "")
+			if in.ApprovalID != "" || in.Kind != "tool" {
+				err = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, in, "", "")
+			}
 			grant.Allowed = err == nil
 		}
 		return
@@ -116,6 +124,10 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return
+	}
+	if !toolPolicy.current(now) {
+		err = ErrForbidden
 		return
 	}
 	for _, task := range chain {
@@ -153,6 +165,15 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	}
 	for _, src := range grant.Sources {
 		grant.SourceDocumentIDs = append(grant.SourceDocumentIDs, src.DocumentID)
+		if toolPolicy.registered {
+			if err = toolPolicy.includeDocumentLease(src.DocumentID); err != nil {
+				return
+			}
+		}
+	}
+	if !toolPolicy.current(now) {
+		err = ErrForbidden
+		return
 	}
 	grant.Allowed = true
 	grant.TaskID = leaf.ID
@@ -161,7 +182,10 @@ func gatewayCheckTask(ctx context.Context, tx pgx.Tx, in gatewaygovernance.TaskC
 	grant.Purpose = leaf.Purpose
 	grant.LeaseChainDigest = gatewayTaskLeaseDigest(chain)
 	grant.LeaseProtocolVersion = gatewaygovernance.TaskLeaseProtocolVersion
-	if err = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, in, grant.LeaseChainDigest, grant.LeaseProtocolVersion); err != nil {
+	if in.ApprovalID != "" || in.Kind != "tool" {
+		err = gatewayCurrentToolApproval(ctx, tx, ws, toolPolicy, in, grant.LeaseChainDigest, grant.LeaseProtocolVersion)
+	}
+	if err != nil {
 		grant.Allowed = false
 		return
 	}
@@ -269,7 +293,7 @@ func (s *Store) CompleteGatewayTask(ctx context.Context, in gatewaygovernance.Ta
 	completionIntent.LeaseProtocolVersion = audit.Decision.LeaseProtocolVersion
 	digest := gatewayDigest(completionIntent)
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		ws, chain, grant, e := gatewayCheckTask(ctx, tx, in.TaskCheckInput)
+		ws, chain, grant, e := gatewayCheckTaskScope(ctx, tx, in.TaskCheckInput, false)
 		out = grant
 		if e != nil {
 			return e
@@ -383,7 +407,7 @@ func (s *Store) CompleteGatewayTask(ctx context.Context, in gatewaygovernance.Ta
 		}(), "deliveryConfirmed": false}); e != nil {
 			return e
 		}
-		_, _, out, e = gatewayCheckTask(ctx, tx, in.TaskCheckInput)
+		_, _, out, e = gatewayCheckTaskScope(ctx, tx, in.TaskCheckInput, false)
 		return e
 	})
 	return

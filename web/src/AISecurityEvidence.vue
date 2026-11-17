@@ -17,7 +17,8 @@ function outcome(value:unknown) {
 </script>
 
 <template>
-  <div>
+  <div class="ai-frozen-evidence">
+    <p class="ai-evidence-context">当前选中证据记录 {{aiString(record,'id')?'#'+aiString(record,'id'):'（本次返回）'}}；独立于上方当前分页。核对时以此记录实际保存的配置和绑定为准。</p>
     <dl v-if="hasDecision" class="ai-security-facts">
       <div><dt>实际决策</dt><dd>{{ aiDecisionLabel(record) }}</dd></div>
       <div><dt>决策代码</dt><dd>{{ aiString(decision,'code') || '未提供' }}</dd></div>
@@ -40,6 +41,10 @@ function outcome(value:unknown) {
       <table class="data-table"><thead><tr><th scope="col">用例</th><th scope="col">预期</th><th scope="col">实际</th><th scope="col">核对结果</th></tr></thead><tbody><tr v-for="(item,index) in cases" :key="index"><th scope="row">{{ aiString(item,'name') || '用例 '+(index+1) }}<span v-if="item.catalogScope==='derived_engine_contract'" class="table-secondary">派生目录契约，不调用真实上游</span></th><td>{{ outcome(item.expected) }}</td><td>{{ outcome(item.actual) }}<span v-if="item.code" class="table-secondary">{{ aiString(item,'code') }}</span></td><td><span class="badge" :class="item.status==='not_applicable'?'status-draft':item.passed===true?'status-verified':item.passed===false?'status-needs-work':'status-draft'">{{ item.status==='not_applicable'?'当前范围不适用':item.passed===true?'通过':item.passed===false?'未通过':'待核对' }}</span></td></tr></tbody></table>
     </div>
     <p v-if="Array.isArray(decision.coverage) && decision.coverage.length" class="ai-security-note">{{ aiText(decision.coverage) }}</p>
-    <details class="ai-security-evidence-json"><summary>查看完整冻结证据 JSON</summary><pre class="ai-security-code">{{ JSON.stringify(record,null,2) }}</pre></details>
+    <details class="ai-security-evidence-json"><summary>查看完整冻结证据 JSON</summary><pre class="ai-security-code" tabindex="0" role="region" aria-label="当前选中记录的完整冻结证据 JSON">{{ JSON.stringify(record,null,2) }}</pre></details>
   </div>
 </template>
+
+<style scoped>
+.ai-frozen-evidence{min-width:0}.ai-evidence-context{margin:0 0 16px;color:var(--secondary);font-size:13px;line-height:1.8}.ai-frozen-evidence .data-table{min-width:700px;table-layout:fixed}.ai-frozen-evidence .data-table th:first-child{width:30%}.ai-frozen-evidence .data-table :is(th,td){overflow-wrap:anywhere}.ai-frozen-evidence .ai-security-facts dd{white-space:pre-wrap}.ai-frozen-evidence pre:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+</style>

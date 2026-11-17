@@ -28,3 +28,8 @@ export const runtimeDetectionDescriptions: Record<string, string> = {
 export interface RuntimePolicyPage {
   items: RuntimeDetectionPolicy[]; retentionHours: number; sampleLimitPerSource: number; windowLimitMinutes: number
 }
+export function policyReadback(pending:ReadonlySet<string>,page?:RuntimePolicyPage):Set<string> {
+  const remaining=new Set(pending)
+  if(page)for(const item of page.items)remaining.delete(item.rule)
+  return remaining
+}

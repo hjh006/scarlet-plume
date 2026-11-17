@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
+import { ApiError, describeError, formatDate, mutationNeedsReadback, request, workspacePath, type Workspace } from './api'
 import Icon from './Icon.vue'
 import RuntimeFindingsPanel from './RuntimeFindingsPanel.vue'
 import RuntimeMonitor from './RuntimeMonitor.vue'
@@ -74,6 +74,8 @@ const name = ref('')
 const service = ref('')
 const kind = ref<SourceKind>('gateway')
 const issued = ref<{ source: RuntimeSource; token: string } | null>(null)
+const unverifiedIssue = ref<{ name: string; service: string; kind: SourceKind } | null>(null)
+const issueChecked = ref(false)
 const revokeTarget = ref<RuntimeSource | null>(null)
 const createButton = ref<HTMLButtonElement>()
 const nameInput = ref<HTMLInputElement>()
@@ -146,11 +148,12 @@ async function dismissForm() {
   name.value = ''
   service.value = ''
   await nextTick()
-  createButton.value?.focus()
+  if (unverifiedIssue.value) document.getElementById('runtime-issue-unknown-title')?.focus({ preventScroll: true })
+  else createButton.value?.focus()
 }
 
 async function createSource() {
-  if (!owner.value || loading.value || pending.value) return
+  if (!owner.value || loading.value || pending.value || unverifiedIssue.value) return
   const values = { name: name.value.trim(), service: service.value.trim(), kind: kind.value }
   actionError.value = ''
   if (!values.name || !values.service) {
@@ -171,10 +174,51 @@ async function createSource() {
     await nextTick()
     tokenHeading.value?.focus()
   } catch (error) {
+    if (!active.signal.aborted && mutationNeedsReadback(error)) {
+      unverifiedIssue.value = values
+      issueChecked.value = false
+    }
     actionError.value = errorText(error)
+    if (unverifiedIssue.value) {
+      await nextTick()
+      document.getElementById('runtime-issue-unknown-title')?.focus({ preventScroll: true })
+    }
   } finally {
     pending.value = ''
   }
+}
+
+async function checkIssue() {
+  if (!unverifiedIssue.value || loading.value || pending.value) return
+  loading.value = true
+  issueChecked.value = false
+  actionError.value = ''
+  try {
+    const result = await request<{ items: RuntimeSource[] }>(runtimePath + '/sources', { signal: active.signal })
+    if (active.signal.aborted) return
+    if (!result || !Array.isArray(result.items)) throw new Error('来源清单不完整，请重新读取后核对原签发。')
+    sources.value = result.items
+    issueChecked.value = true
+    formVisible.value = false
+    view.value = 'sources'
+    await nextTick()
+    document.getElementById('runtime-sources-title')?.focus({ preventScroll: true })
+  } catch (error) {
+    actionError.value = errorText(error)
+  } finally {
+    loading.value = false
+    await nextTick()
+    if (!active.signal.aborted && unverifiedIssue.value && document.activeElement === document.body) document.getElementById('runtime-issue-unknown-title')?.focus()
+  }
+}
+
+async function startNewIssue() {
+  if (!unverifiedIssue.value || !issueChecked.value || loading.value || pending.value) return
+  unverifiedIssue.value = null
+  issueChecked.value = false
+  name.value = ''
+  service.value = ''
+  await openForm()
 }
 
 async function copyToken() {
@@ -219,6 +263,7 @@ async function revoke() {
   const source = revokeTarget.value
   if (!source || !owner.value || loading.value || pending.value) return
   pending.value = 'revoke'
+  if (unverifiedIssue.value) issueChecked.value = false
   actionError.value = ''
   try {
     await request(runtimePath + '/sources/' + source.id, { method: 'DELETE', signal: active.signal })
@@ -256,7 +301,7 @@ onBeforeUnmount(() => {
         <button type="button" class="button button-secondary" :disabled="loading || Boolean(pending)" @click="load">刷新观测</button>
         <button v-if="owner" ref="createButton" type="button" class="button button-primary"
                 :aria-expanded="formVisible" aria-controls="runtime-source-form"
-                :disabled="!loaded || formVisible || Boolean(issued) || Boolean(revokeTarget) || Boolean(pending)" @click="openForm">
+                :disabled="!loaded || loading || !!unverifiedIssue || formVisible || Boolean(issued) || Boolean(revokeTarget) || Boolean(pending)" @click="openForm">
           <Icon name="plus" />新增观测来源
         </button>
       </div>
@@ -264,12 +309,22 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="message message-success" role="status">{{ notice }}</p>
     <p v-if="loadError" class="message message-error" role="alert">{{ loadError }}</p>
     <p v-else-if="loading && !loaded" class="message" role="status">正在读取运行时观测…</p>
+    <section v-if="unverifiedIssue" class="message" aria-labelledby="runtime-issue-unknown-title">
+      <h2 id="runtime-issue-unknown-title" tabindex="-1">来源签发结果尚未核实</h2>
+      <p>原来源：{{ unverifiedIssue.name }} · 服务 {{ unverifiedIssue.service }} · {{ kinds[unverifiedIssue.kind] }}。</p>
+      <p>令牌只返回一次，无法重新读取。请核对来源清单并撤销不再使用的来源；清单暂未显示原操作，也不能认定它未创建。开始新的签发会生成另一把令牌。</p>
+      <p v-if="actionError && !formVisible && !revokeTarget" role="alert">{{ actionError }}</p>
+      <div class="form-actions">
+        <button type="button" class="button button-secondary" :disabled="loading || !!pending || !!revokeTarget" @click="checkIssue">{{ loading ? '正在核对来源…' : '重新读取来源清单' }}</button>
+        <button type="button" class="button button-secondary" :disabled="!issueChecked || loading || !!pending || !!revokeTarget" @click="startNewIssue">已核对，开始新的签发</button>
+      </div>
+    </section>
 
     <nav class="runtime-view-tabs" aria-label="运行时操作视图"><button v-for="item in ([{id:'routes',label:'路由观测'},{id:'sources',label:'观测来源'},{id:'monitor',label:'流量监测'},{id:'findings',label:'检测发现'}] as const)" :key="item.id" type="button" :aria-pressed="view===item.id" @click="view=item.id">{{ item.label }}</button></nav>
     <section v-if="formVisible" id="runtime-source-form" class="panel api-panel" aria-labelledby="runtime-source-form-title">
       <div class="api-panel-heading"><div><h2 id="runtime-source-form-title">新增观测来源</h2><p>为单个网关或应用签发专用接入令牌。</p></div></div>
       <form @submit.prevent="createSource">
-        <fieldset class="runtime-source-fields" :disabled="Boolean(pending)">
+        <fieldset class="runtime-source-fields" :disabled="Boolean(pending) || !!unverifiedIssue">
           <div class="field">
             <label for="runtime-source-kind">接入类型</label>
             <select id="runtime-source-kind" v-model="kind">
@@ -288,7 +343,7 @@ onBeforeUnmount(() => {
         <p id="runtime-service-hint" class="field-hint">与契约扫描的来源名称一致时，平台按该来源的最新契约对照。</p>
         <p v-if="actionError" class="message message-error runtime-action-error" role="alert">{{ actionError }}</p>
         <div class="form-actions">
-          <button type="submit" class="button button-primary" :disabled="loading || Boolean(pending)">{{ pending ? '正在创建…' : '创建并签发令牌' }}</button>
+          <button type="submit" class="button button-primary" :disabled="loading || Boolean(pending) || !!unverifiedIssue">{{ pending ? '正在创建…' : '创建并签发令牌' }}</button>
           <button type="button" class="button button-secondary" :disabled="Boolean(pending)" @click="dismissForm">取消</button>
         </div>
       </form>
@@ -395,7 +450,7 @@ onBeforeUnmount(() => {
 
       <section v-if="view === 'sources'" class="panel api-panel" aria-labelledby="runtime-sources-title" :aria-busy="loading">
         <div class="api-panel-heading">
-          <div><h2 id="runtime-sources-title">观测来源</h2><p>根据最近上报时间追踪接入状态。</p></div>
+          <div><h2 id="runtime-sources-title" tabindex="-1">观测来源</h2><p>根据最近上报时间追踪接入状态。</p></div>
         </div>
         <div v-if="sources.length" class="api-table-frame" role="region" tabindex="0" aria-labelledby="runtime-sources-title">
           <table class="api-table runtime-sources-table" role="table">

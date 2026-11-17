@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import './runtime-workspaces.css'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ApiError, describeError, formatDate, request, workspacePath, type Workspace } from './api'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ApiError, describeError, mutationNeedsReadback, formatDate, request, workspacePath, type Workspace } from './api'
 import type { RuntimeEvidenceSource } from './runtime-evidence-scope'
 import { lifecycleCategoryLabels } from './api-lifecycle'
 import Icon from './Icon.vue'
-import { runtimeDetectionDescriptions, runtimeDetectionLabels, type RuntimeDetectionPolicy, type RuntimePolicyPage } from './runtime-policies'
+import { policyReadback, runtimeDetectionDescriptions, runtimeDetectionLabels, type RuntimeDetectionPolicy, type RuntimePolicyPage } from './runtime-policies'
 
 const props = defineProps<{ workspace: Workspace }>()
 const emit = defineEmits<{ sessionExpired: [] }>()
 const endpoint = workspacePath(props.workspace.slug) + '/api-security/runtime/policies'
 const active = new AbortController()
 const page = ref<RuntimePolicyPage | null>(null)
+const workbench=ref<HTMLElement>(),pageHeading=ref<HTMLElement>(),policyHeading=ref<HTMLElement>()
 const selected = ref('sensitive_response:')
 const sourceOptions=ref<RuntimeEvidenceSource[]>([]),newPolicy=ref(false)
 const lists=reactive({categories:'',countries:'',clientCountries:'',recipients:'',domains:''})
@@ -24,6 +25,8 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const saved = ref('')
+const readAt=ref(''),pendingRules=ref(new Set<string>())
+const needsReadback=computed(()=>!!form.value && pendingRules.value.has(form.value.rule))
 const savedDraft = ref('')
 const pendingDiscard = ref('')
 const draftSnapshot = () => JSON.stringify({ form: form.value, lists })
@@ -74,42 +77,53 @@ async function loadHistory() {
   } catch (failure) { if (sequence === historyRequest) historyError.value = failureText(failure) }
   finally { if (sequence === historyRequest) historyLoading.value = false }
 }
+async function restorePolicyFocus(trigger:Element|null,key:string,rule:string|undefined){
+  await nextTick()
+  if(active.signal.aborted || !workbench.value?.isConnected || loading.value || saving.value || document.activeElement!==document.body || selected.value!==key || rule && form.value?.rule!==rule)return
+  if(trigger instanceof HTMLElement && workbench.value.contains(trigger) && trigger.isConnected && !trigger.matches(':disabled'))trigger.focus({preventScroll:true})
+  else if(policyHeading.value?.dataset.policyKey===key)policyHeading.value.focus({preventScroll:true})
+  else pageHeading.value?.focus({preventScroll:true})
+}
 async function load(discard = false) {
   if (loading.value || saving.value) return
   if (dirty.value && !discard) { pendingDiscard.value = 'refresh'; return }
+  const focusTrigger=document.activeElement,focusKey=selected.value,focusRule=form.value?.rule
   loading.value = true; error.value = ''
-  try { const [p,s]=await Promise.all([request<RuntimePolicyPage>(endpoint,{signal:active.signal}),request<{items:RuntimeEvidenceSource[]}>(workspacePath(props.workspace.slug)+'/api-security/runtime/sources',{signal:active.signal})]);page.value=p;sourceOptions.value=s.items.filter(s=>!s.revokedAt);choose() }
+  try { const [p,s]=await Promise.all([request<RuntimePolicyPage>(endpoint,{signal:active.signal}),request<{items:RuntimeEvidenceSource[]}>(workspacePath(props.workspace.slug)+'/api-security/runtime/sources',{signal:active.signal})]);if(active.signal.aborted)return;if(!p || !Array.isArray(p.items) || !s || !Array.isArray(s.items))throw new Error('策略或来源响应缺少记录数组，未更新原配置或恢复门禁。');page.value=p;sourceOptions.value=s.items.filter(s=>!s.revokedAt);pendingRules.value=policyReadback(pendingRules.value,p);readAt.value=new Date().toISOString();choose() }
   catch (failure) { error.value = failureText(failure) }
-  finally { loading.value = false }
+  finally { loading.value = false;await restorePolicyFocus(focusTrigger,focusKey,focusRule) }
 }
 async function save() {
-  if (!form.value || !canEdit.value || saving.value) return
+  if (!form.value || !canEdit.value || loading.value || saving.value || needsReadback.value) return
+  const rule=form.value.rule,focusTrigger=document.activeElement
+  let focusKey=selected.value
   saving.value = true; error.value = ''; saved.value = ''
   try {
     const result = await request<RuntimeDetectionPolicy>(endpoint, { method: 'PUT', body: JSON.stringify({...form.value,allowedCategories:splitList(lists.categories),allowedCountries:splitList(lists.countries),allowedClientCountries:splitList(lists.clientCountries),allowedRecipients:splitList(lists.recipients),allowedDomains:splitList(lists.domains)}), signal: active.signal })
     if (page.value) {const index=page.value.items.findIndex(item=>policyKey(item)===policyKey(result));if(index>=0)page.value.items[index]=result;else page.value.items.push(result)}
-    selected.value=policyKey(result);newPolicy.value=false
+    selected.value=policyKey(result);focusKey=selected.value;newPolicy.value=false
     form.value = { ...result, sourceId: result.sourceId ?? 0, method: result.method ?? '', categories: [...result.categories] };updateLists()
     savedDraft.value = draftSnapshot(); pendingDiscard.value = ''
     saved.value = `已保存版本 ${result.revision}，后续观测使用此版本。历史命中和证据保留原依据。`
     if (historyOpen.value) void loadHistory()
-  } catch (failure) { error.value = failure instanceof ApiError && failure.status === 409 ? '策略版本已变化。未保存的草稿仍已保留，请核对最新版本后重试。' : failureText(failure) }
-  finally { saving.value = false }
+  } catch (failure) { if(mutationNeedsReadback(failure,true))pendingRules.value.add(rule);error.value = failure instanceof ApiError && failure.status === 409 ? '策略版本已变化。未保存的草稿仍已保留，请重新读取已保存范围后核对。' : failureText(failure) }
+  finally { saving.value = false;await restorePolicyFocus(focusTrigger,focusKey,rule) }
 }
 onMounted(() => { void load() })
 onBeforeUnmount(() => active.abort())
 </script>
 
 <template>
-  <div>
+  <div ref="workbench">
     <header class="page-header">
-      <div><p class="eyebrow">安全运营</p><h1>把检测条件，落实到明确目标。</h1><p>配置真实观测信号的阈值，将命中送入检查、整改和独立复核。</p></div>
+      <div><p class="eyebrow">安全运营</p><h1 ref="pageHeading" tabindex="-1">把检测条件，落实到明确目标。</h1><p>配置真实观测信号的阈值，将命中送入检查、整改和独立复核。</p></div>
       <div class="page-actions"><a class="button button-secondary" :href="home + '/api-security/runtime'">运行时发现</a><button class="button button-secondary" type="button" :disabled="loading || saving" @click="load()">刷新策略</button></div>
     </header>
     <p v-if="error" class="message message-error" role="alert">{{ error }}<span v-if="error.includes('冲突')"> 请刷新当前策略后重新修改。</span></p>
+    <p v-if="needsReadback" class="message message-warning" role="status">本次保存结果尚未核实，请刷新策略并核对本规则已保存的全部范围；原草稿保留，取消提示或切换记录不会解锁旧修订提交。</p><p v-if="readAt" class="muted">策略读取于 {{formatDate(readAt,true)}}；保存时服务端继续核对修订。{{error?' 当前保留上次成功读取的配置。':''}}</p>
     <p v-if="saved" class="message message-success" role="status">{{ saved }}</p>
     <div v-if="pendingDiscard" class="message message-warning" role="status"><p>当前策略有未保存的修改。继续将丢弃本页草稿。</p><div class="actions"><button type="button" class="button button-secondary" @click="pendingDiscard = ''">继续编辑</button><button type="button" class="button button-secondary" @click="confirmDiscard">丢弃草稿并{{ pendingDiscard === 'refresh' ? '刷新' : '切换' }}</button></div></div>
-    <section v-if="form" class="rw-panel rw-policy-primary" aria-labelledby="rw-policy-target"><div class="rw-section-heading"><div><h2 id="rw-policy-target">{{ runtimeDetectionLabels[form.rule] || form.rule }} · 目标与条件</h2><p>下图为编辑区草稿预览；保存版本、来源采用和真实命中分别留存。</p></div><span class="rw-state-label">{{ newPolicy ? '新增范围草稿' : savedPolicy?.revision ? '已保存 v' + savedPolicy.revision : '系统默认配置' }}</span></div><div class="rw-policy-route"><article><Icon name="integrations" /><span>来源范围</span><strong>{{ policyScopeSource }}</strong><small>{{ form.scopeKey || '工作区默认' }}</small></article><Icon name="arrow" /><article><Icon name="api-security" /><span>方法与路由</span><strong>{{ form.method || '全部方法' }} {{ form.route || '来源内所有路由' }}</strong><small>{{ form.subjectRef ? '主体 ' + form.subjectRef : '未限定主体' }} · {{ form.clientIp ? '已限定客户端 IP' : '未限定客户端 IP' }}</small></article><Icon name="arrow" /><article><Icon name="checks" /><span>窗口与计数条件</span><strong>{{ form.windowMinutes }} 分钟 · 命中 ≥ {{ form.threshold }}</strong><small>最少 {{ form.minRequests }} 次来源请求</small></article><Icon name="arrow" /><article class="rw-policy-output"><Icon name="reports" /><span>配置输出</span><strong>{{ form.enabled ? '草稿启用' : '草稿停用' }}</strong><small>保存新版本后核对来源采用；不改写旧检查</small></article></div><div class="rw-policy-specific"><strong>本规则采用条件</strong><p>{{ runtimeDetectionDescriptions[form.rule] || '按当前登记规则核对来源事实与覆盖。' }}</p></div><p class="rw-boundary"><Icon name="warning" />缺失来源、未知认证、未检查完整与预算截断均需保留。关闭或放宽策略不表示原风险已消除。</p></section>
+    <section v-if="form" class="rw-panel rw-policy-primary" aria-labelledby="rw-policy-target"><div class="rw-section-heading"><div><h2 id="rw-policy-target" ref="policyHeading" tabindex="-1" :data-policy-key="selected">{{ runtimeDetectionLabels[form.rule] || form.rule }} · 目标与条件</h2><p>下图为编辑区草稿预览；保存版本、来源采用和真实命中分别留存。</p></div><span class="rw-state-label">{{ newPolicy ? '新增范围草稿' : savedPolicy?.revision ? '已保存 v' + savedPolicy.revision : '系统默认配置' }}</span></div><div class="rw-policy-route"><article><Icon name="integrations" /><span>来源范围</span><strong>{{ policyScopeSource }}</strong><small>{{ form.scopeKey || '工作区默认' }}</small></article><Icon name="arrow" /><article><Icon name="api-security" /><span>方法与路由</span><strong>{{ form.method || '全部方法' }} {{ form.route || '来源内所有路由' }}</strong><small>{{ form.subjectRef ? '主体 ' + form.subjectRef : '未限定主体' }} · {{ form.clientIp ? '已限定客户端 IP' : '未限定客户端 IP' }}</small></article><Icon name="arrow" /><article><Icon name="checks" /><span>窗口与计数条件</span><strong>{{ form.windowMinutes }} 分钟 · 命中 ≥ {{ form.threshold }}</strong><small>最少 {{ form.minRequests }} 次来源请求</small></article><Icon name="arrow" /><article class="rw-policy-output"><Icon name="reports" /><span>配置输出</span><strong>{{ form.enabled ? '草稿启用' : '草稿停用' }}</strong><small>保存新版本后核对来源采用；不改写旧检查</small></article></div><div class="rw-policy-specific"><strong>本规则采用条件</strong><p>{{ runtimeDetectionDescriptions[form.rule] || '按当前登记规则核对来源事实与覆盖。' }}</p></div><p class="rw-boundary"><Icon name="warning" />缺失来源、未知认证、未检查完整与预算截断均需保留。关闭或放宽策略不表示原风险已消除。</p></section>
     <div class="policy-workbench"><aside class="panel policy-catalog" aria-labelledby="detection-list-title" :aria-busy="loading"><div class="panel-heading"><h2 id="detection-list-title">检测规则</h2></div><p v-if="loading && !page" class="empty-state" role="status">正在读取检测策略…</p><nav v-else-if="page" aria-label="选择检测规则"><button v-for="policy in page.items" :key="policyKey(policy)" type="button" class="policy-catalog-item" :aria-pressed="selected === policyKey(policy)" :disabled="saving || loading" @click="selectPolicy(policyKey(policy))"><span>{{ runtimeDetectionLabels[policy.rule] || policy.rule }}<small>{{policy.scopeKey||'工作区默认'}}{{policy.sourceId?' · 来源 #'+policy.sourceId:''}}</small></span><small :class="policy.enabled ? 'enabled' : ''">{{ policy.enabled ? '已启用' : '未启用' }}</small><code>{{ policy.revision ? 'v' + policy.revision : '系统默认' }}</code></button></nav></aside>
     <section v-if="form" class="panel policy-editor" aria-labelledby="detection-edit-title">
       <div class="panel-heading"><div><h2 id="detection-edit-title">{{ runtimeDetectionLabels[form.rule] }}</h2><p>{{ runtimeDetectionDescriptions[form.rule] }}</p></div></div>
@@ -127,19 +141,19 @@ onBeforeUnmount(() => active.abort())
           <div v-if="form.rule==='over_collection'" class="field"><label for="policy-direction">检查方向</label><select id="policy-direction" v-model="form.direction"><option value="request">请求</option><option value="response">响应</option></select><label class="policy-toggle"><input v-model="form.allowlistConfigured" type="checkbox" required>已明确登记允许的数据类型范围</label><label for="policy-allowed-types">允许数据类型（逗号分隔，可明确留空）</label><input id="policy-allowed-types" v-model="lists.categories" placeholder="email, phone"></div><div v-if="form.rule==='destination_scope'" class="field"><label for="policy-countries">允许目的地国家/地域（逗号分隔）</label><input id="policy-countries" v-model="lists.countries" placeholder="CN, SG"></div><div v-if="form.rule==='destination_scope'" class="field"><label for="policy-domains">允许目的地域名（逗号分隔）</label><input id="policy-domains" v-model="lists.domains" placeholder="partner.example"></div><div v-if="form.rule==='client_region_mismatch'" class="field"><label for="policy-client-countries">允许客户端国家/地域（逗号分隔）</label><input id="policy-client-countries" v-model="lists.clientCountries" required placeholder="CN"></div><div v-if="form.rule==='recipient_scope'" class="field"><label for="policy-recipients">允许接收方标识（逗号分隔）</label><input id="policy-recipients" v-model="lists.recipients" required></div><template v-if="form.rule==='volume_limit'"><div class="field"><label for="policy-volume">单次观察传输量上限</label><input id="policy-volume" v-model.number="form.maxVolume" type="number" min="1" max="1000000000000" required></div><div class="field"><label for="policy-volume-unit">采用单位</label><select id="policy-volume-unit" v-model="form.volumeUnit" required><option value="records">记录</option><option value="bytes">字节</option></select></div></template>
         </fieldset>
         <p class="muted policy-note">{{ windowRule ? '窗口规则须在整改后经过完整配置窗口并获得足够新观测，才能自动复测。' : '整改复测须有同来源的新鲜明确观测；无数据、检查不完整或认证未知均不能替代复测。' }} 关闭或改宽阈值不会自动将检查标记为通过。</p>
-        <div v-if="canEdit" class="page-actions"><button class="button button-primary" type="submit" :disabled="saving || loading">{{ saving ? '正在保存…' : '保存新版本' }}</button><span class="muted">当前 {{ form.revision ? `v${form.revision}` : '系统默认' }}，保存后生成独立版本。</span></div>
+        <div v-if="canEdit" class="page-actions"><button class="button button-primary" type="submit" :disabled="saving || loading || needsReadback">{{ saving ? '正在保存…' : '保存新版本' }}</button><span class="muted">当前 {{ form.revision ? `v${form.revision}` : '系统默认' }}，保存后生成独立版本。</span></div>
       </form>
       <div class="policy-history">
         <button class="button button-secondary" type="button" :aria-expanded="historyOpen" aria-controls="policy-version-history" @click="historyOpen = !historyOpen; historyOpen && loadHistory()">{{ historyOpen ? '收起版本历史' : '查看版本历史' }}</button>
         <div v-if="historyOpen" id="policy-version-history" :aria-busy="historyLoading">
           <p v-if="historyError" class="message message-error" role="alert">{{ historyError }}</p>
           <p v-else-if="historyLoading" class="empty-state" role="status">正在读取版本历史…</p>
-          <div v-else-if="history.length" class="table-scroll" tabindex="0" role="region" aria-label="本规则各范围最近 30 个策略版本"><table class="data-table"><thead><tr><th scope="col">版本</th><th scope="col">保存时间</th><th scope="col">状态</th><th scope="col">保存的阈值</th></tr></thead><tbody><tr v-for="version in history" :key="version.id"><th scope="row">v{{ version.revision }}<span class="table-secondary">{{version.scopeKey||'工作区默认'}}</span></th><td>{{ version.createdAt ? formatDate(version.createdAt) : '系统默认' }}</td><td>{{ version.enabled ? '启用' : '停用' }}</td><td>{{ version.windowMinutes }} 分钟 · 命中 ≥ {{ version.threshold }} · 至少 {{ version.minRequests }} 次请求<span v-if="version.rule === 'error_spike'" class="table-secondary">错误比例 ≥ {{ version.errorPercent }}%</span><span v-if="version.rule === 'off_hours'" class="table-secondary">{{ version.startHour }} 时至 {{ version.endHour }} 时，UTC 偏移 {{ version.timezoneOffsetMinutes }} 分钟</span><span v-if="version.rule === 'sensitive_response'" class="table-secondary">{{ version.categories.map(category => lifecycleCategoryLabels[category] || category).join('、') }}</span></td></tr></tbody></table></div>
+          <div v-else-if="history.length" class="table-scroll" tabindex="0" role="region" aria-label="本规则各范围最近 30 个策略版本"><table class="data-table"><thead><tr><th scope="col">版本</th><th scope="col" class="table-date">保存时间</th><th scope="col">状态</th><th scope="col">保存的阈值</th></tr></thead><tbody><tr v-for="version in history" :key="version.id"><th scope="row">v{{ version.revision }}<span class="table-secondary">{{version.scopeKey||'工作区默认'}}</span></th><td class="table-date">{{ version.createdAt ? formatDate(version.createdAt) : version.revision?'保存时间未记录':'系统默认' }}</td><td>{{ version.enabled ? '启用' : '停用' }}</td><td>{{ version.windowMinutes }} 分钟 · 命中 ≥ {{ version.threshold }} · 至少 {{ version.minRequests }} 次请求<span v-if="version.rule === 'error_spike'" class="table-secondary">错误比例 ≥ {{ version.errorPercent }}%</span><span v-if="version.rule === 'off_hours'" class="table-secondary">{{ version.startHour }} 时至 {{ version.endHour }} 时，UTC 偏移 {{ version.timezoneOffsetMinutes }} 分钟</span><span v-if="version.rule === 'sensitive_response'" class="table-secondary">{{ version.categories.map(category => lifecycleCategoryLabels[category] || category).join('、') }}</span></td></tr></tbody></table></div>
           <p v-else class="empty-state">尚无人工保存版本，当前使用系统默认策略。</p>
         </div>
       </div>
     </section>
-    <aside class="context-rail policy-context"><section class="panel"><div class="panel-heading"><h2>采用范围</h2></div><dl class="policy-adoption"><div><dt>当前规则</dt><dd>{{ form ? runtimeDetectionLabels[form.rule] : '正在读取' }}</dd></div><div><dt>配置修订</dt><dd>{{ form?.revision ? 'v' + form.revision : '系统默认' }}</dd></div><div><dt>工作区</dt><dd>{{ workspace.name }}</dd></div><div><dt>编辑权限</dt><dd>{{ canEdit ? '负责人可保存新版本' : '只读，不能修改策略' }}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h3>核验提示</h3></div><div class="policy-context-body"><p>检测按来源分别计算窗口与分母，策略变更不会改写历史采用版本。</p><p>模式信号不能证明漏洞利用成功；未知或未采集不作为安全通过。</p></div></section><section v-if="page" class="panel"><div class="panel-heading"><h3>采集预算</h3></div><dl class="policy-adoption"><div><dt>保留窗口</dt><dd>{{ page.retentionHours }} 小时</dd></div><div><dt>每来源样本</dt><dd>最多 {{ page.sampleLimitPerSource.toLocaleString() }} 条</dd></div><div><dt>检测窗口</dt><dd>最长 {{ page.windowLimitMinutes }} 分钟</dd></div></dl><p class="policy-context-body">原始请求、响应、SQL 与凭据保留在来源侧。</p></section></aside></div>
+    <aside class="context-rail policy-context"><section class="panel"><div class="panel-heading"><h2>采用范围</h2></div><dl class="policy-adoption"><div><dt>当前规则</dt><dd>{{ form ? runtimeDetectionLabels[form.rule] : loading?'正在读取':'尚未读取' }}</dd></div><div><dt>配置修订</dt><dd>{{ !form?'尚未读取':form.revision?'v'+form.revision:'系统默认' }}</dd></div><div><dt>工作区</dt><dd>{{ workspace.name }}</dd></div><div><dt>编辑权限</dt><dd>{{ canEdit ? '负责人可保存新版本' : '只读，不能修改策略' }}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h3>核验提示</h3></div><div class="policy-context-body"><p>检测按来源分别计算窗口与分母，策略变更不会改写历史采用版本。</p><p>模式信号不能证明漏洞利用成功；未知或未采集不作为安全通过。</p></div></section><section v-if="page" class="panel"><div class="panel-heading"><h3>采集预算</h3></div><dl class="policy-adoption"><div><dt>保留窗口</dt><dd>{{ page.retentionHours }} 小时</dd></div><div><dt>每来源样本</dt><dd>最多 {{ page.sampleLimitPerSource.toLocaleString() }} 条</dd></div><div><dt>检测窗口</dt><dd>最长 {{ page.windowLimitMinutes }} 分钟</dd></div></dl><p class="policy-context-body">原始请求、响应、SQL 与凭据保留在来源侧。</p></section></aside></div>
 
   </div>
 </template>

@@ -2,7 +2,7 @@
 """Real isolated customer-stack acceptance. Requires operator-provisioned depth fixtures.
 No paid/external LLM. Reads private files; writes only content-free private evidence.
 """
-import argparse, base64, datetime as dt, hashlib, http.client, http.cookiejar, json, os, re, ssl, subprocess, time, urllib.error, urllib.request, urllib.parse, uuid, zlib, struct, threading
+import argparse, base64, datetime as dt, fcntl, hashlib, http.client, http.cookiejar, json, os, re, ssl, subprocess, time, urllib.error, urllib.request, urllib.parse, uuid, zlib, struct, threading
 from pathlib import Path
 
 
@@ -20,9 +20,33 @@ def main():
         default="all",
     )
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--preflight-only", action="store_true")
+    p.add_argument(
+        "--allow-fixture-mutations",
+        action="store_true",
+        help="acknowledge exclusive use of these synthetic workspaces and approval invalidation",
+    )
     a = p.parse_args()
     os.umask(0o077)
+    if a.output.exists():
+        raise SystemExit(
+            "Use a new evidence output path; existing evidence is preserved"
+        )
+    if (
+        not a.preflight_only
+        and a.only in ["all", "mcp"]
+        and not a.allow_fixture_mutations
+    ):
+        raise SystemExit(
+            "all/mcp requires --allow-fixture-mutations in an exclusive synthetic fixture window"
+        )
     a.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # This prevents two local harnesses sharing files; it cannot lock out operators.
+    fixture_lock = (a.private_dir / ".acceptance.lock").open("a")
+    try:
+        fcntl.flock(fixture_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit("Another acceptance run owns this private fixture directory")
     for target, scheme in [
         (a.controller, "http"),
         (a.gateway, "https"),
@@ -49,6 +73,18 @@ def main():
     run = uuid.uuid4().hex[:16]
     results = []
     failures = []
+    preflight = {}
+    mutations = []
+    trusted_configs = {}
+    current_revision = None
+    owned_approvals = set()
+
+    def functional_fingerprint(config):
+        # A local comparison fingerprint, not the platform's typed ConfigDigest.
+        functional = {k: v for k, v in config.items() if k != "approvals"}
+        return hashlib.sha256(
+            json.dumps(functional, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
 
     def save():
         a.output.write_text(
@@ -58,6 +94,8 @@ def main():
                     "realStack": True,
                     "externalLLM": False,
                     "transport": "two independent OpenAI-compatible synthetic endpoints",
+                    "preflight": preflight,
+                    "configurationMutations": mutations,
                     "results": results,
                     "failures": failures,
                 },
@@ -106,7 +144,7 @@ def main():
         meta["primary"]["catalogDigest"] == meta["other"]["catalogDigest"]
     ), "cross-tenant case requires identical catalog digests"
     owners = {f: session(accounts[f]["owner"]) for f in meta}
-    reviewer = session(accounts["primary"]["reviewer"])
+    reviewers = {f: session(accounts[f]["reviewer"]) for f in meta}
 
     def api(path, value=None, method=None, folder="primary", review=False):
         return rawcall(
@@ -114,7 +152,7 @@ def main():
             "/api/v1/workspaces/" + meta[folder]["workspace"] + path,
             value,
             method=method,
-            opener=reviewer if review else owners[folder],
+            opener=reviewers[folder] if review else owners[folder],
             headers={"Origin": a.controller},
         )
 
@@ -226,6 +264,191 @@ def main():
             )
         )
 
+    def reject_unowned_pending():
+        owned = ",".join(str(i) for i in sorted(owned_approvals)) or "0"
+        pending = dbjson(
+            "SELECT json_build_object('approvals',(SELECT count(*) FROM plume.ai_security_approvals a JOIN plume.workspaces w ON w.id=a.workspace_id WHERE w.slug='customer-depth' AND a.status IN ('proposed','approved') AND a.expires_at>now() AND a.id NOT IN ("
+            + owned
+            + ")), 'leaseProposals',(SELECT count(*) FROM plume.ai_gateway_task_lease_proposals p JOIN plume.workspaces w ON w.id=p.workspace_id WHERE w.slug='customer-depth' AND p.status='proposed' AND p.expires_at>now()))"
+        )
+        assert pending == {"approvals": 0, "leaseProposals": 0}, (
+            "Refusing to invalidate approvals or lease proposals owned by another run",
+            pending,
+        )
+
+    def checked_bundle(folder="primary", expected=None):
+        st, out, _ = api("/ai-security", folder=folder)
+        assert st == 200, ("configuration read", st)
+        bundle = json.loads(out)
+        assert (
+            bundle["publishedDigest"] == meta[folder]["catalogDigest"]
+        ), "Published catalog drift; stop and review the fixture without overwriting it"
+        assert (
+            functional_fingerprint(bundle["configuration"]) == trusted_configs[folder]
+        ), "Configuration content drift; refusing to save or publish another draft"
+        if expected is not None:
+            assert bundle["revision"] == expected, (
+                "Configuration revision drift; no automatic retry or republication",
+                expected,
+                bundle["revision"],
+            )
+        return bundle
+
+    def refresh_catalog(expected_revision):
+        st, out, h = api("/ai-security/runtime-config")
+        assert st == 200
+        assert h.get("X-Configuration-Revision") == str(
+            expected_revision
+        ), "Published runtime revision changed; local catalog was not replaced"
+        assert (
+            functional_fingerprint(json.loads(out)) == trusted_configs["primary"]
+        ), "Published runtime content changed; local catalog was not replaced"
+        dest = a.private_dir / "primary/config/catalog.json"
+        temporary = dest.with_suffix(".json.tmp")
+        temporary.write_text(out)
+        temporary.chmod(0o600)
+        temporary.replace(dest)
+
+    def save_same_configuration():
+        nonlocal current_revision
+        bundle = checked_bundle(expected=current_revision)
+        assert (
+            bundle["revision"] == bundle["publishedRevision"]
+        ), "A draft is already pending; refusing to overwrite it"
+        reject_unowned_pending()
+        st, out, _ = api(
+            "/ai-security/configuration",
+            {
+                "expectedRevision": current_revision,
+                "configuration": bundle["configuration"],
+            },
+            method="PUT",
+        )
+        assert st == 200, ("same configuration CAS", st)
+        saved = json.loads(out)
+        assert saved["revision"] == current_revision + 1
+        current_revision = saved["revision"]
+        # Persist the owned revision before any subsequent evaluation or assertion.
+        mutations.append(
+            {
+                "savedRevision": current_revision,
+                "previousPublishedRevision": bundle["publishedRevision"],
+                "catalogDigest": meta["primary"]["catalogDigest"],
+                "functionalFingerprint": trusted_configs["primary"],
+                "republished": False,
+            }
+        )
+        save()
+        return current_revision
+
+    for folder, slug in [
+        ("primary", "customer-depth"),
+        ("other", "customer-depth-other"),
+    ]:
+        assert (
+            meta[folder]["workspace"] == slug
+        ), "Only dedicated depth fixture workspaces are accepted"
+        local = json.loads((a.private_dir / folder / "config/catalog.json").read_text())
+        assert (
+            local["version"] == "customer-depth-v2"
+        ), "Unexpected fixture catalog version"
+        trusted_configs[folder] = functional_fingerprint(local)
+        for role, opener in [
+            ("owner", owners[folder]),
+            ("reviewer", reviewers[folder]),
+        ]:
+            st, out, _ = rawcall(a.controller, "/api/v1/session", opener=opener)
+            assert st == 200
+            identity = json.loads(out)
+            assert identity["username"] == accounts[folder][role]["username"]
+            assert any(
+                w["slug"] == slug
+                and w["id"] == meta[folder]["workspaceId"]
+                and w["role"] == role
+                for w in identity["workspaces"]
+            ), ("Fixture role or workspace mismatch", folder, role)
+        assert (
+            accounts[folder]["owner"]["username"]
+            != accounts[folder]["reviewer"]["username"]
+        )
+        bundle = checked_bundle(folder)
+        assert (
+            bundle["revision"] == bundle["publishedRevision"] > 0
+        ), "Unpublished draft detected; only its operator may review and recover it"
+        st, runtime, h = api("/ai-security/runtime-config", folder=folder)
+        assert st == 200 and h.get("X-Configuration-Revision") == str(
+            bundle["revision"]
+        )
+        assert functional_fingerprint(json.loads(runtime)) == trusted_configs[folder]
+        settings = dbjson(
+            "SELECT configuration FROM plume.ai_gateway_settings s JOIN plume.workspaces w ON w.id=s.workspace_id WHERE w.slug='"
+            + slug
+            + "'"
+        )
+        assert (
+            settings["enabled"]
+            and settings["catalogDigest"] == bundle["publishedDigest"]
+        )
+        for app in ["depth-app", "task-app"]:
+            binding = next(v for v in settings["applications"] if v["id"] == app)
+            assert binding["enabled"] and binding.get("requireTask", False) == (
+                app == "task-app"
+            )
+            assert set(binding["modelIds"]) == {
+                "depth-primary",
+                "depth-backup",
+                "depth-text",
+                "depth-text-backup",
+            }
+            assert set(binding["toolIds"]) == (
+                {"ticket-read", "ticket-close"} if app == "task-app" else set()
+            )
+            cm = meta[folder]["credentials"][app]
+            cid = int(cm["credential"]["id"])
+            live = dbjson(
+                "SELECT json_build_object('applicationId',application_id,'enabled',enabled AND (expires_at IS NULL OR expires_at>now()),'tokenHash',token_hash) FROM plume.ai_gateway_credentials c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug='"
+                + slug
+                + "' AND c.id="
+                + str(cid)
+            )
+            assert live and live["enabled"] and live["applicationId"] == app, (
+                "Fixture credential unavailable",
+                folder,
+                app,
+            )
+            assert (
+                live["tokenHash"] == hashlib.sha256(cm["token"].encode()).hexdigest()
+            ), ("Fixture credential does not match its platform record", folder, app)
+        preflight[folder] = {
+            "workspace": slug,
+            "provisionedRevision": meta[folder]["publishedRevision"],
+            "liveRevision": bundle["revision"],
+            "publishedRevision": bundle["publishedRevision"],
+            "catalogDigest": bundle["publishedDigest"],
+            "localFunctionalFingerprint": trusted_configs[folder],
+            "rolesAndCredentialsVerified": True,
+        }
+        if folder == "primary":
+            current_revision = bundle["revision"]
+    assert (
+        trusted_configs["primary"] == trusted_configs["other"]
+    ), "Cross-tenant case requires identical functional catalogs"
+    if a.only in ["all", "mcp"]:
+        reject_unowned_pending()
+    preflight["passed"] = True
+    save()
+    if a.preflight_only:
+        print(
+            json.dumps(
+                {
+                    "preflightPassed": True,
+                    "modelOrToolCalls": 0,
+                    "configurationWrites": 0,
+                }
+            )
+        )
+        return 0
+
     def account():
         return dbjson(
             "SELECT json_build_object('spentMicros',spent_micros,'reservedMicros',reserved_micros) FROM plume.ai_gateway_accounts a JOIN plume.workspaces w ON w.id=a.workspace_id WHERE w.slug='customer-depth' AND application_id='depth-app'"
@@ -278,10 +501,9 @@ def main():
         assert st == 201, ("new task", st, out[:200])
         return json.loads(out)
 
-    def publish_current():
-        st, out, _ = api("/ai-security")
-        assert st == 200
-        bundle = json.loads(out)
+    def publish_owned_revision(expected_revision):
+        bundle = checked_bundle(expected=expected_revision)
+        assert mutations and mutations[-1]["savedRevision"] == expected_revision
         st, packs, _ = api("/ai-security/regression-packs?limit=100")
         assert st == 200
         packs = json.loads(packs)["items"]
@@ -289,24 +511,25 @@ def main():
         st, out, _ = api("/ai-security/evaluations", {"packId": packs[0]["id"]})
         assert st == 201
         evaluation = json.loads(out)
-        assert evaluation["gateEligible"]
+        assert (
+            evaluation["gateEligible"]
+            and evaluation["configurationRevision"] == expected_revision
+            and evaluation["catalogDigest"] == meta["primary"]["catalogDigest"]
+        )
+        checked_bundle(expected=expected_revision)
         st, _, _ = api(
             "/ai-security/publish",
             {
-                "expectedRevision": bundle["revision"],
+                "expectedRevision": expected_revision,
                 "evaluationId": evaluation["id"],
                 "note": "Synthetic independent republication after approval invalidation test",
             },
             review=True,
         )
         assert st == 200
-        st, out, _ = api("/ai-security/runtime-config")
-        assert st == 200
-        dest = a.private_dir / "primary/config/catalog.json"
-        tmp = dest.with_suffix(".json.tmp")
-        tmp.write_text(out)
-        tmp.chmod(0o600)
-        tmp.replace(dest)
+        refresh_catalog(expected_revision)
+        mutations[-1]["republished"] = True
+        save()
 
     def rpc(
         name,
@@ -369,11 +592,9 @@ def main():
         check(
             "SSE-incomplete-provider-no-replay",
             text("fixture:partial-stream", True),
-            (422, 502),
+            502,
         )
-        check(
-            "provider-timeout-no-replay", text("fixture:timeout", True), (422, 502, 504)
-        )
+        check("provider-timeout-no-replay", text("fixture:timeout", True), 502)
         before = counters()
         previous = account()
         nonce = "cancel-" + run
@@ -667,9 +888,7 @@ def main():
             status=403,
             delta=(0, 0, 0),
         )
-        st, out, _ = api("/ai-security")
-        assert st == 200
-        rev = json.loads(out)["revision"]
+        rev = checked_bundle(expected=current_revision)["revision"]
         r = {
             "taskId": child["id"],
             "requestId": control["requestId"],
@@ -689,6 +908,7 @@ def main():
         assert st == 201, ("approval request", st, out[:200])
         approval = json.loads(out)
         aid = str(approval["id"])
+        owned_approvals.add(approval["id"])
         st, _, _ = api(
             "/ai-security/approvals/" + aid + "/review",
             {"decision": "approved", "note": "Synthetic independent approval"},
@@ -700,13 +920,7 @@ def main():
             review=True,
         )
         assert st == 200, ("review", st, out[:200])
-        st, out, _ = api("/ai-security/runtime-config")
-        assert st == 200
-        dest = a.private_dir / "primary/config/catalog.json"
-        temporary = dest.with_suffix(".json.tmp")
-        temporary.write_text(out)
-        temporary.chmod(0o600)
-        temporary.replace(dest)
+        refresh_catalog(current_revision)
         control["approvalId"] = aid
         rpc(
             "MCP-approval-arguments-exact",
@@ -750,31 +964,17 @@ def main():
         )
         assert st == 201
         staleid = str(json.loads(out)["id"])
+        owned_approvals.add(int(staleid))
         st, _, _ = api(
             "/ai-security/approvals/" + staleid + "/review",
             {"decision": "approved", "note": "Synthetic stale approval acceptance"},
             review=True,
         )
         assert st == 200
-        st, out, _ = api("/ai-security/runtime-config")
-        assert st == 200
-        temporary.write_text(out)
-        temporary.chmod(0o600)
-        temporary.replace(dest)
+        refresh_catalog(current_revision)
         stale["approvalId"] = staleid
-        st, bundle, _ = api("/ai-security")
-        assert st == 200
-        bundle = json.loads(bundle)
         before_save = account()
-        st, saved, _ = api(
-            "/ai-security/configuration",
-            {
-                "expectedRevision": bundle["revision"],
-                "configuration": bundle["configuration"],
-            },
-            method="PUT",
-        )
-        assert st == 200
+        saved_revision = save_same_configuration()
         after_save = account()
         results.append(
             {
@@ -796,15 +996,13 @@ def main():
             delta=(0, 0, 0),
         )
         # Restore a usable published revision through real regression and independent review, without reactivating approvals.
-        publish_current()
+        publish_owned_revision(saved_revision)
         live = {
             "requestId": "mcp-live-" + run,
             "issuedAt": timestamp(-1),
             "expiresAt": timestamp(240),
         }
-        st, out, _ = api("/ai-security")
-        assert st == 200
-        current = json.loads(out)
+        current = checked_bundle(expected=current_revision)
         request = dict(
             r,
             requestId=live["requestId"],
@@ -817,6 +1015,7 @@ def main():
         )
         assert st == 201
         liveid = str(json.loads(out)["id"])
+        owned_approvals.add(int(liveid))
         st, _, _ = api(
             "/ai-security/approvals/" + liveid + "/review",
             {
@@ -826,11 +1025,7 @@ def main():
             review=True,
         )
         assert st == 200
-        st, out, _ = api("/ai-security/runtime-config")
-        assert st == 200
-        temporary.write_text(out)
-        temporary.chmod(0o600)
-        temporary.replace(dest)
+        refresh_catalog(current_revision)
         live["approvalId"] = liveid
         before = counters()
         worker = threading.Thread(
@@ -851,18 +1046,7 @@ def main():
         assert (
             counters()["mcp"] == before["mcp"] + 1
         ), "tool did not enter controlled response delay"
-        st, bundle, _ = api("/ai-security")
-        assert st == 200
-        bundle = json.loads(bundle)
-        st, _, _ = api(
-            "/ai-security/configuration",
-            {
-                "expectedRevision": bundle["revision"],
-                "configuration": bundle["configuration"],
-            },
-            method="PUT",
-        )
-        assert st == 200
+        saved_revision = save_same_configuration()
         worker.join(20)
         assert not worker.is_alive()
         audit = [
@@ -909,7 +1093,7 @@ def main():
             step=step,
         )
         save()
-        publish_current()
+        publish_owned_revision(saved_revision)
 
         keypair = []
         for label in ["parent", "child"]:

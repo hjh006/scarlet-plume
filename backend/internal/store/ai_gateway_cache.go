@@ -52,6 +52,9 @@ func gatewayCacheScope(ctx context.Context, tx pgx.Tx, in GatewayCacheScope) (ws
 		}
 		return
 	}
+	if _, err = gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); err != nil {
+		return
+	}
 	c, e := gatewayConfig(ctx, tx, ws, " FOR SHARE")
 	if e != nil {
 		err = e
@@ -119,6 +122,9 @@ func (s *Store) GetGatewayCache(ctx context.Context, in GatewayCacheScope) (out 
 		if e = gatewayCacheTaskCurrent(ctx, tx, ws, in, false); e != nil {
 			return e
 		}
+		if _, e = gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); e != nil {
+			return e
+		}
 		var payload []byte
 		e = tx.QueryRow(ctx, `UPDATE plume.ai_gateway_cache SET last_used_at=clock_timestamp() WHERE workspace_id=$1 AND application_id=$2 AND scope_hash=$3 AND key_version=$4 AND expires_at>clock_timestamp() RETURNING ciphertext`, ws, in.ApplicationID, scope, p.KeyVersion).Scan(&payload)
 		if errors.Is(e, pgx.ErrNoRows) {
@@ -168,6 +174,9 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 			return e
 		}
 		if e = gatewayCacheTaskCurrent(ctx, tx, ws, in.CacheScope, true); e != nil {
+			return e
+		}
+		if _, e = gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); e != nil {
 			return e
 		}
 		var state, app string

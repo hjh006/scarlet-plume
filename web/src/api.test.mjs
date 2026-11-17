@@ -33,3 +33,12 @@ test('HTTP requests retain cancellation and structured failure status', async ()
     await assert.rejects(request(url + '/slow', { signal: AbortSignal.timeout(30) }), e => e.name === 'TimeoutError')
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
 })
+
+test('write recovery distinguishes a lost result from a definite rejection and optional CAS recheck', async()=>{
+ const {mutationNeedsReadback}=await import('./api.ts')
+ for(const status of [400,401,403,404,422,429])assert.equal(mutationNeedsReadback(new ApiError(status,'')),false)
+ for(const status of [408,500,502,503])assert.equal(mutationNeedsReadback(new ApiError(status,'')),true)
+ assert.equal(mutationNeedsReadback(new Error('connection lost')),true)
+ assert.equal(mutationNeedsReadback(new ApiError(409,'')),false)
+ assert.equal(mutationNeedsReadback(new ApiError(409,''),true),true)
+})

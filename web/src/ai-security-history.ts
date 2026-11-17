@@ -21,3 +21,11 @@ export function aiHistoryRecordId(value:string|number):string {
   if(!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)))throw new Error('历史记录编号应为安全范围内的正整数。')
   return id
 }
+
+export function aiHistoryScopeLabel(collection:AIHistoryCollection,filters:AIHistoryFilters):string {
+ if(collection==='regression-packs')return '全部测试包版本'
+ if(collection!=='decisions')return aiHistoryStatuses[collection]?.[filters.status] || '全部保存状态'
+ const kinds:Record<string,string>={rag:'知识检索',model:'模型请求',tool:'工具动作',unknown:'未记录类型'}
+ const outcomes:Record<string,string>={allow:'允许',deny:'拒绝',approval_required:'需要批准'}
+ return (kinds[filters.kind] || '全部请求类型')+' / '+(outcomes[filters.outcome] || '全部策略决策')
+}

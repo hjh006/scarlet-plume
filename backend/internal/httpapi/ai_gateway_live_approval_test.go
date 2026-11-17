@@ -20,13 +20,23 @@ import (
 )
 
 func TestGatewayHighImpactApprovalInvalidatedWithoutCatalogChangeCannotExecute(t *testing.T) {
-	for _, mode := range []string{"current", "current_mcp_facade", "invalidated_before", "invalidated_at_admission", "invalidated_after_dispatch", "expired_at_admission", "reviewer_demoted", "arguments_changed", "parent_cancelled_at_admission", "parent_cancelled_after_dispatch"} {
+	for _, mode := range []string{"current", "current_mcp_facade", "invalidated_before", "invalidated_at_admission", "invalidated_after_dispatch", "expired_at_admission", "principal_expired_at_admission", "handling_expired_at_admission", "reviewer_demoted", "arguments_changed", "parent_cancelled_at_admission", "parent_cancelled_after_dispatch"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newIdentityHTTPFixture(t)
 			c := aisecurity.DefaultConfig()
 			c.Applications = []aisecurity.Application{{ID: "app", Enabled: true, PrincipalIDs: []string{"principal"}, ToolIDs: []string{"tool"}}}
 			c.Principals = []aisecurity.Principal{{ID: "principal", Enabled: true, ApplicationIDs: []string{"app"}}}
 			c.Tools = []aisecurity.Tool{{ID: "tool", Enabled: true, EndpointRef: "tool", AllowedApplicationIDs: []string{"app"}, AllowedPrincipalIDs: []string{"principal"}, Actions: []string{"update"}, Targets: []string{"record-17"}, AllowedArguments: map[string][]string{"status": {"reviewed", "pending"}}, RequiredArguments: []string{"status"}, HighImpact: true, Protocol: "mcp_http", ProtocolVersion: aisecurity.MCPVersion, TargetArgument: "recordId"}}
+			clockBase := time.Now().UTC()
+			deadline := clockBase.Add(3 * time.Second)
+			if mode == "principal_expired_at_admission" {
+				c.Policy.RequireAuthorizationLeases = true
+				c.Principals[0].AuthorizationExpiresAt = &deadline
+			}
+			if mode == "handling_expired_at_admission" {
+				c.Policy.RequireDataHandling = true
+				c.Tools[0].Handling = &aisecurity.DataHandling{TrainingUse: "prohibited", EvidenceRef: "synthetic-handling", AuthorizationExpiresAt: deadline}
+			}
 			saved, err := f.repo.SaveAISecurityConfiguration(t.Context(), f.ws.ID, f.owner.ID, 0, c)
 			if err != nil {
 				t.Fatal(err)
@@ -174,14 +184,22 @@ func TestGatewayHighImpactApprovalInvalidatedWithoutCatalogChangeCannotExecute(t
 			if mode == "expired_at_admission" {
 				runtimeOptions.Now = func() time.Time { return now }
 			}
+			if mode == "principal_expired_at_admission" || mode == "handling_expired_at_admission" {
+				runtimeOptions.Now = func() time.Time { return clockBase }
+			}
 			handler, err := aisecurity.NewGateway(aisecurity.GatewayOptions{Runtime: runtimeOptions, Tools: []aisecurity.GatewayTool{{Name: "reviewed-update", ToolID: "tool", Action: "update"}}, BeforeExecute: func(ctx context.Context, fact aisecurity.GatewayAuthorization) error {
-				if strings.HasSuffix(mode, "at_admission") && mode != "expired_at_admission" {
+				if strings.HasSuffix(mode, "at_admission") && !strings.Contains(mode, "expired_at_admission") {
 					if e := invalidate(); e != nil {
 						return e
 					}
 				}
 				if mode == "expired_at_admission" {
 					if _, e := f.pool.Exec(ctx, `SELECT pg_sleep(2.1)`); e != nil {
+						return e
+					}
+				}
+				if mode == "principal_expired_at_admission" || mode == "handling_expired_at_admission" {
+					if _, e := f.pool.Exec(ctx, `SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM $1::timestamptz-clock_timestamp()))+0.025)`, deadline); e != nil {
 						return e
 					}
 				}

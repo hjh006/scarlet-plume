@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
+	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -75,6 +76,11 @@ func (s *Store) RecordGatewayDenied(ctx context.Context, in GatewayDeniedEvent) 
 		if e := tx.QueryRow(ctx, `SELECT id FROM plume.workspaces WHERE slug=$1`, in.WorkspaceSlug).Scan(&ws); e != nil {
 			return storeError(e)
 		}
+		if in.Audit.Execution.CacheHit {
+			if _, e := gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.Audit.Decision.CatalogDigest, ApplicationID: in.Audit.Decision.ApplicationID, PrincipalID: in.Audit.Decision.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); e != nil {
+				return e
+			}
+		}
 		cfg, e := gatewayConfig(ctx, tx, ws, " FOR SHARE")
 		if e != nil {
 			return e
@@ -123,6 +129,9 @@ func (s *Store) RecordGatewayDenied(ctx context.Context, in GatewayDeniedEvent) 
 			}
 			var account int64
 			if e = tx.QueryRow(ctx, `SELECT reserved_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, credential).Scan(&account); e != nil {
+				return e
+			}
+			if _, e = gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: a.Decision.CatalogDigest, ApplicationID: a.Decision.ApplicationID, PrincipalID: a.Decision.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); e != nil {
 				return e
 			}
 			fact := GatewayAuthorizeInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: a.Decision.ApplicationID, PrincipalID: a.Decision.PrincipalID, CatalogDigest: a.Decision.CatalogDigest, Kind: "model", ModelID: in.ModelID, RequestID: a.RequestID, RequestDigest: a.Decision.RequestDigest, ParentRequestID: in.ParentRequestID, Attempt: in.Attempt}

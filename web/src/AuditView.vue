@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import './runtime-workspaces.css'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError, describeError, downloadFile, formatDate, request, workspacePath, type Workspace } from './api'
 import Icon from './Icon.vue'
 
@@ -32,6 +32,27 @@ const exporting = ref(false)
 const error = ref('')
 const exportError = ref('')
 const appliedQuery = ref('')
+const readAt = ref('')
+const appliedScope = computed(() => {
+  if (!appliedQuery.value) return ''
+  const query = new URLSearchParams(appliedQuery.value)
+  return [
+    `最近 ${query.get('hours')} 小时`,
+    ...(!actionsTab ? [query.has('sourceId') ? `来源 #${query.get('sourceId')}` : '全部来源', query.get('method') || '全部方法', query.has('status') ? `HTTP ${query.get('status')}` : '全部状态码', query.has('route') ? `路由包含 ${query.get('route')}` : '全部路由'] : []),
+  ].join(' · ')
+})
+const currentQuery = computed(() => {
+  const query = new URLSearchParams({ hours: String(hours.value) })
+  if (!actionsTab) {
+    if (sourceId.value) query.set('sourceId', sourceId.value)
+    if (method.value) query.set('method', method.value)
+    if (status.value !== '') query.set('status', String(status.value))
+    if (routeTemplate.value.trim()) query.set('route', routeTemplate.value.trim())
+  }
+  return query.toString()
+})
+const unappliedFilters = computed(() => !!appliedQuery.value && currentQuery.value !== appliedQuery.value)
+const queryButton = ref<HTMLButtonElement>()
 const selectedIndex = ref(0)
 const selectedRequest = computed(() => runtime.value?.items[selectedIndex.value] ?? runtime.value?.items[0])
 const selectedAction = computed(() => actions.value?.items[selectedIndex.value] ?? actions.value?.items[0])
@@ -81,25 +102,30 @@ async function loadSources() {
 
 async function load() {
   if (loading.value || exporting.value) return
+  const restoreQueryFocus = document.activeElement === queryButton.value
   loading.value = true
   error.value = ''
   exportError.value = ''
-  const query = new URLSearchParams({ hours: String(hours.value) })
-  if (!actionsTab) {
-    if (sourceId.value) query.set('sourceId', sourceId.value)
-    if (method.value) query.set('method', method.value)
-    if (status.value !== '') query.set('status', String(status.value))
-    if (routeTemplate.value.trim()) query.set('route', routeTemplate.value.trim())
-  }
+  const query = currentQuery.value
   try {
-    if (actionsTab) actions.value = await request<AuditPage<ActionAudit>>(apiPath + '?' + query, { signal: active.signal })
-    else runtime.value = await request<RequestAuditPage>(apiPath + '?' + query, { signal: active.signal })
-    appliedQuery.value = query.toString()
+    if (actionsTab) {
+      const next = await request<AuditPage<ActionAudit>>(apiPath + '?' + query, { signal: active.signal })
+      if (!next || !Array.isArray(next.items)) throw new Error('审计记录返回不完整，请重新查询；原查询范围仍保留。')
+      actions.value = next
+    } else {
+      const next = await request<RequestAuditPage>(apiPath + '?' + query, { signal: active.signal })
+      if (!next || !Array.isArray(next.items)) throw new Error('审计记录返回不完整，请重新查询；原查询范围仍保留。')
+      runtime.value = next
+    }
+    appliedQuery.value = query
+    readAt.value = new Date().toISOString()
     selectedIndex.value = 0
   } catch (failure) {
     error.value = errorText(failure)
   } finally {
     loading.value = false
+    await nextTick()
+    if (restoreQueryFocus && !active.signal.aborted && document.activeElement === document.body && queryButton.value?.isConnected && !queryButton.value.disabled) queryButton.value.focus()
   }
 }
 
@@ -185,12 +211,14 @@ onBeforeUnmount(() => active.abort())
                    spellcheck="false" autocapitalize="none">
           </div>
         </template>
-        <button type="submit" class="button button-secondary" :disabled="loading || exporting">{{ loading ? '正在查询…' : '查询' }}</button>
+        <button ref="queryButton" type="submit" class="button button-secondary" :disabled="loading || exporting">{{ loading ? '正在查询…' : '查询' }}</button>
       </form>
+      <p v-if="appliedQuery" class="field-hint audit-note audit-applied-scope">已应用范围：{{ appliedScope }}。读取于 <time :datetime="readAt">{{ formatDate(readAt, true) }}</time>。导出沿用此范围和查询上限。</p>
+      <p v-if="unappliedFilters" class="message audit-note" role="status">表单条件尚未应用，列表、详情与导出仍采用上次成功查询的范围。</p>
       <div v-if="sourceError" class="message message-error audit-note" role="alert"><p>观测来源列表暂不可用，可继续按其他条件查询。{{ sourceError }}</p><button type="button" class="button button-secondary" @click="loadSources">重试来源列表</button></div>
       <p v-if="error" class="message message-error audit-note" role="alert">{{ error }}</p>
-      <p v-else-if="loading" class="empty-state" role="status">正在读取审计记录…</p>
-      <template v-else-if="runtime || actions">
+      <p v-if="loading" class="empty-state" role="status">正在读取审计记录…</p>
+      <template v-if="runtime || actions">
         <p v-if="runtime" class="field-hint audit-note">
           保留最近 {{ runtime.retentionDays }} 天的记录<span v-if="runtime.retentionLimitPerSource">，每个来源最多 {{ runtime.retentionLimitPerSource }} 条</span>。
         </p>
@@ -238,7 +266,7 @@ onBeforeUnmount(() => active.abort())
         <p v-else class="empty-state">所选范围内暂无审计记录。</p>
         </details>
       </template>
-    </section><aside class="audit-detail-rail"><section class="panel"><p class="eyebrow">{{ actionsTab ? '操作详情' : '请求详情' }}</p><template v-if="selectedRequest && !actionsTab"><h2><span class="audit-method">{{ selectedRequest.method }}</span>{{ selectedRequest.route }}</h2><dl><div><dt>观察时间</dt><dd>{{ formatDate(selectedRequest.observedAt) }}</dd></div><div><dt>来源</dt><dd>{{ selectedRequest.source }} · #{{ selectedRequest.sourceId }}</dd></div><div><dt>服务</dt><dd>{{ selectedRequest.service }}</dd></div><div><dt>采集方式</dt><dd>{{ kindLabels[selectedRequest.kind] }}</dd></div><div><dt>状态码</dt><dd><span class="badge">{{ selectedRequest.status }}</span></dd></div><div><dt>审计编号</dt><dd>#{{ selectedRequest.id }}</dd></div></dl></template><template v-else-if="selectedAction"><h2>{{ actionLabels[selectedAction.action] || selectedAction.action }}</h2><dl><div><dt>操作时间</dt><dd>{{ formatDate(selectedAction.at) }}</dd></div><div><dt>经办人</dt><dd>{{ selectedAction.actor }}</dd></div><div><dt>对象</dt><dd>{{ targetLabels[selectedAction.targetType] || selectedAction.targetType }} #{{ selectedAction.targetId }}</dd></div><div><dt>登记方式</dt><dd>{{ selectedAction.automated ? '自动登记' : '平台操作' }}</dd></div></dl><a v-if="targetPaths[selectedAction.targetType]" class="button button-secondary" :href="home + targetPaths[selectedAction.targetType] + selectedAction.targetId">打开关联对象</a></template><p v-else>选择记录查看来源与审计标识。</p></section><section class="panel"><h2>查询与留存</h2><p>当前列表 {{ runtime?.items.length ?? actions?.items.length ?? 0 }} 条。{{ runtime?.truncated || actions?.truncated ? '已达到本次查询上限，请缩小查询范围。' : '数量仅代表本次查询返回的记录。' }}</p><p v-if="runtime">保留最近 {{ runtime.retentionDays }} 天<span v-if="runtime.retentionLimitPerSource">，每个来源最多 {{ runtime.retentionLimitPerSource }} 条</span>。</p><p>导出沿用最近一次成功查询的条件和展示上限。</p></section></aside></div>
+    </section><aside class="audit-detail-rail"><section class="panel"><p class="eyebrow">{{ actionsTab ? '操作详情' : '请求详情' }}</p><template v-if="selectedRequest && !actionsTab"><h2><span class="audit-method">{{ selectedRequest.method }}</span>{{ selectedRequest.route }}</h2><dl><div><dt>观察时间</dt><dd>{{ formatDate(selectedRequest.observedAt) }}</dd></div><div><dt>来源</dt><dd>{{ selectedRequest.source }} · #{{ selectedRequest.sourceId }}</dd></div><div><dt>服务</dt><dd>{{ selectedRequest.service }}</dd></div><div><dt>采集方式</dt><dd>{{ kindLabels[selectedRequest.kind] }}</dd></div><div><dt>状态码</dt><dd><span class="badge">{{ selectedRequest.status }}</span></dd></div><div><dt>审计编号</dt><dd>#{{ selectedRequest.id }}</dd></div></dl></template><template v-else-if="selectedAction"><h2>{{ actionLabels[selectedAction.action] || selectedAction.action }}</h2><dl><div><dt>操作时间</dt><dd>{{ formatDate(selectedAction.at) }}</dd></div><div><dt>经办人</dt><dd>{{ selectedAction.actor }}</dd></div><div><dt>对象</dt><dd>{{ targetLabels[selectedAction.targetType] || selectedAction.targetType }} #{{ selectedAction.targetId }}</dd></div><div><dt>登记方式</dt><dd>{{ selectedAction.automated ? '自动登记' : '平台操作' }}</dd></div></dl><a v-if="targetPaths[selectedAction.targetType]" class="button button-secondary" :href="home + targetPaths[selectedAction.targetType] + selectedAction.targetId">打开关联对象</a></template><p v-else>{{ appliedQuery ? '选择记录查看来源与审计标识。' : '尚未成功读取记录，详情未知。' }}</p></section><section class="panel"><h2>查询与留存</h2><p v-if="appliedQuery">当前列表 {{ runtime?.items.length ?? actions?.items.length ?? 0 }} 条。{{ runtime?.truncated || actions?.truncated ? '已达到本次查询上限，请缩小查询范围。' : '数量仅代表本次查询返回的记录。' }}</p><p v-else>记录数量尚未核实，请先完成一次成功查询。</p><p v-if="runtime">保留最近 {{ runtime.retentionDays }} 天<span v-if="runtime.retentionLimitPerSource">，每个来源最多 {{ runtime.retentionLimitPerSource }} 条</span>。</p><p>导出沿用最近一次成功查询的条件和展示上限。</p></section></aside></div>
   </div>
 </template>
 
@@ -247,6 +275,7 @@ onBeforeUnmount(() => active.abort())
 .audit-filter { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; padding: .85rem 1.1rem; border-bottom: 1px solid var(--line); }
 .audit-filter .field { flex: 1 1 8.5rem; min-width: 0; max-width: 16rem; margin: 0; }
 .audit-note { margin: .75rem 1.1rem; }
+.audit-applied-scope { overflow-wrap: anywhere; line-height: 1.8; }
 .audit-table { min-width: 39rem; }
 .audit-actions-table { min-width: 29rem; }
 .audit-table th, .audit-table td { overflow-wrap: anywhere; }

@@ -5,8 +5,23 @@ export const dataEndpointStageLabels: Record<string,string> = {preflight:'执行
 export interface DataEndpointEvidence {version:number;policyId?:number;policyRevision?:number;scope:string;stage:string;executor:string;operationRef:string}
 export interface DataContext {kind:string;channel:string;subjectRef?:string;deviceRef?:string;fileDigest?:string;fileType?:string;categories:string[];destinationDomain?:string;operation:string;enforcement:string;capture:string;databaseRef?:string;objectRef?:string;statementRef?:string;records?:number;policyDigest?:string;endpoint?:DataEndpointEvidence}
 export interface DataEvent {id:number;sourceId:number;source:string;sourceCurrent:boolean;checkId:number;observedAt:string;rule:string;severity:string;dataContext:DataContext}
-export interface DataScope {sourceId:number;subjectRef?:string;deviceRef?:string;channel?:string;from:string;to:string}
+export interface DataScope {sourceId?:number;subjectRef?:string;deviceRef?:string;channel?:string;from:string;to:string}
 export interface DataWindow {scope:DataScope;items:DataEvent[];total:number;truncated:boolean}
 export interface DataChain {eventIds:number[];sourceId:number;subjectRef?:string;deviceRef?:string;channels:string[];summary:string}
 export interface DataCase {id:number;title:string;scope:DataScope;snapshotDigest:string;actor:string;createdAt:string;snapshot:{window:DataWindow;chains:DataChain[];coverage:string[];engineVersion:string};notes:{id:number;kind:string;snapshot:Record<string,unknown>;actor:string;createdAt:string}[]}
+export function sameDataScope(left:DataScope,right:DataScope):boolean {
+  const from=Date.parse(left.from),to=Date.parse(left.to)
+  return Number.isFinite(from) && Number.isFinite(to) && from===Date.parse(right.from) && to===Date.parse(right.to) && (left.sourceId || 0)===(right.sourceId || 0) && (left.subjectRef || '')===(right.subjectRef || '') && (left.deviceRef || '')===(right.deviceRef || '') && (left.channel || '')===(right.channel || '')
+}
+export function checkedDataCase(id:number,received:DataCase,original?:DataCase):DataCase {
+  if(received.id!==id || original && (original.id!==id || original.snapshotDigest!==received.snapshotDigest || !sameDataScope(original.scope,received.scope)))throw new Error('返回调查与原快照绑定不一致，请重新读取原记录，不能改用其他范围。')
+  return received
+}
 export function dataCaseAIPreview(c:DataCase){const chains=new Map<number,number>();c.snapshot.chains.forEach((chain,index)=>chain.eventIds.forEach(id=>chains.set(id,index+1)));return c.snapshot.window.items.map(e=>({eventId:e.id,chain:chains.get(e.id),kind:e.dataContext.kind,channel:e.dataContext.channel,rule:e.rule,severity:e.severity,enforcement:e.dataContext.enforcement,categories:e.dataContext.categories,sourceCurrentAtSnapshot:e.sourceCurrent,capture:e.dataContext.capture}))}
+
+export function dataCaseCreatePayload(title:string,displayed:DataWindow,requested:DataScope):{title:string;scope:DataScope} {
+  if(!displayed || !Array.isArray(displayed.items) || !displayed.items.length)throw new Error('至少需要一条已读取事件，才能创建调查快照。')
+  if(!sameDataScope(displayed.scope,requested))throw new Error('筛选范围已变化，请先重新查询事件。')
+  const {sourceId,subjectRef,deviceRef,channel,from,to}=displayed.scope
+  return {title:title.trim(),scope:{sourceId,subjectRef,deviceRef,channel,from,to}}
+}

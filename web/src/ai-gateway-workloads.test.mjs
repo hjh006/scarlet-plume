@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { workloadDraft, workloadExchangeExample, workloadPayload, workloadPublicKeys } from './ai-gateway-workloads.ts'
+import { workloadDraft, workloadExchangeExample, workloadPayload, workloadPublicKeys, workloadResumeDraft } from './ai-gateway-workloads.ts'
 import { gatewayCredentialActive } from './ai-gateway.ts'
 
 const key={kty:'OKP',kid:'runtime-key-v1',use:'sig',alg:'EdDSA',crv:'Ed25519',x:'A'.repeat(43)}
@@ -49,4 +49,18 @@ test('machine exchange example contains placeholders and one exact scoped bindin
   assert.ok(example.includes('/workspaces/space%20%2F%20a/ai-gateway/workload-token'))
   assert.ok(example.includes('"bindingId": 12'))
   assert.ok(example.includes('<工作负载以受信任私钥签发的短期 JWT>'))
+})
+
+test('exact workload claims reject surrounding whitespace rather than silently changing the identity',()=>{
+ const draft=validDraft()
+ for(const key of ['issuer','audience','subject'])for(const value of [' '+draft[key],draft[key]+' '])assert.throws(()=>workloadPayload({...draft,[key]:value}),/首尾空白/)
+ assert.equal(workloadPayload({...draft,subject:'exact interior space'}).subject,'exact interior space')
+})
+test('workload recovery preserves the draft and adopts only the original binding revision and current enablement',()=>{
+ const draft={...validDraft(),id:4,revision:2,enabled:true}
+ const current={...draft,revision:5,enabled:false,subject:'server-claim'}
+ const restored=workloadResumeDraft(draft,current)
+ assert.equal(restored.subject,draft.subject);assert.equal(restored.revision,5);assert.equal(restored.enabled,false)
+ assert.equal(draft.revision,2)
+ for(const override of [{id:6},{revision:0}])assert.throws(()=>workloadResumeDraft(draft,{...current,...override}))
 })

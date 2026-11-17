@@ -177,3 +177,14 @@ test('front-end configuration bounds match the control-plane catalog and provide
   assert.throws(()=>gatewayConfigurationPayload(7,true,[app],[{...provider,provider:'provider/untrusted'}],digest))
   assert.throws(()=>gatewayConfigurationPayload(7,true,Array.from({length:201},(_,i)=>({...app,id:'app-'+i})),[provider],digest))
 })
+
+test('lost credential responses require original-app metadata and never interpret a missing known key as revoked',async()=>{
+ const {gatewayCredentialCanPrepare}=await import('./ai-gateway.ts')
+ const recovery={applicationId:'app-a',read:true,issuedId:12},filters={applicationId:'app-a',state:''}
+ assert.equal(gatewayCredentialCanPrepare({...recovery,read:false},{items:[]},filters),false)
+ assert.equal(gatewayCredentialCanPrepare(recovery,{items:[]},filters),false)
+ assert.equal(gatewayCredentialCanPrepare(recovery,{items:[{id:12,applicationId:'app-a',enabled:true}]},filters),false)
+ assert.equal(gatewayCredentialCanPrepare(recovery,{items:[{id:12,applicationId:'app-a',enabled:false}]},filters),true)
+ assert.equal(gatewayCredentialCanPrepare({applicationId:'app-a',read:true},{items:[]},{applicationId:'other',state:''}),false)
+ assert.equal(gatewayCredentialCanPrepare({applicationId:'app-a',read:true},{items:[]},{applicationId:'app-a',state:'expired'}),false)
+})

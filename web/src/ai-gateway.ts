@@ -165,3 +165,8 @@ export function gatewayAuditSummary(event:GatewayAudit):string {
   }
   return values.join(' · ') || '查看动作、对象与链摘要；完整非正文证据可分页导出。'
 }
+
+export function gatewayCredentialCanPrepare(recovery:{applicationId:string;read:boolean;issuedId?:number}|undefined,page:GatewayCredentialPage|null,filters:GatewayCredentialFilters):boolean {
+  if(!recovery?.read || !page || filters.applicationId!==recovery.applicationId || filters.state)return false
+  return !recovery.issuedId || page.items.some(item=>item.id===recovery.issuedId && item.applicationId===recovery.applicationId && !item.enabled)
+}

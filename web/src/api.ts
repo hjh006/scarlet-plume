@@ -229,3 +229,9 @@ export function documentationUrl(value: string) {
     return undefined
   }
 }
+
+// A transport failure or a server-side error may arrive after the write committed.
+// A CAS conflict also needs a fresh read, although it does not prove a new write.
+export function mutationNeedsReadback(cause:unknown,includeConflict=false):boolean {
+  return !(cause instanceof ApiError) || cause.status>=500 || cause.status===408 || includeConflict && cause.status===409
+}
