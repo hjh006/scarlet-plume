@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
@@ -119,7 +120,7 @@ func (s *Store) GetGatewayCache(ctx context.Context, in GatewayCacheScope) (out 
 		if e = tx.QueryRow(ctx, `SELECT reserved_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, in.ApplicationID).Scan(&dummy); e != nil {
 			return e
 		}
-		if e = gatewayCacheTaskCurrent(ctx, tx, ws, in, false); e != nil {
+		if _, e = gatewayCacheTaskCurrent(ctx, tx, ws, in, false); e != nil {
 			return e
 		}
 		if _, e = gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); e != nil {
@@ -173,10 +174,12 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 		if e = tx.QueryRow(ctx, `SELECT reserved_micros FROM plume.ai_gateway_accounts WHERE workspace_id=$1 AND application_id=$2 FOR UPDATE`, ws, in.ApplicationID).Scan(&dummy); e != nil {
 			return e
 		}
-		if e = gatewayCacheTaskCurrent(ctx, tx, ws, in.CacheScope, true); e != nil {
+		taskExpiry, e := gatewayCacheTaskCurrent(ctx, tx, ws, in.CacheScope, true)
+		if e != nil {
 			return e
 		}
-		if _, e = gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, Kind: "model", ModelID: in.ModelID}, true); e != nil {
+		policy, e := gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, Kind: "model", ModelID: in.ModelID}, true)
+		if e != nil {
 			return e
 		}
 		var state, app string
@@ -225,13 +228,24 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 		if _, e = tx.Exec(ctx, `DELETE FROM plume.ai_gateway_cache WHERE workspace_id=$1 AND application_id=$2 AND (expires_at<=clock_timestamp() OR key_version<>$3)`, ws, in.ApplicationID, p.KeyVersion); e != nil {
 			return e
 		}
-		if _, e = tx.Exec(ctx, `INSERT INTO plume.ai_gateway_cache(workspace_id,application_id,scope_hash,key_version,ciphertext,size_bytes,expires_at) VALUES($1,$2,$3,$4,$5,$6,clock_timestamp()+$7*interval '1 second') ON CONFLICT(workspace_id,application_id,scope_hash) DO UPDATE SET key_version=EXCLUDED.key_version,ciphertext=EXCLUDED.ciphertext,size_bytes=EXCLUDED.size_bytes,expires_at=EXCLUDED.expires_at,last_used_at=clock_timestamp()`, ws, in.ApplicationID, scope, p.KeyVersion, encrypted, len(encrypted), p.TTLSeconds); e != nil {
+		var expires time.Time
+		e = tx.QueryRow(ctx, `
+			WITH retention AS (SELECT LEAST(statement_timestamp()+$7*interval '1 second',$8::timestamptz,$9::timestamptz) AS deadline)
+			INSERT INTO plume.ai_gateway_cache(workspace_id,application_id,scope_hash,key_version,ciphertext,size_bytes,expires_at)
+			SELECT $1,$2,$3,$4,$5,$6,deadline FROM retention WHERE deadline>clock_timestamp()
+			ON CONFLICT(workspace_id,application_id,scope_hash) DO UPDATE
+			SET key_version=EXCLUDED.key_version,ciphertext=EXCLUDED.ciphertext,size_bytes=EXCLUDED.size_bytes,expires_at=EXCLUDED.expires_at,last_used_at=clock_timestamp()
+			RETURNING expires_at`, ws, in.ApplicationID, scope, p.KeyVersion, encrypted, len(encrypted), p.TTLSeconds, policy.expiresAt, taskExpiry).Scan(&expires)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if e != nil {
 			return e
 		}
 		if _, e = tx.Exec(ctx, `DELETE FROM plume.ai_gateway_cache WHERE workspace_id=$1 AND application_id=$2 AND scope_hash IN (SELECT scope_hash FROM (SELECT scope_hash,row_number() OVER (ORDER BY last_used_at DESC,scope_hash) n,sum(size_bytes) OVER (ORDER BY last_used_at DESC,scope_hash) total FROM plume.ai_gateway_cache WHERE workspace_id=$1 AND application_id=$2) ranked WHERE n>$3 OR total>$4)`, ws, in.ApplicationID, p.MaxEntries, p.MaxBytes); e != nil {
 			return e
 		}
-		return identityAudit(ctx, tx, ws, 0, "gateway.cache_stored", scope, map[string]any{"applicationId": in.ApplicationID, "modelId": in.ModelID, "outputHash": in.OutputHash, "keyVersion": p.KeyVersion, "ttlSeconds": p.TTLSeconds})
+		return identityAudit(ctx, tx, ws, 0, "gateway.cache_stored", scope, map[string]any{"applicationId": in.ApplicationID, "modelId": in.ModelID, "outputHash": in.OutputHash, "keyVersion": p.KeyVersion, "ttlSeconds": p.TTLSeconds, "expiresAt": expires})
 	})
 }
 
@@ -275,10 +289,10 @@ func (s *Store) InvalidateGatewayCache(ctx context.Context, ws, actor int64, app
 	return
 }
 
-func gatewayCacheTaskCurrent(ctx context.Context, tx pgx.Tx, ws int64, in GatewayCacheScope, allowCompleted bool) error {
+func gatewayCacheTaskCurrent(ctx context.Context, tx pgx.Tx, ws int64, in GatewayCacheScope, allowCompleted bool) (*time.Time, error) {
 	if in.TaskID == "" {
-		return nil
+		return nil, nil
 	}
 	fact := GatewayAuthorizeInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: "model", ModelID: in.ModelID, RequestID: in.TaskStepID, RequestDigest: in.TaskStepDigest}
-	return gatewayTaskCacheCurrentStatus(ctx, tx, ws, fact, allowCompleted)
+	return gatewayTaskCacheExpiry(ctx, tx, ws, fact, allowCompleted)
 }

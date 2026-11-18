@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,nextTick,onMounted,onUnmounted,ref} from 'vue'
+import {computed,nextTick,onMounted,onUnmounted,reactive,ref} from 'vue'
 import {ApiError,describeError,downloadFile,formatDate,request,workspacePath,type Workspace} from './api'
 import {gatewayDollars,gatewayCredentialActive,type GatewayConfiguration,type GatewayCredential} from './ai-gateway'
 import {type AISecurityBundle} from './ai-security'
@@ -19,11 +19,13 @@ const page=ref<GatewayTaskPage|null>(null),after=ref(''),history=ref<string[]>([
 const selectedId=ref(''),detail=ref<GatewayTaskDetail|null>(null),parent=ref<GatewayTask|null>(null)
 const stepsPage=ref<GatewayTaskStepPage|null>(null),stepsBefore=ref(''),stepsHistory=ref<string[]>([]),stepsLoading=ref(false),stepsError=ref(''),catalogError=ref('')
 const loading=ref(false),detailLoading=ref(false),busy=ref(''),error=ref(''),feedback=ref(''),reason=ref('')
+const pageError=ref(''),detailError=ref(''),pageReadAt=ref('')
 const draft=ref(taskDraft()),form=ref<HTMLFormElement|null>(null)
 const statusDialog=ref<HTMLDialogElement>(),statusError=ref('')
 const taskDetailTitle=ref<HTMLElement>()
 const statusPlan=ref<GatewayTaskStatusReview>()
-const unverifiedStatusTasks=new Set<string>()
+const unverifiedStatusTasks=reactive(new Set<string>())
+const statusUnverified=computed(()=>unverifiedStatusTasks.has(selectedId.value))
 const documentScope=ref(''),categoryScope=ref('')
 const toolActions=ref<Record<string,string>>(Object.create(null)),toolTargets=ref<Record<string,string>>(Object.create(null)),catalogTools=ref<AIRecord[]>([])
 const clock=ref(Date.now())
@@ -32,38 +34,61 @@ const app=computed(()=>props.configuration.applications.find(item=>item.id===dra
 const availableCredentials=computed(()=>props.credentials.filter(item=>gatewayCredentialActive(item,clock.value) && item.applicationId===draft.value.applicationId))
 const modelOptions=computed(()=>(app.value?.modelIds || []).filter(id=>!parent.value || (parent.value.modelIds || []).includes(id)))
 const toolOptions=computed(()=>(app.value?.toolIds || []).filter(id=>!parent.value || (parent.value.toolIds || []).includes(id)))
-const delegationIssue=computed(()=>detail.value && detail.value.task.id===selectedId.value?taskDelegationIssue(detail.value.task,clock.value):'请先读取当前任务范围。')
+const delegationIssue=computed(()=>statusUnverified.value?'结束操作尚未核实，先重新读取此任务，再准备委托。':!detailError.value && detail.value && detail.value.task.id===selectedId.value?taskDelegationIssue(detail.value.task,clock.value):'请先读取当前任务范围。')
 const canDelegate=computed(()=>!!detail.value && !delegationIssue.value)
 function lifecycle(task:GatewayTask){return taskLifecycleState(task,clock.value)}
 function status(task:GatewayTask){const value=lifecycle(task);return taskStatusLabels[value] || value}
-function handleError(cause:unknown){
-  if(controller.signal.aborted)return
+function errorText(cause:unknown){
   if(cause instanceof ApiError && cause.status===401)emit('sessionExpired')
-  error.value=cause instanceof ApiError && [400,403,409].includes(cause.status) && cause.message?cause.message:describeError(cause)
+  return cause instanceof ApiError && [400,403,409].includes(cause.status) && cause.message?cause.message:describeError(cause)
+}
+function handleError(cause:unknown){
+  if(!controller.signal.aborted)error.value=errorText(cause)
+}
+function usableTask(task:GatewayTask|undefined,id?:string):boolean {
+  return !!task && typeof task.id==='string' && task.id.length>0 && (!id || task.id===id) &&
+    ['active','cancelled','completed'].includes(task.status) && Number.isSafeInteger(task.revision) && task.revision>0 &&
+    Number.isFinite(Date.parse(task.expiresAt)) && [task.applicationId,task.principalId,task.purpose].every(value=>typeof value==='string' && value.length>0) &&
+    [task.stepsUsed,task.maxSteps,task.spentMicros,task.reservedMicros,task.budgetMicros,task.depth,task.maxDelegationDepth,task.credentialId].every(Number.isSafeInteger)
 }
 async function loadPage(cursor=after.value,remember=false){
   if(loading.value)return
-  loading.value=true;error.value=''
-  try{const next=await request<GatewayTaskPage>(base+'?limit=100&after='+encodeURIComponent(cursor),{signal:controller.signal});if(controller.signal.aborted)return;if(remember)history.value.push(after.value);page.value={...next,items:next.items || []};after.value=cursor;return true}catch(cause){handleError(cause)}finally{loading.value=false}
+  loading.value=true;pageError.value=''
+  try{
+    const next=await request<GatewayTaskPage>(base+'?limit=100&after='+encodeURIComponent(cursor),{signal:controller.signal})
+    if(controller.signal.aborted)return
+    if(!Array.isArray(next?.items) || !next.items.every(item=>usableTask(item)) || typeof next.hasMore!=='boolean' || typeof next.nextCursor!=='string'){
+      pageError.value='任务列表响应不完整，本次查询未更新。';return
+    }
+    if(remember)history.value.push(after.value)
+    else if(!cursor)history.value=[]
+    page.value=next;after.value=cursor;pageReadAt.value=new Date().toISOString()
+    return true
+  }catch(cause){if(!controller.signal.aborted)pageError.value=errorText(cause)}finally{loading.value=false}
 }
 async function previousPage(){const cursor=history.value.at(-1);if(cursor!==undefined && await loadPage(cursor))history.value.pop()}
 async function selectTask(id:string,clearReason=true){
-  const next=++generation;selectedId.value=id;detailLoading.value=true;error.value='';stepsPage.value=null;stepsBefore.value='';stepsHistory.value=[];stepsError.value='';if(detail.value?.task.id!==id)detail.value=null
+  const next=++generation;selectedId.value=id;detailLoading.value=true;detailError.value=''
+  if(detail.value?.task.id!==id){detail.value=null;stepsPage.value=null;stepsBefore.value='';stepsHistory.value=[];stepsError.value=''}
   if(clearReason)reason.value=''
   else if(statusPlan.value?.id===id && statusPlan.value.requiresReadback)reason.value=statusPlan.value.payload.reason
   try{
     const result=await request<GatewayTaskDetail>(base+'/'+encodeURIComponent(id)+'?limit=100',{signal:controller.signal})
     if(controller.signal.aborted || next!==generation)return
-    if(result.task.id!==id)throw new Error('返回任务与所选记录不一致，请重新读取原任务。')
-    detail.value={...result,steps:result.steps || []};unverifiedStatusTasks.delete(id)
+    if(!usableTask(result?.task,id)){
+      detailError.value='未取得所选任务的有效状态、期限和修订，请重新读取原任务。'
+      if(statusPlan.value?.id===id)statusError.value=detailError.value
+      return
+    }
+    detail.value=result;unverifiedStatusTasks.delete(id)
     if(statusPlan.value?.id===id && statusPlan.value.requiresReadback){statusPlan.value=taskStatusReviewReadBack(statusPlan.value,result.task);statusError.value=''}
     if(page.value)page.value.items=page.value.items.map(item=>item.id===result.task.id?result.task:item)
     if(parent.value?.id===result.task.id)parent.value=result.task
     await loadSteps('',false,id,next)
   }catch(cause){
     if(controller.signal.aborted || next!==generation)return
-    handleError(cause)
-    if(statusPlan.value?.id===id && statusPlan.value.requiresReadback){statusPlan.value=taskStatusReviewFailed(statusPlan.value);unverifiedStatusTasks.add(id);statusError.value=describeError(cause)}
+    detailError.value=errorText(cause)
+    if(statusPlan.value?.id===id && statusPlan.value.requiresReadback){statusPlan.value=taskStatusReviewFailed(statusPlan.value);unverifiedStatusTasks.add(id);statusError.value=detailError.value}
   }finally{if(next===generation)detailLoading.value=false}
 }
 async function loadSteps(before='',remember=false,id=selectedId.value,expectedGeneration=generation){
@@ -72,9 +97,10 @@ async function loadSteps(before='',remember=false,id=selectedId.value,expectedGe
   try {
     const next=await request<GatewayTaskStepPage>(base+'/'+encodeURIComponent(id)+'/steps?limit=100'+(before?'&before='+encodeURIComponent(before):''),{signal:controller.signal})
     if(controller.signal.aborted || expectedGeneration!==generation || id!==selectedId.value)return
+    if(!Array.isArray(next?.items) || typeof next.hasMore!=='boolean' || typeof next.nextCursor!=='string'){stepsError.value='步骤页响应不完整，本次查询未更新。';return}
     if(remember)stepsHistory.value.push(stepsBefore.value)
     else if(!before)stepsHistory.value=[]
-    stepsPage.value={...next,items:next.items || []};stepsBefore.value=before
+    stepsPage.value=next;stepsBefore.value=before
     return true
   } catch(cause) {
     if(controller.signal.aborted || expectedGeneration!==generation)return
@@ -91,7 +117,12 @@ async function refresh(){await loadPage();if(selectedId.value)await selectTask(s
 async function refreshCredentialEvidence(){
   const id=selectedId.value,version=generation
   if(!id)return
-  try{const result=await request<GatewayTaskDetail>(base+'/'+encodeURIComponent(id)+'?limit=100',{signal:controller.signal});if(controller.signal.aborted || generation!==version || selectedId.value!==id)return;detail.value=result;await loadSteps('',false,id,version);await loadPage()}catch(cause){handleError(cause)}
+  try{
+    const result=await request<GatewayTaskDetail>(base+'/'+encodeURIComponent(id)+'?limit=100',{signal:controller.signal})
+    if(controller.signal.aborted || generation!==version || selectedId.value!==id)return
+    if(!usableTask(result?.task,id)){detailError.value='未取得所选任务的有效状态、期限和修订，请重新读取原任务。';return}
+    detailError.value='';detail.value=result;await loadSteps('',false,id,version);await loadPage()
+  }catch(cause){if(!controller.signal.aborted && generation===version)detailError.value=errorText(cause)}
 }
 async function loadToolCatalog(){
   catalogError.value=''
@@ -101,7 +132,7 @@ async function loadToolCatalog(){
 function toolCandidates(id:string,key:'actions'|'targets'):string[] {if(parent.value)return parent.value.toolScopes?.find(scope=>scope.toolId===id)?.[key] || [];const values=catalogTools.value.find(item=>item.id===id)?.[key];return Array.isArray(values)?values.filter((value):value is string=>typeof value==='string'):[]}
 function newRoot(){parent.value=null;draft.value=taskDraft();documentScope.value='';categoryScope.value='';toolActions.value=Object.create(null);toolTargets.value=Object.create(null);error.value='';feedback.value='';focusTaskForm()}
 function delegate(){
-  if(!canWrite.value || !detail.value || detail.value.task.id!==selectedId.value)return
+  if(!canWrite.value || !detail.value || detailError.value || detail.value.task.id!==selectedId.value)return
   clock.value=Date.now()
   const issue=taskDelegationIssue(detail.value.task,clock.value)
   if(issue){error.value=issue;feedback.value='';return}
@@ -110,13 +141,14 @@ function delegate(){
 function changeApp(){draft.value.credentialId=0;draft.value.modelIds=[];draft.value.toolIds=[];draft.value.documentIds=[];draft.value.allowedCategories=[];documentScope.value='';categoryScope.value='';toolActions.value=Object.create(null);toolTargets.value=Object.create(null)}
 async function create(){
   if(!canWrite.value || busy.value)return
+  if(parent.value && unverifiedStatusTasks.has(parent.value.id)){error.value='父任务的结束操作尚未核实，请先重新读取该任务。';return}
   let payload:ReturnType<typeof taskCreatePayload>
   try{payload=taskCreatePayload({...draft.value,documentIds:taskScope(documentScope.value),allowedCategories:taskScope(categoryScope.value),toolScopes:draft.value.toolIds.map(toolId=>({toolId,actions:taskScope(toolActions.value[toolId] || ''),targets:(toolTargets.value[toolId] || '').split(/\r?\n/).filter(value=>value.length>0)}))},props.configuration,props.credentials,parent.value || undefined)}catch(cause){error.value=cause instanceof Error?cause.message:'请核对任务范围。';return}
   busy.value='create';error.value='';feedback.value=''
-  try{const result=await request<GatewayTask>(base,{method:'POST',body:JSON.stringify(payload),signal:controller.signal});parent.value=null;draft.value=taskDraft();documentScope.value='';categoryScope.value='';toolActions.value=Object.create(null);toolTargets.value=Object.create(null);await loadPage('');history.value=[];await selectTask(result.id);feedback.value='任务授权已创建。只有实际执行点采用此任务并通过全部检查后，才会产生步骤与用量证据。'}catch(cause){handleError(cause)}finally{busy.value=''}
+  try{const result=await request<GatewayTask>(base,{method:'POST',body:JSON.stringify(payload),signal:controller.signal});parent.value=null;draft.value=taskDraft();documentScope.value='';categoryScope.value='';toolActions.value=Object.create(null);toolTargets.value=Object.create(null);await loadPage('');await selectTask(result.id);feedback.value='任务授权已创建。采用此任务的实际调用会留下步骤与用量记录。'}catch(cause){handleError(cause)}finally{busy.value=''}
 }
 async function requestStatus(state:'cancelled'|'completed'){
-  if(!canWrite.value || !detail.value || detailLoading.value || detail.value.task.id!==selectedId.value || busy.value)return
+  if(!canWrite.value || !detail.value || detailLoading.value || detailError.value || detail.value.task.id!==selectedId.value || busy.value)return
   try{statusPlan.value=taskStatusReview(detail.value.task,state,reason.value,unverifiedStatusTasks)}catch(cause){error.value=cause instanceof Error?cause.message:'请核对任务状态。';return}
   statusError.value=''
   statusReturnFocus=document.activeElement instanceof HTMLElement && document.activeElement!==document.body?document.activeElement:undefined
@@ -135,9 +167,16 @@ async function statusClosed(){
 }
 async function submitStatus(){
   const plan=statusPlan.value
-  if(!canWrite.value || !plan || busy.value || selectedId.value!==plan.id || !taskStatusReviewReady(plan,detail.value?.task))return
+  if(!canWrite.value || !plan || busy.value || detailLoading.value || detailError.value || selectedId.value!==plan.id || !taskStatusReviewReady(plan,detail.value?.task))return
   busy.value='status';error.value='';feedback.value=''
-  try{await request(base+'/'+encodeURIComponent(plan.id)+'/status',{method:'POST',body:JSON.stringify(plan.payload),signal:controller.signal});statusDialog.value?.close();reason.value='';await selectTask(plan.id,false);await loadPage();feedback.value='任务状态已更新，后续执行和委托会重新核对全部祖先状态；此前已经发生的副作用及未决费用仍需核对。'}catch(cause){handleError(cause);statusError.value=error.value;unverifiedStatusTasks.add(plan.id);statusPlan.value=taskStatusReviewFailed(plan)}finally{busy.value=''}
+  try{
+    const result=await request<GatewayTask>(base+'/'+encodeURIComponent(plan.id)+'/status',{method:'POST',body:JSON.stringify(plan.payload),signal:controller.signal})
+    if(!usableTask(result,plan.id) || result.status!==plan.payload.status || result.revision<=plan.payload.expectedRevision)throw new Error('缺少匹配的任务状态回执。')
+    if(detail.value?.task.id===plan.id)detail.value={...detail.value,task:result}
+    statusDialog.value?.close();reason.value=''
+    await selectTask(plan.id,false);await loadPage()
+    feedback.value='任务状态已更新。后续执行须通过祖先状态核对，此前已发生的副作用及未决费用仍需核对。'
+  }catch(cause){if(!controller.signal.aborted){statusError.value=errorText(cause);unverifiedStatusTasks.add(plan.id);statusPlan.value=taskStatusReviewFailed(plan)}}finally{busy.value=''}
 }
 async function exportDetail(){if(!detail.value || detail.value.task.id!==selectedId.value || busy.value)return;busy.value='export';error.value='';try{await downloadFile(base+'/'+encodeURIComponent(detail.value.task.id)+'?limit=200','scarlet-agent-task-'+detail.value.task.id+'.json',controller.signal)}catch(cause){handleError(cause)}finally{busy.value=''}}
 function openLinkedTask(){const id=new URLSearchParams(window.location.hash.split('?')[1] || '').get('task');if(id && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(id) && selectedId.value!==id)void selectTask(id)}
@@ -150,26 +189,29 @@ onUnmounted(()=>{statusReturnFocus=undefined;clearInterval(timer);controller.abo
     <section class="panel">
       <div class="ai-security-heading"><div><h2>Agent 任务与受限委托</h2><p>将业务用途、调用凭证、数据范围及额度绑定为有期限的任务。子任务只能收窄权限，所有祖先限制同时生效。列表为任务自身登记状态，不代表祖先授权或真实执行成功。</p></div><div class="page-actions"><button class="button button-secondary" :disabled="loading || detailLoading || !!busy" @click="refresh">刷新任务与执行记录</button><button v-if="canWrite" class="button button-primary" :disabled="loading || detailLoading || !!busy" @click="newRoot">新建根任务</button></div></div>
       <p v-if="error" class="message message-error" role="alert">{{ error }}</p><p v-if="feedback" class="message message-success" role="status">{{ feedback }}</p>
+      <p v-if="pageError" class="message message-error" role="alert">{{ pageError }}{{ page?' 仍显示上次成功读取的分页。':'' }}</p>
       <p v-if="loading" class="ai-security-body" role="status">正在读取任务授权与累计用量…</p>
       <div v-if="page?.items.length" class="table-scroll" role="region" aria-label="Agent 任务列表" tabindex="0">
         <table class="data-table task-register"><thead><tr><th scope="col">任务与用途</th><th scope="col">调用身份</th><th scope="col">状态与期限</th><th scope="col" class="table-number">累计步骤</th><th scope="col" class="table-number">模型报价（USD）</th><th scope="col">委托范围</th></tr></thead>
           <tbody><tr v-for="item in page.items" :key="item.id" :aria-selected="selectedId===item.id">
             <th scope="row"><button class="ai-gateway-task-link mono" :aria-pressed="selectedId===item.id" :disabled="detailLoading || !!busy" @click="selectTask(item.id)">{{ item.id }}</button><span class="table-secondary">用途 {{ item.purpose }}</span></th>
             <td><strong>{{ item.applicationId }}</strong><span class="table-secondary">主体 {{ item.principalId }}</span><span class="table-secondary">初始授权凭据 #{{ item.credentialId }}</span></td>
-            <td><span class="badge" :class="lifecycle(item)==='active'?'status-verified':'status-draft'">{{ status(item) }}</span><span class="table-secondary table-date">{{ formatDate(item.expiresAt) }}</span></td>
+            <td><span class="badge" :class="lifecycle(item)==='active'?'status-verified':'status-draft'">{{ status(item) }}</span><time class="table-secondary table-date" :datetime="item.expiresAt" :title="item.expiresAt">{{ formatDate(item.expiresAt) }}</time></td>
             <td class="table-number"><strong>{{ item.stepsUsed.toLocaleString() }}</strong><span class="table-secondary">上限 {{ item.maxSteps.toLocaleString() }}</span></td>
             <td class="table-number"><dl class="task-cost"><dt>累计报价</dt><dd>{{ gatewayDollars(item.spentMicros) }}</dd><dt>未决预留</dt><dd>{{ gatewayDollars(item.reservedMicros) }}</dd><dt>任务额度</dt><dd>{{ gatewayDollars(item.budgetMicros) }}</dd></dl></td>
             <td>{{ item.depth?'第 '+item.depth+' 层委托':'根任务' }}<span class="table-secondary">登记剩余委托深度 {{ item.maxDelegationDepth }} 层</span><span v-if="item.parentTaskId" class="table-secondary mono">父任务 {{ item.parentTaskId }}</span></td>
           </tr></tbody>
         </table>
       </div>
-      <p v-else-if="page && !loading" class="empty-state">当前分页没有任务。任务登记不会自动执行模型或工具。</p>
-      <div v-if="page" class="ai-security-body ai-security-actions"><button class="button button-secondary" :disabled="loading || !history.length" @click="previousPage">上一页</button><button class="button button-secondary" :disabled="loading || !page.hasMore || !page.nextCursor" @click="loadPage(page.nextCursor,true)">下一页</button><span>当前页 {{ page.items.length }} 条，最多 100 条；列表统计不代表全部任务。</span></div>
+      <p v-else-if="page && !loading && !pageError" class="empty-state">当前分页没有任务。任务登记不会自动执行模型或工具。</p>
+      <div v-if="page" class="ai-security-body ai-security-actions"><button class="button button-secondary" :disabled="loading || !history.length" @click="previousPage">上一页</button><button class="button button-secondary" :disabled="loading || !page.hasMore || !page.nextCursor" @click="loadPage(page.nextCursor,true)">下一页</button><span>第 {{ history.length+1 }} 页 · 本页 {{ page.items.length }} 条 · {{ formatDate(pageReadAt,true) }} 读取</span></div>
     </section>
 
     <section v-if="selectedId" class="panel">
       <div class="ai-security-heading"><div><h2 ref="taskDetailTitle" tabindex="-1" :data-task-id="selectedId" aria-describedby="task-detail-reference">任务范围与步骤证据</h2><p id="task-detail-reference" class="mono">{{ selectedId }}</p></div><div class="page-actions"><button v-if="canWrite" class="button button-secondary" :disabled="detailLoading || !!busy || !canDelegate" aria-describedby="task-delegation-state" @click="delegate">基于此任务创建受限委托</button><button class="button button-secondary" :disabled="detailLoading || !detail || !!busy" @click="exportDetail">导出任务与最近 200 步</button></div></div>
       <p v-if="detailLoading" class="ai-security-body" role="status">正在核对当前任务范围与步骤…</p>
+      <p v-if="detailError" class="message message-error" role="alert">{{ detailError }}{{ detail?' 下方保留此前的任务快照，当前授权待核对。':'' }}</p>
+      <p v-if="statusUnverified" class="ai-security-body" role="status">结束操作的结果尚未核实，需要重新读取原任务。结束原因仍保留。</p>
       <template v-if="detail && detail.task.id===selectedId && !detailLoading">
         <div class="ai-security-body task-detail-body">
           <dl class="task-overview">
@@ -181,7 +223,7 @@ onUnmounted(()=>{statusReturnFocus=undefined;clearInterval(timer);controller.abo
           <section v-if="canWrite && detail.task.status==='active'" class="task-end-actions" aria-labelledby="task-end-title">
             <div><h3 id="task-end-title">结束后续执行</h3><p class="table-secondary">停止或关闭不会回滚此前的动作，也不释放未知执行结果的占额。运行中的输出会重新核对任务及祖先状态。</p></div>
             <label class="field">结束原因<input v-model="reason" maxlength="240" :disabled="!!busy" placeholder="填写简短业务原因，不填写敏感正文"></label>
-            <div class="task-end-buttons"><button class="button button-secondary" :disabled="!!busy || !reason.trim()" @click="requestStatus('cancelled')">停止此任务及后续委托执行</button><button class="button button-secondary" :disabled="!!busy || !reason.trim()" @click="requestStatus('completed')">关闭任务，结束后续执行</button></div>
+            <div class="task-end-buttons"><button class="button button-secondary" :disabled="!!busy || !!detailError || statusUnverified || !reason.trim()" @click="requestStatus('cancelled')">停止此任务及后续委托执行</button><button class="button button-secondary" :disabled="!!busy || !!detailError || statusUnverified || !reason.trim()" @click="requestStatus('completed')">关闭任务，结束后续执行</button></div>
           </section>
           <p v-if="canWrite && detail.task.status!=='active' && reason" class="ai-security-note">未提交的结束原因草稿：{{ reason }}</p>
           <details class="task-scope-disclosure">
@@ -232,8 +274,8 @@ onUnmounted(()=>{statusReturnFocus=undefined;clearInterval(timer);controller.abo
     <dialog @keydown="containDialogTab" ref="statusDialog" class="app-dialog" aria-labelledby="task-status-dialog-title" aria-describedby="task-status-dialog-description" @cancel="event=>busy==='status' && event.preventDefault()" @close="statusClosed">
       <form v-if="statusPlan" class="dialog-content" @submit.prevent="submitStatus">
         <header class="dialog-heading"><h2 id="task-status-dialog-title">{{ statusPlan.payload.status==='cancelled'?'停止任务及后续委托':'关闭任务，结束后续执行' }}</h2><button type="button" class="icon-button" aria-label="返回核对任务" :disabled="busy==='status'" @click="closeStatusDialog"><Icon name="close"/></button></header>
-        <div class="dialog-body"><p id="task-status-dialog-description">操作将阻止此任务及全部后续委托继续执行。任务不能恢复为活动状态，已经发生的动作和未决费用保留。</p><dl class="task-status-facts"><div><dt>任务</dt><dd class="mono">{{ statusPlan.id }}</dd></div><div><dt>固定用途</dt><dd>{{ statusPlan.purpose }}</dd></div><div><dt>应用 / 主体</dt><dd>{{ statusPlan.applicationId }} / {{ statusPlan.principalId }}</dd></div><div><dt>采用修订</dt><dd>{{ statusPlan.payload.expectedRevision }}</dd></div><div><dt>结束原因</dt><dd>{{ statusPlan.payload.reason }}</dd></div></dl><p v-if="statusError" class="message message-error" role="alert">{{ statusError }}</p><p v-if="statusPlan.requiresReadback" class="ai-security-note" role="status">{{ statusPlan.readBack?'已重新读取原任务：'+(taskStatusLabels[statusPlan.readBack.status] || statusPlan.readBack.status)+'，修订 '+statusPlan.readBack.revision+'。请返回详情重新确认，本次冻结确认不再提交。':'本次提交结果尚未核实。请先重新读取原任务；读取失败时保留原因草稿，不重复提交。' }}</p></div>
-        <footer class="dialog-actions"><button type="button" class="button button-secondary" :disabled="busy==='status'" @click="closeStatusDialog">返回核对</button><button v-if="statusPlan.requiresReadback" type="button" class="button button-secondary" :disabled="detailLoading || !!busy" @click="selectTask(statusPlan.id,false)">{{ detailLoading?'正在读取原任务…':'重新读取原任务' }}</button><button type="submit" class="button button-danger" :disabled="!!busy || detailLoading || !taskStatusReviewReady(statusPlan,detail?.task) || selectedId!==statusPlan.id">{{ busy==='status'?'正在提交…':statusPlan.payload.status==='cancelled'?'确认停止后续执行':'确认关闭任务' }}</button></footer>
+        <div class="dialog-body"><p id="task-status-dialog-description" class="dialog-description">操作将阻止此任务及后续委托继续执行，任务不能恢复为活动状态。核对下方范围后确认，已经发生的动作和未决费用将保留。</p><dl class="task-status-facts"><div><dt>任务</dt><dd class="mono">{{ statusPlan.id }}</dd></div><div><dt>固定用途</dt><dd>{{ statusPlan.purpose }}</dd></div><div><dt>应用 / 主体</dt><dd>{{ statusPlan.applicationId }} / {{ statusPlan.principalId }}</dd></div><div><dt>采用修订</dt><dd>{{ statusPlan.payload.expectedRevision }}</dd></div><div><dt>结束原因</dt><dd>{{ statusPlan.payload.reason }}</dd></div></dl><p v-if="statusError" class="message message-error" role="alert">{{ statusError }}</p><p v-if="statusPlan.requiresReadback" class="ai-security-note" role="status">{{ statusPlan.readBack?'已重新读取原任务：'+(taskStatusLabels[statusPlan.readBack.status] || statusPlan.readBack.status)+'，修订 '+statusPlan.readBack.revision+'。请返回详情重新确认，本次冻结确认不再提交。':'本次提交结果尚未核实。请先重新读取原任务；读取失败时保留原因草稿，不重复提交。' }}</p></div>
+        <footer class="dialog-actions"><button type="button" class="button button-secondary" autofocus :disabled="busy==='status'" @click="closeStatusDialog">返回核对</button><button v-if="statusPlan.requiresReadback" type="button" class="button button-secondary" :disabled="detailLoading || !!busy" @click="selectTask(statusPlan.id,false)">{{ detailLoading?'正在读取原任务…':'重新读取原任务' }}</button><button type="submit" class="button button-danger" :disabled="!!busy || detailLoading || !taskStatusReviewReady(statusPlan,detail?.task) || selectedId!==statusPlan.id || !!detailError">{{ busy==='status'?'正在提交…':statusPlan.payload.status==='cancelled'?'确认停止后续执行':'确认关闭任务' }}</button></footer>
       </form>
     </dialog>
   </div>
@@ -245,13 +287,13 @@ onUnmounted(()=>{statusReturnFocus=undefined;clearInterval(timer);controller.abo
 .ai-gateway-tasks .message {padding:14px 20px}
 .ai-gateway-tasks select[multiple] {min-height:120px}
 .ai-gateway-tasks .data-table {min-width:800px}
-.ai-gateway-tasks .task-register {min-width:1080px}
-.task-register th:first-child {width:25%;min-width:240px}
-.task-register th:nth-child(2) {min-width:160px}
-.task-register th:nth-child(3) {min-width:150px}
-.task-register th:nth-child(4) {min-width:100px}
-.task-register th:nth-child(5) {min-width:190px}
-.task-register th:nth-child(6) {min-width:180px}
+.ai-gateway-tasks .task-register {min-width:960px;table-layout:fixed}
+.task-register thead th:first-child {width:23%}
+.task-register thead th:nth-child(2) {width:15%}
+.task-register thead th:nth-child(3) {width:16%}
+.task-register thead th:nth-child(4) {width:10%}
+.task-register thead th:nth-child(5) {width:20%}
+.task-register td {overflow-wrap:anywhere}
 .task-register .ai-gateway-task-link {display:block;width:100%;font-weight:600}
 .task-cost {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;margin:0;min-width:160px;font-size:13px;font-variant-numeric:tabular-nums}
 .task-cost dt {text-align:start;color:var(--secondary);font-weight:400}

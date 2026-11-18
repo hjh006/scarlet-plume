@@ -218,6 +218,17 @@ func (w *cancellingWriter) Write(raw []byte) (int, error) {
 	w.cancel()
 	return n, e
 }
+
+type interruptedFlushWriter struct {
+	*httptest.ResponseRecorder
+	flushes int
+}
+
+func (w *interruptedFlushWriter) FlushError() error {
+	w.flushes++
+	return io.ErrClosedPipe
+}
+
 func TestStrictHoldStreamDisconnectNeverEmitsDone(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -231,15 +242,27 @@ func TestStrictHoldStreamDisconnectNeverEmitsDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"enterprise","messages":[{"role":"user","content":"request"}],"stream":true}`)).WithContext(ctx)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+aliceToken)
-	out := &cancellingWriter{httptest.NewRecorder(), cancel}
-	g.ServeHTTP(out, req)
-	if out.Code != 200 || strings.Contains(out.Body.String(), "[DONE]") || strings.Contains(out.Body.String(), "approved answer") {
-		t.Fatal(out.Code, out.Body.String())
+	for _, interruption := range []string{"context", "flush_error"} {
+		t.Run(interruption, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			req := httptest.NewRequestWithContext(ctx, "POST", "/v1/chat/completions", strings.NewReader(`{"model":"enterprise","messages":[{"role":"user","content":"request"}],"stream":true}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+aliceToken)
+			out := httptest.NewRecorder()
+			if interruption == "context" {
+				g.ServeHTTP(&cancellingWriter{out, cancel}, req)
+			} else {
+				writer := &interruptedFlushWriter{ResponseRecorder: out}
+				g.ServeHTTP(writer, req)
+				if writer.flushes != 1 || ctx.Err() != nil {
+					t.Fatalf("want replay to observe one transport failure before request cancellation, got %d flushes and %v", writer.flushes, ctx.Err())
+				}
+			}
+			if out.Code != 200 || !strings.Contains(out.Body.String(), `"role":"assistant"`) || strings.Contains(out.Body.String(), "[DONE]") || strings.Contains(out.Body.String(), "approved answer") {
+				t.Fatal(out.Code, out.Body.String())
+			}
+		})
 	}
 }
 func TestStrictHoldRevocationDuringUpstreamSuppressesAllChunks(t *testing.T) {

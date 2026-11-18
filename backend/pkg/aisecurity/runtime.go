@@ -573,16 +573,12 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 				respond(w, 503, map[string]string{"code": "audit_unavailable"})
 				return
 			}
-			if !h.fresh(in.Context(), r, d) {
+			if !h.fresh(in.Context(), r, d) || in.Context().Err() != nil {
 				respond(w, 403, map[string]string{"code": "task_or_source_changed_before_cache_release"})
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
-			if !h.fresh(in.Context(), r, d) || in.Context().Err() != nil {
-				h.finishError(w, in, r, d, "catalog_changed_output_suppressed", 403, Execution{Outcome: "not_attempted", CacheHit: true})
-				return
-			}
 			w.Header().Set("X-Scarlet-Cache", "hit")
 			captureGatewayCheckedOutput(w, in.Context(), r, output)
 			w.WriteHeader(200)
@@ -730,7 +726,8 @@ func (h *runtimeHandler) forward(w http.ResponseWriter, in *http.Request, r Requ
 		}
 	}
 	if !h.fresh(in.Context(), r, d) || in.Context().Err() != nil {
-		h.finishError(w, in, r, d, "catalog_changed_output_suppressed", 403, Execution{Attempted: true, Outcome: "blocked_output", HTTPStatus: resp.StatusCode})
+		// Release failure does not replace the already recorded execution result.
+		respond(w, 403, map[string]string{"code": "catalog_changed_output_suppressed"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

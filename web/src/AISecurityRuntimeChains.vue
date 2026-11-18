@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { aiString } from './ai-security'
-import { aiText, type AIRecord } from './ai-security-editor'
+import { type AIRecord } from './ai-security-editor'
 import { formatDate } from './api'
 
 defineProps<{ requests: AIRecord[]; limit: number; historical?:boolean }>()
 
 const statuses: Record<string, string> = {
-  reported_succeeded: '来源报告完成，阶段齐全',
+  reported_succeeded: '来源已报告执行完成',
   reported_failed: '来源报告执行失败',
   reported_unknown: '上游执行结果未知',
   reported_blocked_output: '上游返回后输出被阻止',
@@ -35,6 +35,9 @@ const issues: Record<string, string> = {
 function list(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
+function receiptIds(value: unknown): number[] {
+  return Array.isArray(value) ? value.filter((item): item is number => Number.isSafeInteger(item) && item>0) : []
+}
 </script>
 
 <template>
@@ -48,7 +51,7 @@ function list(value: unknown): string[] {
     <table class="data-table ai-runtime-chains">
       <thead><tr><th scope="col">来源与请求</th><th scope="col">阶段与结果</th><th scope="col">执行器与检测版本</th><th scope="col">证据范围</th></tr></thead>
       <tbody>
-        <tr v-for="item in requests" :key="aiString(item,'sourceId')+aiString(item,'requestId')+aiString(item,'requestDigest')+aiString(item,'catalogDigest')+aiString(item,'attemptId')">
+        <tr v-for="item in requests" :key="JSON.stringify([item.sourceId,item.requestId,item.requestDigest,item.catalogDigest,item.attemptId])">
           <th scope="row">
             {{ aiString(item,'requestId') }}
             <span class="table-secondary">来源 #{{ aiString(item,'sourceId') }} · {{ aiString(item,'applicationId') }}</span>
@@ -72,7 +75,9 @@ function list(value: unknown): string[] {
             <time class="table-secondary table-date" :datetime="aiString(item,'lastObservedAt')" :title="aiString(item,'lastObservedAt')">{{ formatDate(aiString(item,'lastObservedAt')) }}</time>
             <details>
               <summary>核对关联证据</summary>
-              <p v-if="Array.isArray(item.eventIds)" class="table-secondary">{{item.eventIds.length}} 条关联来源回执；不是独立调用总数。</p><p v-else class="table-secondary">关联回执编号未提供。</p><p class="table-secondary mono">回执 {{ aiText(item.eventIds) }}</p>
+              <p v-if="receiptIds(item.eventIds).length" class="table-secondary">关联来源回执 · {{ receiptIds(item.eventIds).length }} 条</p>
+              <p v-else class="table-secondary">未提供关联回执编号。</p>
+              <ul v-if="receiptIds(item.eventIds).length" class="ai-runtime-receipts"><li v-for="id in receiptIds(item.eventIds)" :key="id"><code>{{ id }}</code></li></ul>
               <p class="table-secondary mono">目录 {{ aiString(item,'catalogDigest') }}</p>
               <p class="table-secondary mono">请求 {{ aiString(item,'requestDigest') }}</p>
             </details>
@@ -82,15 +87,15 @@ function list(value: unknown): string[] {
     </table>
   </div>
   <p v-else class="empty-state">尚无可关联的客户侧回执。单次控制台评估不会形成实际执行链。</p>
-  <p class="ai-security-body table-secondary">“阶段齐全”和版本匹配均来自来源报告，仍需独立效果复核；缺少完成回执时，不能推断上游没有产生副作用。</p>
+  <p class="ai-security-body table-secondary">来源报告和版本匹配用于定位执行记录。客户是否完整收到内容、上游是否产生副作用，仍需分别核对。</p>
 </template>
 
 <style scoped>
-.ai-runtime-chains { min-width: 960px; table-layout:fixed; }
+.ai-runtime-chains { min-width: 880px; table-layout:fixed; }
 .ai-runtime-chains th:first-child{width:25%}.ai-runtime-chains th:nth-child(2){width:29%}.ai-runtime-chains th:nth-child(3){width:25%}.ai-runtime-chains td{vertical-align:top}
 .ai-runtime-chains details{margin-top:10px}.ai-runtime-chains details p{white-space:pre-wrap}
-.ai-runtime-chains th { min-width: 180px; }
-.ai-runtime-chains td { min-width: 190px; overflow-wrap: anywhere; }
+.ai-runtime-chains :is(th,td) { overflow-wrap: anywhere; }
 .ai-runtime-issues { margin: .4rem 0 0; padding-left: 1.2rem; }
+.ai-runtime-receipts { margin: .4rem 0; padding-left: 1.2rem; }
 summary { cursor: pointer; padding-block: .35rem; }
 </style>

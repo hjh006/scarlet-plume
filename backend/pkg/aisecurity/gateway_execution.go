@@ -117,20 +117,23 @@ func (g *gatewayHandler) replayModelStream(w http.ResponseWriter, in *http.Reque
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Scarlet-Stream-Mode", "strict_hold")
-	send := func(delta map[string]string, reason any) error {
-		if !fresh() {
-			return errors.New("authorization changed")
+	controller := http.NewResponseController(w)
+	writeEvent := func(event []byte) bool {
+		if in.Context().Err() != nil {
+			return false
 		}
-		raw, _ := json.Marshal(map[string]any{"id": "chatcmpl-" + publicRequestID, "object": "chat.completion.chunk", "created": g.runtime.options.Now().Unix(), "model": publicModel, "choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": reason}}})
-		if _, err := w.Write(append(append([]byte("data: "), raw...), []byte("\n\n")...)); err != nil {
-			return err
+		n, err := w.Write(event)
+		if err != nil || n != len(event) || in.Context().Err() != nil {
+			return false
 		}
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		return nil
+		err = controller.Flush()
+		return err == nil || errors.Is(err, http.ErrNotSupported)
 	}
-	if send(map[string]string{"role": "assistant"}, nil) != nil {
+	send := func(delta map[string]string, reason any) bool {
+		raw, _ := json.Marshal(map[string]any{"id": "chatcmpl-" + publicRequestID, "object": "chat.completion.chunk", "created": g.runtime.options.Now().Unix(), "model": publicModel, "choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": reason}}})
+		return writeEvent(append(append([]byte("data: "), raw...), []byte("\n\n")...))
+	}
+	if !send(map[string]string{"role": "assistant"}, nil) {
 		return
 	}
 	for len(output) > 0 {
@@ -141,18 +144,15 @@ func (g *gatewayHandler) replayModelStream(w http.ResponseWriter, in *http.Reque
 		if n == 0 {
 			return
 		}
-		if send(map[string]string{"content": output[:n]}, nil) != nil {
+		if !fresh() || !send(map[string]string{"content": output[:n]}, nil) {
 			return
 		}
 		output = output[n:]
 	}
-	if send(map[string]string{}, finish) != nil || !fresh() {
+	if !fresh() || !send(map[string]string{}, finish) || !fresh() {
 		return
 	}
-	_, _ = w.Write([]byte("data: [DONE]\n\n"))
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
+	writeEvent([]byte("data: [DONE]\n\n"))
 }
 
 func (g *gatewayHandler) execute(w http.ResponseWriter, in *http.Request, identity Identity, wire RuntimeRequest, chat bool) {

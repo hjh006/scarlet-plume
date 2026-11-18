@@ -234,21 +234,15 @@ func TestGatewayTaskCredentialStatusUnknownPublicationLegacyAndPrincipalExpiry(t
 	if e != nil || unknown.CredentialChainStatus != "unknown" || unknown.Authorization.PrincipalStatus != "unknown" {
 		t.Fatal("missing publication became a false authorization", e, unknown)
 	}
-	expiry := time.Now().Add(-time.Hour)
+	var expiry time.Time
+	if e = f.pool.QueryRow(t.Context(), `SELECT clock_timestamp()+interval '5 seconds'`).Scan(&expiry); e != nil {
+		t.Fatal(e)
+	}
 	in.CatalogDigest = taskCredentialPublishedFixture(t, f, &expiry)
-	// Retain the already known credential reference for this management-plane
-	// diagnostic fixture: live authentication now correctly denies this expiry.
 	input.CatalogDigest = in.CatalogDigest
 	task, e = f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, input)
 	if e != nil {
 		t.Fatal(e)
-	}
-	diagnostic, e := f.repo.GatewayTaskCredentialStatus(t.Context(), f.ws.ID, f.user.ID, task.ID)
-	if e != nil || diagnostic.AncestorPath[0].CredentialState != "active" || diagnostic.CredentialChainStatus != "blocked" || diagnostic.Authorization.PrincipalStatus != "blocked" {
-		t.Fatal("active key became task authorization despite expired principal", e, diagnostic)
-	}
-	if !slices.ContainsFunc(diagnostic.Blockers, func(i GatewayTaskCredentialIssue) bool { return i.Code == "principal_authorization_expired" }) {
-		t.Fatal("principal expiry reason missing")
 	}
 	binding, _ := workloadStoreFixture(t, f)
 	var legacyID int64
@@ -259,6 +253,19 @@ func TestGatewayTaskCredentialStatusUnknownPublicationLegacyAndPrincipalExpiry(t
 	legacyTask, e := f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, input)
 	if e != nil {
 		t.Fatal(e)
+	}
+	if _, e = f.pool.Exec(t.Context(), `SELECT pg_sleep_until($1)`, expiry); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, input); !errors.Is(e, ErrForbidden) {
+		t.Fatal("an active key must not create a task after principal authorization expiry", e)
+	}
+	diagnostic, e := f.repo.GatewayTaskCredentialStatus(t.Context(), f.ws.ID, f.user.ID, task.ID)
+	if e != nil || diagnostic.AncestorPath[0].CredentialState != "active" || diagnostic.CredentialChainStatus != "blocked" || diagnostic.Authorization.PrincipalStatus != "blocked" {
+		t.Fatal("active key became task authorization despite expired principal", e, diagnostic)
+	}
+	if !slices.ContainsFunc(diagnostic.Blockers, func(i GatewayTaskCredentialIssue) bool { return i.Code == "principal_authorization_expired" }) {
+		t.Fatal("principal expiry reason missing")
 	}
 	legacy, e := f.repo.GatewayTaskCredentialStatus(t.Context(), f.ws.ID, f.user.ID, legacyTask.ID)
 	if e != nil || legacy.AncestorPath[0].Credential.WorkloadBindingRevision != nil || legacy.AncestorPath[0].BindingStatus != "unknown" || legacy.AncestorPath[0].CredentialState != "active" {

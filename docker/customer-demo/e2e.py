@@ -16,7 +16,7 @@ def main():
     p.add_argument("--fixtures", type=Path, default=Path("var/customer-demo/fixtures"))
     p.add_argument(
         "--only",
-        choices=["all", "stream", "cache", "fallback", "media", "mcp"],
+        choices=["all", "stream", "cache", "fallback", "media", "mcp", "lifecycle"],
         default="all",
     )
     p.add_argument("--output", type=Path, required=True)
@@ -34,11 +34,11 @@ def main():
         )
     if (
         not a.preflight_only
-        and a.only in ["all", "mcp"]
+        and a.only in ["all", "mcp", "lifecycle"]
         and not a.allow_fixture_mutations
     ):
         raise SystemExit(
-            "all/mcp requires --allow-fixture-mutations in an exclusive synthetic fixture window"
+            "all/mcp/lifecycle requires --allow-fixture-mutations in an exclusive synthetic fixture window"
         )
     a.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     # This prevents two local harnesses sharing files; it cannot lock out operators.
@@ -215,9 +215,16 @@ def main():
             errors.append("unexpected actual provider/tool count")
         if cache and h.get("X-Scarlet-Cache") != cache:
             errors.append("unexpected cache result")
+        if st == 200 and body.get("stream") is True and (
+            not h.get("Content-Type", "").startswith("text/event-stream")
+            or not out.rstrip().endswith("data: [DONE]")
+        ):
+            errors.append("successful stream did not complete")
         if st != 200 and (
             "person@example.com" in out
             or "demo@example.com" in out
+            or "Synthetic customer fixture response" in out
+            or "chat.completion.chunk" in out
             or "data: [DONE]" in out
         ):
             errors.append("rejected output was released")
@@ -449,9 +456,10 @@ def main():
         )
         return 0
 
-    def account():
+    def account(task=False):
+        application = "task-app" if task else "depth-app"
         return dbjson(
-            "SELECT json_build_object('spentMicros',spent_micros,'reservedMicros',reserved_micros) FROM plume.ai_gateway_accounts a JOIN plume.workspaces w ON w.id=a.workspace_id WHERE w.slug='customer-depth' AND application_id='depth-app'"
+            "SELECT json_build_object('spentMicros',spent_micros,'reservedMicros',reserved_micros) FROM plume.ai_gateway_accounts a JOIN plume.workspaces w ON w.id=a.workspace_id WHERE w.slug='customer-depth' AND application_id='" + application + "'"
         )
 
     def timestamp(seconds=0):
@@ -461,7 +469,7 @@ def main():
             .replace("+00:00", "Z")
         )
 
-    def newtask(parent=None, tokenmeta=None):
+    def newtask(parent=None, tokenmeta=None, expires_seconds=1800, expected_status=201):
         cm = tokenmeta or meta["primary"]["credentials"]["task-app"]
         v = {
             "applicationId": "task-app",
@@ -493,13 +501,13 @@ def main():
             "maxSteps": 20 if not parent else 5,
             "budgetMicros": 10000000 if not parent else 1000000,
             "maxDelegationDepth": 1 if not parent else 0,
-            "expiresAt": timestamp(1800),
+            "expiresAt": timestamp(expires_seconds),
         }
         if parent:
             v.update(parentTaskId=parent["id"], expiresAt=parent["expiresAt"])
         st, out, _ = api("/ai-gateway/tasks", v)
-        assert st == 201, ("new task", st, out[:200])
-        return json.loads(out)
+        assert st == expected_status, ("unexpected task creation status", st)
+        return json.loads(out) if st == 201 else None
 
     def publish_owned_revision(expected_revision):
         bundle = checked_bundle(expected=expected_revision)
@@ -810,6 +818,78 @@ def main():
             }
         )
         save()
+    if a.only in ["all", "lifecycle"]:
+
+        def task_cache_rows():
+            return dbjson(
+                "SELECT COALESCE(json_object_agg(scope_hash,expires_at), '{}'::json) FROM plume.ai_gateway_cache c JOIN plume.workspaces w ON w.id=c.workspace_id WHERE w.slug='customer-depth' AND application_id='task-app'"
+            )
+
+        def warm_task_cache(case, task, body):
+            existing = task_cache_rows()
+            headers = {"X-Scarlet-Task-Id": task["id"]}
+            check(case, body, headers=headers, token=credential(app="task-app"))
+            rows = task_cache_rows()
+            added = rows.keys() - existing.keys()
+            assert len(added) == 1, "Expected exactly one new encrypted cache entry"
+            reference = added.pop()
+            return headers, reference, dt.datetime.fromisoformat(rows[reference])
+
+        short = newtask(expires_seconds=24)
+        child = newtask(short)
+        deadline = dt.datetime.fromisoformat(short["expiresAt"])
+        value = text("expiring task cached response", True, model="depth-text")
+        headers, expiring, stored_expiry = warm_task_cache(
+            "task-deadline-warms-cache", child, value
+        )
+        assert stored_expiry == deadline, "Cache retention should end at the task deadline"
+        check(
+            "current-task-reads-cached-stream", value, delta=(0, 0, 0),
+            headers=headers, token=credential(app="task-app"), cache="hit",
+        )
+        rpc("current-task-executes-read-only-MCP", child)
+        control = newtask(expires_seconds=240)
+        control_value = text("independent fresh task cached response", True, model="depth-text")
+        control_headers, retained, control_expiry = warm_task_cache(
+            "independent-task-warms-cache", control, control_value
+        )
+        assert control_expiry > deadline + dt.timedelta(seconds=70), "Fixture needs an independent cache entry with a longer TTL"
+        assert dt.datetime.fromisoformat(dbjson("SELECT to_json(clock_timestamp())")) < deadline
+        wait = time.monotonic() + 30
+        while dt.datetime.fromisoformat(dbjson("SELECT to_json(clock_timestamp())")) < deadline:
+            assert time.monotonic() < wait, "Database clock did not reach task deadline"
+            time.sleep(0.35)
+        previous = account(task=True)
+        check(
+            "expired-task-cannot-read-cached-stream", value, 403, (0, 0, 0),
+            headers=headers, token=credential(app="task-app"),
+        )
+        rpc("expired-ancestor-denies-read-only-MCP", child, status=403, delta=(0, 0, 0))
+        assert account(task=True) == previous, "Denied calls changed task application accounting"
+        wait = time.monotonic() + 80
+        rows = task_cache_rows()
+        while expiring in rows and time.monotonic() < wait:
+            time.sleep(1)
+            rows = task_cache_rows()
+        passed = expiring not in rows and retained in rows and account(task=True) == previous
+        name = "idle-expired-cache-reclaimed-fresh-cache-retained"
+        results.append({
+            "case": name,
+            "passed": passed,
+            "taskDeadline": deadline.isoformat(),
+            "storedDeadline": stored_expiry.isoformat(),
+            "expiredRowRemoved": expiring not in rows,
+            "freshRowPreserved": retained in rows,
+        })
+        if not passed:
+            failures.append(name)
+        save()
+        print(name, "PASS" if passed else "FAIL", flush=True)
+        check(
+            "fresh-cache-hit-after-background-reclamation", control_value,
+            delta=(0, 0, 0), headers=control_headers,
+            token=credential(app="task-app"), cache="hit",
+        )
     if a.only in ["all", "fallback"]:
         st, state, _ = api("/ai-gateway")
         assert st == 200
@@ -1150,6 +1230,9 @@ def main():
         )
         assert st == 200
         rpc("MCP-ancestor-cancel-stops-tools", child, status=403, delta=(0, 0, 0))
+        newtask(parent=parent, expected_status=403)
+        results.append({"case": "cancelled-ancestor-rejects-delegation", "status": 403, "passed": True})
+        save()
     save()
     print(
         json.dumps(

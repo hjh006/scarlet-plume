@@ -21,7 +21,7 @@ func TestGatewayCatalogDatabaseClockCoversCurrentPathsAndRetainsReceipts(t *test
 			if e := f.pool.QueryRow(t.Context(), `SELECT clock_timestamp()`).Scan(&now); e != nil {
 				t.Fatal(e)
 			}
-			expires := now.Add(3 * time.Second)
+			expires := now.Add(6 * time.Second)
 			c := aisecurity.DefaultConfig()
 			c.Applications = []aisecurity.Application{{ID: in.ApplicationID, Enabled: true, PrincipalIDs: []string{in.PrincipalID}, ModelIDs: []string{in.ModelID}, ToolIDs: []string{"tool"}}}
 			c.Principals = []aisecurity.Principal{{ID: in.PrincipalID, Enabled: true, ApplicationIDs: []string{in.ApplicationID}}}
@@ -47,6 +47,10 @@ func TestGatewayCatalogDatabaseClockCoversCurrentPathsAndRetainsReceipts(t *test
 			in.CatalogDigest = cfg.CatalogDigest
 			t.Setenv("SCARLET_GATEWAY_TEST_CACHE_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x4c}, 32)))
 			put := gatewayV3CacheWrite(t, f, in, "clock-prime-cache-0001")
+			var storedExpiry time.Time
+			if e := f.pool.QueryRow(t.Context(), `SELECT expires_at FROM plume.ai_gateway_cache WHERE workspace_id=$1`, f.ws.ID).Scan(&storedExpiry); e != nil || !storedExpiry.Equal(expires) {
+				t.Fatal("cache retention exceeded the catalog lease", storedExpiry, expires, e)
+			}
 			if hit, e := f.repo.GetGatewayCache(t.Context(), put.CacheScope); e != nil || !hit.Hit {
 				t.Fatal("current cache failed", e)
 			}
@@ -106,6 +110,13 @@ func TestGatewayCatalogDatabaseClockCoversCurrentPathsAndRetainsReceipts(t *test
 			}
 			if e = f.repo.PutGatewayCache(t.Context(), put); !errors.Is(e, ErrForbidden) {
 				t.Fatal("expired authority wrote cache", e)
+			}
+			if _, e = f.repo.PruneExpiredGatewayCache(t.Context()); e != nil {
+				t.Fatal(e)
+			}
+			var remaining int
+			if e = f.pool.QueryRow(t.Context(), `SELECT count(*) FROM plume.ai_gateway_cache WHERE workspace_id=$1`, f.ws.ID).Scan(&remaining); e != nil || remaining != 0 {
+				t.Fatal("expired catalog ciphertext was not pruned", remaining, e)
 			}
 			if _, e = f.repo.AdmitGatewayTask(t.Context(), fact); !errors.Is(e, ErrForbidden) {
 				t.Fatal("expired authority admitted/replayed task", e)
@@ -197,6 +208,13 @@ func TestGatewayToolSourceClockUsesPersistedAncestorUnionOnly(t *testing.T) {
 	}
 	if _, e = f.repo.AdmitGatewayTask(t.Context(), tool); !errors.Is(e, ErrForbidden) {
 		t.Fatal("expired ancestor source admitted a tool", e)
+	}
+	if _, e = f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, input); !errors.Is(e, ErrForbidden) {
+		t.Fatal("expired ancestor source must block a new delegation", e)
+	}
+	input.ParentTaskID = ""
+	if _, e = f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, input); e != nil {
+		t.Fatal("an unused catalog document must not block creation of an unrelated root task", e)
 	}
 	noSource := tool
 	noSource.TaskContext = gatewaygovernance.TaskContext{}

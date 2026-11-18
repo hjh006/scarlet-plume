@@ -149,7 +149,7 @@ export function gatewayConfigurationPayload(expectedRevision:number,enabled:bool
   return {expectedRevision,enabled,catalogDigest,applications:appValues,providers:providerValues}
 }
 export function gatewayAuditSummary(event:GatewayAudit):string {
-  const values=['revision','taskId','taskStepId','taskStepDigest','taskScopeDigest','taskPurpose','parentTaskId','rootTaskId','scopeDigest','purpose','stepsUsed','maxSteps','credentialId','applicationId','principalId','modelId','toolId','kind','status','outcome','requestId','requestDigest','catalogDigest','reservedMicros','spentMicros','chargedMicros','chargeMicros','chargedQuoteMicros','chargedBoundTokens','providerId','reservationId','rootModelId','previousReservationId','configRevision','attempt','attemptNumber','attemptIndex','rootRequestId','parentRequestId','cacheHit','cacheOutcome','failureCode','outcomeCode','openUntil'].flatMap(key=>{
+  const values=['revision','taskId','taskStepId','taskStepDigest','taskScopeDigest','taskPurpose','parentTaskId','rootTaskId','scopeDigest','purpose','stepsUsed','maxSteps','credentialId','applicationId','principalId','modelId','toolId','kind','status','outcome','requestId','requestDigest','catalogDigest','reservedMicros','spentMicros','chargedMicros','chargeMicros','chargedQuoteMicros','chargedBoundTokens','providerId','reservationId','rootModelId','previousReservationId','configRevision','attempt','attemptNumber','attemptIndex','rootRequestId','parentRequestId','cacheHit','cacheOutcome','invalidated','failureCode','outcomeCode','openUntil'].flatMap(key=>{
     const value=event.payload?.[key]
     return typeof value==='string' || typeof value==='number' || typeof value==='boolean'?[`${key}: ${value}`]:[]
   })

@@ -262,7 +262,7 @@ python3 docker/customer-demo/e2e.py \
 
 验收脚本只接受专用回环地址并拒绝主平台 `8890`。它使用真实网关、Bifrost、控制面、PG、
 OCR/ASR 与 MCP HTTP 调用；逐项核对独立 provider/tool 计数、HTTP 状态、缓存标志和账务。
-可用 `--only stream|media|cache|fallback|mcp` 重跑一个集合。普通流式、断连、敏感跨 chunk、
+可用 `--only stream|media|cache|fallback|mcp|lifecycle` 重跑一个集合。普通流式、断连、敏感跨 chunk、
 媒体输入/输出、相同目录跨租户缓存、上下文变化、nonce、凭据与祖先撤销均须按实际结果记录，
 不能用节点健康、客户端目录或回执上传替代这些请求。
 
@@ -271,7 +271,10 @@ OCR/ASR 与 MCP HTTP 调用；逐项核对独立 provider/tool 计数、HTTP 状
 的 `publishedRevision` 是初始化记录，实际 CAS 使用实时核验后的版本，不用旧记录覆盖当前状态。
 输出路径必须尚不存在，避免重跑覆盖首败证据。同一私有目录只允许一份脚本持有运行锁。
 
-完整集合和 `--only mcp` 还要求显式传入 `--allow-fixture-mutations`，并由操作员保证专用
+`lifecycle` 使用短期限父子任务和一条独立长期限任务，核对持久化缓存到期时间、到期后零上游调用及账务不变。
+它等待实际后台回收，核对短期限条目被删除且独立条目仍可命中。专用 `task-app` 缓存需启用且 TTL 至少 120 秒。
+
+完整集合、`--only mcp` 和 `--only lifecycle` 还要求显式传入 `--allow-fixture-mutations`，并由操作员保证专用
 工作区的独占窗口；本地文件锁不能阻止控制台的并发修改。脚本在保存前拒绝其他运行的有效审批
 或待审租约提案，检测到未发布草稿、版本或内容漂移立即停止，不刷新 CAS 重试。
 

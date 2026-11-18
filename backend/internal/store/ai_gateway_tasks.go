@@ -181,6 +181,19 @@ func (s *Store) CreateGatewayTask(ctx context.Context, ws, actor int64, in Gatew
 		if e := gatewayRole(ctx, tx, ws, actor, false); e != nil {
 			return e
 		}
+		// Publication locks the workspace before its catalog. Take the same
+		// ordering for the workspace foreign key needed by task and audit rows.
+		if _, e := tx.Exec(ctx, `SELECT id FROM plume.workspaces WHERE id=$1 FOR KEY SHARE`, ws); e != nil {
+			return e
+		}
+		// Follow admission's catalog, gateway and task lock order. An active key
+		// alone does not authorize issuance against a registered catalog.
+		authority, e := gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{
+			CatalogDigest: in.CatalogDigest, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID,
+		}, true)
+		if e != nil {
+			return e
+		}
 		c, e := gatewayConfig(ctx, tx, ws, " FOR SHARE")
 		if e != nil {
 			return e
@@ -240,6 +253,19 @@ func (s *Store) CreateGatewayTask(ctx context.Context, ws, actor int64, in Gatew
 			out.Depth = parent.Depth + 1
 			out.RootTaskID = parent.RootTaskID
 			parentDigest = parent.ScopeDigest
+		}
+		if authority.registered {
+			for _, source := range out.Sources {
+				if e = authority.includeDocumentLease(source.DocumentID); e != nil {
+					return e
+				}
+			}
+			if e = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); e != nil {
+				return e
+			}
+			if !authority.current(now) {
+				return ErrForbidden
+			}
 		}
 		out.ScopeDigest = gatewayDigest(struct {
 			Scope  GatewayTaskInput

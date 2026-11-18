@@ -3,6 +3,11 @@ package aisecurity
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -42,5 +47,66 @@ func TestRuntimePreparedAuditStillUsesCallerCancellation(t *testing.T) {
 	}}}
 	if err := h.audit(ctx, testRequest("model"), Decision{Outcome: "allow"}, "prepared", Execution{Outcome: "not_attempted"}); !errors.Is(err, context.Canceled) {
 		t.Fatal("pre-dispatch work continued after caller cancellation", err)
+	}
+}
+
+func TestStrictHoldDisconnectAfterCompletionKeepsOneReceipt(t *testing.T) {
+	for _, source := range []string{"provider", "cache"} {
+		t.Run(source, func(t *testing.T) {
+			const body = `{"model":"enterprise","messages":[{"role":"user","content":"request"}],"stream":true}`
+			var calls atomic.Int32
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, sseCompletion("enterprise", []string{"checked reply"}, "data: [DONE]\n\n"))
+			}))
+			defer up.Close()
+			cfg := fixture()
+			cfg.Models[0].ResponseFormat = "openai_chat"
+			var records []AuditRecord
+			var disconnect context.CancelFunc
+			runtime, _ := runtimeFixture(t, func(context.Context) (Config, error) { return cfg, nil }, up.URL, func(_ context.Context, a AuditRecord) error {
+				if a.Stage == "completed" && disconnect != nil {
+					records = append(records, a)
+					disconnect()
+				}
+				return nil
+			}, nil)
+			options := runtime.(*runtimeHandler).options
+			if source == "cache" {
+				options.Cache = &testModelCache{data: map[ModelCacheScope][]byte{}}
+			}
+			gateway, err := NewGateway(GatewayOptions{Runtime: options})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if source == "cache" {
+				warm := gatewayRequest(gateway, "/v1/chat/completions", aliceToken, body, "warm-disconnect-cache-001")
+				if warm.Code != 200 || !strings.Contains(warm.Body.String(), "[DONE]") {
+					t.Fatalf("cache warm-up failed: %d", warm.Code)
+				}
+			}
+			ctx, stop := context.WithCancel(t.Context())
+			defer stop()
+			disconnect = stop
+			in := httptest.NewRequestWithContext(ctx, "POST", "/v1/chat/completions", strings.NewReader(body))
+			in.Header.Set("Content-Type", "application/json")
+			in.Header.Set("Authorization", "Bearer "+aliceToken)
+			out := httptest.NewRecorder()
+			gateway.ServeHTTP(out, in)
+			if out.Code != 403 || ctx.Err() != context.Canceled || strings.Contains(out.Body.String(), "checked reply") || strings.Contains(out.Body.String(), "[DONE]") {
+				t.Fatalf("interrupted release emitted success: %d %s", out.Code, out.Body.String())
+			}
+			if len(records) != 1 || calls.Load() != 1 {
+				t.Fatalf("want one terminal receipt and one provider call, got %d receipts and %d calls", len(records), calls.Load())
+			}
+			want := Execution{Attempted: true, Outcome: "succeeded", HTTPStatus: 200}
+			if source == "cache" {
+				want = Execution{CacheHit: true, Outcome: "not_attempted"}
+			}
+			if got := records[0].Execution; got != want {
+				t.Fatalf("interruption changed the recorded execution: got %+v, want %+v", got, want)
+			}
+		})
 	}
 }

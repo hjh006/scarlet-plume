@@ -492,38 +492,49 @@ func gatewayTaskCacheCurrent(ctx context.Context, tx pgx.Tx, ws int64, in Gatewa
 	return gatewayTaskCacheCurrentStatus(ctx, tx, ws, in, false)
 }
 func gatewayTaskCacheCurrentStatus(ctx context.Context, tx pgx.Tx, ws int64, in GatewayAuthorizeInput, allowCompleted bool) error {
+	_, err := gatewayTaskCacheExpiry(ctx, tx, ws, in, allowCompleted)
+	return err
+}
+
+func gatewayTaskCacheExpiry(ctx context.Context, tx pgx.Tx, ws int64, in GatewayAuthorizeInput, allowCompleted bool) (*time.Time, error) {
 	if in.TaskID == "" {
-		return gatewayTaskReserve(ctx, tx, ws, in, 0)
+		return nil, gatewayTaskReserve(ctx, tx, ws, in, 0)
 	}
 	fact := gatewaygovernance.TaskCheckInput{TaskContext: in.TaskContext, WorkspaceSlug: in.WorkspaceSlug, TokenHash: in.TokenHash, ApplicationID: in.ApplicationID, PrincipalID: in.PrincipalID, CatalogDigest: in.CatalogDigest, Kind: in.Kind, ModelID: in.ModelID}
 	actualWS, chain, _, e := gatewayCheckTask(ctx, tx, fact)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	if actualWS != ws {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
 	if e = gatewayTaskLeasePin(in.TaskContext, chain, true); e != nil {
-		return e
+		return nil, e
 	}
 	logical := in.ParentRequestID
 	if logical == "" {
 		logical = in.RequestID
 	}
 	if logical != in.TaskStepID {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
 	if in.Attempt == 0 && in.TaskStepDigest != in.RequestDigest {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
 	var digest, kind, status, pin string
 	if e = tx.QueryRow(ctx, `SELECT step_digest,kind,status,COALESCE(lease_chain_digest,'') FROM plume.ai_gateway_task_steps WHERE workspace_id=$1 AND task_id=$2 AND step_id=$3`, ws, in.TaskID, in.TaskStepID).Scan(&digest, &kind, &status, &pin); e != nil {
-		return ErrForbidden
+		return nil, ErrForbidden
 	}
 	if digest != in.TaskStepDigest || kind != "model" || (status != "admitted" && !(allowCompleted && status == "completed")) || pin != in.LeaseChainDigest {
-		return ErrConflict
+		return nil, ErrConflict
 	}
-	return nil
+	expires := chain[0].ExpiresAt
+	for _, task := range chain[1:] {
+		if task.ExpiresAt.Before(expires) {
+			expires = task.ExpiresAt
+		}
+	}
+	return &expires, nil
 }
 
 func gatewayTaskCompletionAudit(ctx context.Context, tx pgx.Tx, ws int64, in gatewaygovernance.TaskCompleteInput, audit aisecurity.AuditRecord) error {

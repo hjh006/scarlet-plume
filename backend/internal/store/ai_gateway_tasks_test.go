@@ -234,6 +234,9 @@ func TestGatewayTaskDelegationAttenuatesAndCancellationCascades(t *testing.T) {
 	if _, e = f.repo.CheckGatewayTask(t.Context(), fact); !errors.Is(e, ErrForbidden) {
 		t.Fatal("cancel did not reach child", e)
 	}
+	if _, e = f.repo.CreateGatewayTask(t.Context(), f.ws.ID, f.user.ID, childInput); !errors.Is(e, ErrForbidden) {
+		t.Fatal("a terminated parent must not gain a new descendant", e)
+	}
 	d, e := f.repo.GatewayTaskDetail(t.Context(), f.ws.ID, f.user.ID, child.ID, 100)
 	if e != nil || d.Task.Status != "cancelled" || d.Task.ReservedMicros != 10 {
 		t.Fatal("cancel fabricated refund", d, e)

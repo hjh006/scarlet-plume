@@ -130,7 +130,7 @@ func TestGatewayReleaseRechecksAncestorLeaseAfterInnerRuntime(t *testing.T) {
 func TestGatewayReleaseRechecksCredentialAfterCacheAndFallback(t *testing.T) {
 	for _, mode := range []string{"provider", "cache-hit", "fallback"} {
 		t.Run(mode, func(t *testing.T) {
-			var hits, completedChecks atomic.Int32
+			var hits atomic.Int32
 			var completed, revoked, armed atomic.Bool
 			armed.Store(mode != "cache-hit")
 			const secret = "checked result withheld after credential retirement"
@@ -170,13 +170,7 @@ func TestGatewayReleaseRechecksCredentialAfterCacheAndFallback(t *testing.T) {
 					return Identity{}, errors.New("credential revoked")
 				}
 				if completed.Load() {
-					threshold := int32(1)
-					if mode == "cache-hit" {
-						threshold = 2
-					}
-					if completedChecks.Add(1) == threshold {
-						revoked.Store(true)
-					}
+					revoked.Store(true)
 				}
 				return Identity{ApplicationID: "app", PrincipalID: "alice"}, nil
 			}
