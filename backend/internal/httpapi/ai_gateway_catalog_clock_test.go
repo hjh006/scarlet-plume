@@ -26,7 +26,9 @@ func TestGatewayLaggingNodeCannotReleaseExpiredCatalogCacheOrStream(t *testing.T
 			if e := f.pool.QueryRow(t.Context(), `SELECT clock_timestamp()`).Scan(&nodeNow); e != nil {
 				t.Fatal(e)
 			}
-			deadline := nodeNow.Add(3 * time.Second)
+			// Leave time for setup and both requests under race instrumentation
+			// before waiting for the real database clock to cross the deadline.
+			deadline := nodeNow.Add(8 * time.Second)
 			c := aisecurity.DefaultConfig()
 			c.Applications = []aisecurity.Application{{ID: "app", Enabled: true, PrincipalIDs: []string{"principal"}, ModelIDs: []string{"model"}}}
 			c.Principals = []aisecurity.Principal{{ID: "principal", Enabled: true, ApplicationIDs: []string{"app"}}}

@@ -220,7 +220,7 @@ onBeforeUnmount(() => active.abort())
 <template>
   <div class="assessments-page">
     <header class="page-header">
-      <div><a v-if="assessmentId" :href="href('assessments')">返回专项评估</a><h1>{{ detail?.title ?? '已有事实先带入，需要判断的再补充' }}</h1><p>围绕实际处理活动核验条件、留存依据并完成独立复核。</p></div>
+      <div><a v-if="assessmentId" :href="href('assessments')">返回专项评估</a><h1>{{ detail?.title ?? '合规评估与复核' }}</h1><p>围绕实际处理活动核验条件、留存依据并完成独立复核。</p></div>
       <div class="actions">
         <button type="button" class="button secondary" :disabled="loading || busy" @click="load">刷新</button>
         <template v-if="!assessmentId"><button type="button" class="button secondary" @click="showTemplates = !showTemplates">{{ showTemplates ? '评估记录' : '模板管理' }}</button><button v-if="canCreate" type="button" class="button primary" @click="showCreate = !showCreate">新建评估</button></template>

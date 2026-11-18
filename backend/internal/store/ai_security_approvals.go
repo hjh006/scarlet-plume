@@ -3,16 +3,16 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"time"
+
 	"github.com/hjh006/scarlet-plume/backend/pkg/aisecurity"
 	"github.com/hjh006/scarlet-plume/backend/pkg/gatewaygovernance"
 	"github.com/jackc/pgx/v5"
-	"strings"
-	"time"
 )
 
 func (s *Store) RequestAISecurityApproval(ctx context.Context, ws, actor, expected int64, r aisecurity.Request) (out AISecurityApproval, err error) {
-	now := time.Now().UTC()
-	if r.Kind != "tool" || r.Input != "" || r.Output != "" || r.ApprovalID != "" || !r.ExpiresAt.After(now) || r.ExpiresAt.After(now.Add(15*time.Minute)) {
+	if r.Kind != "tool" || r.Input != "" || r.Output != "" || r.ApprovalID != "" {
 		return out, ErrInvalid
 	}
 	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -26,15 +26,23 @@ func (s *Store) RequestAISecurityApproval(ctx context.Context, ws, actor, expect
 		if v.Revision != expected || expected < 1 {
 			return ErrConflict
 		}
-		r, e = gatewayApprovalTaskContext(ctx, tx, ws, r, aisecurity.ConfigDigest(v.Configuration), nil)
+		digest := aisecurity.ConfigDigest(v.Configuration)
+		r, e = gatewayApprovalTaskContext(ctx, tx, ws, r, digest, nil)
 		if e != nil {
 			return e
+		}
+		var now time.Time
+		if e = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); e != nil {
+			return e
+		}
+		if !r.ExpiresAt.After(now) || r.ExpiresAt.After(now.Add(15*time.Minute)) {
+			return ErrInvalid
 		}
 		decision := aisecurity.Evaluate(v.Configuration, r, now)
 		if !decision.RequiresApproval {
 			return ErrInvalid
 		}
-		if _, e = gatewayApprovalTaskContext(ctx, tx, ws, r, aisecurity.ConfigDigest(v.Configuration), decision.Categories); e != nil {
+		if _, e = gatewayApprovalTaskContext(ctx, tx, ws, r, digest, decision.Categories); e != nil {
 			return e
 		}
 		raw, e := json.Marshal(r)
@@ -70,35 +78,37 @@ func (s *Store) ReviewAISecurityApproval(ctx context.Context, ws, actor, id int6
 		if e = gatewayTaskLock(ctx, tx, ws); e != nil {
 			return e
 		}
-		var current, digest, leaseDigest string
-		var expires time.Time
-		e = tx.QueryRow(ctx, `SELECT configuration_revision,requested_by,status,catalog_digest,expires_at,COALESCE(task_lease_digest,'') FROM plume.ai_security_approvals WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, ws, id).Scan(&revision, &requester, &current, &digest, &expires, &leaseDigest)
+		var current, digest, requestDigest, leaseDigest string
+		var expires, now time.Time
+		var requestRaw []byte
+		e = tx.QueryRow(ctx, `SELECT configuration_revision,requested_by,status,catalog_digest,request_digest,expires_at,COALESCE(task_lease_digest,''),request_metadata FROM plume.ai_security_approvals WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, ws, id).Scan(&revision, &requester, &current, &digest, &requestDigest, &expires, &leaseDigest, &requestRaw)
 		if e != nil {
 			return storeError(e)
 		}
 		if requester == actor || v.UpdatedBy == actor {
 			return ErrForbidden
 		}
-		if current != "proposed" || revision != v.Revision || digest != aisecurity.ConfigDigest(v.Configuration) || !expires.After(time.Now()) {
-			return ErrConflict
-		}
-		var requestRaw []byte
-		if e = tx.QueryRow(ctx, `SELECT request_metadata FROM plume.ai_security_approvals WHERE workspace_id=$1 AND id=$2`, ws, id).Scan(&requestRaw); e != nil {
+		if e = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); e != nil {
 			return e
 		}
-		var request aisecurity.Request
-		if json.Unmarshal(requestRaw, &request) != nil {
-			return ErrInvalid
+		if current != "proposed" || revision != v.Revision || digest != aisecurity.ConfigDigest(v.Configuration) || !expires.After(now) {
+			return ErrConflict
 		}
-		if request.TaskID != "" {
+		var request aisecurity.Request
+		if json.Unmarshal(requestRaw, &request) != nil || aisecurity.RequestDigest(request) != requestDigest || !request.ExpiresAt.Truncate(time.Microsecond).Equal(expires) {
+			return ErrForbidden
+		}
+		// Declining an unbound request grants no authority. Approval, and any
+		// review bound to an existing task, must validate the original context.
+		if status == "approved" || request.TaskID != "" {
 			request, e = gatewayApprovalTaskContext(ctx, tx, ws, request, digest, nil)
 			if e != nil {
 				return e
 			}
-			if leaseDigest == "" || aisecurity.TaskLeaseDigest(request) != leaseDigest {
+			if aisecurity.TaskLeaseDigest(request) != leaseDigest {
 				return ErrForbidden
 			}
-			decision := aisecurity.Evaluate(v.Configuration, request, time.Now().UTC())
+			decision := aisecurity.Evaluate(v.Configuration, request, now)
 			if !decision.RequiresApproval {
 				return ErrForbidden
 			}
@@ -121,7 +131,13 @@ func (s *Store) ReviewAISecurityApproval(ctx context.Context, ws, actor, id int6
 // This does not admit a step or bypass runtime credential authentication.
 func gatewayApprovalTaskContext(ctx context.Context, tx pgx.Tx, ws int64, r aisecurity.Request, catalog string, categories []string) (aisecurity.Request, error) {
 	if r.TaskID == "" {
-		return r, nil
+		// Proposal and review already lock the catalog row. Use the same
+		// authority rules as execution, including optional handling deadlines.
+		_, err := gatewayCurrentCatalogPolicy(ctx, tx, ws, gatewaygovernance.TaskCheckInput{
+			CatalogDigest: catalog, ApplicationID: r.ApplicationID, PrincipalID: r.PrincipalID,
+			Kind: r.Kind, ToolID: r.ToolID, Action: r.Action, Target: r.Target,
+		}, false)
+		return r, err
 	}
 	if !gatewayRuntimeID.MatchString(r.TaskID) {
 		return r, ErrInvalid

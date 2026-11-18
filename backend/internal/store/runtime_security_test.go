@@ -24,7 +24,8 @@ func TestRuntimeSecurityStore(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set PLUME_STORE_TEST_DSN to a disposable PostgreSQL database")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	// The quota exercise writes 1,000 distinct routes against real PostgreSQL.
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

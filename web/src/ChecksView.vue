@@ -85,7 +85,7 @@ onBeforeUnmount(() => {active?.abort();detailRequest?.abort()})
   <header v-if="!activityId" class="page-header">
     <div>
       <p class="eyebrow">治理工作区 / 监管检查</p>
-      <h1>从发现走到有证据的闭环</h1>
+      <h1>监管检查与整改复核</h1>
       <p>关联监管要求和数据资产，记录取证、整改与独立复核。</p>
     </div>
     <a v-if="canManageChecks(workspace.role)" class="button button-primary" :href="href(scopeActivity ? 'checks/new/' + scopeActivity : 'checks/new')">
@@ -106,8 +106,10 @@ onBeforeUnmount(() => {active?.abort();detailRequest?.abort()})
     </div>
   </section>
   <div v-if="!activityId" class="check-status-strip" aria-label="本次载入检查状态">
-    <div v-for="entry in statusCounts" :key="entry.value"><span>{{ entry.label }}</span><strong>{{ entry.count }}</strong></div>
-    <p>本次载入 {{ items.length }} 项<span v-if="cursor !== null"> · 仍有更多记录</span></p>
+    <div v-for="entry in statusCounts" :key="entry.value"><span>{{ entry.label }}</span><strong>{{ !items.length && (loading || errorMessage) ? '—' : entry.count }}</strong></div>
+    <p v-if="!items.length && loading" role="status">正在读取检查状态…</p>
+    <p v-else-if="!items.length && errorMessage">读取失败，检查状态未知</p>
+    <p v-else>已载入 {{ items.length }} 项<span v-if="cursor !== null"> · 仍有更多记录</span></p>
   </div>
   <div class="checks-workbench" :class="{ 'checks-embedded': activityId }">
   <section class="panel" :class="{ 'activity-related': activityId }" aria-labelledby="checks-title" :aria-busy="loading">
@@ -136,7 +138,7 @@ onBeforeUnmount(() => {active?.abort();detailRequest?.abort()})
               <a class="table-link" :href="href('checks/' + check.id)">{{ check.template?.item.title || check.requirement.title }}</a>
               <span class="table-secondary">{{ check.requirement.code }} · {{ check.assetName }}</span>
               <span v-if="!activityId && check.activity" class="table-secondary">{{ check.activity.name }}</span>
-              <time class="table-secondary compact-date" :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time>
+              <div class="compact-date"><time class="table-secondary" :datetime="check.updatedAt">{{ formatDate(check.updatedAt) }}</time><button class="check-select" type="button" :aria-pressed="selected?.id === check.id" @click="selectedId = check.id">查看摘要</button></div>
             </th>
             <td>{{ check.ownerTeam }}</td>
             <td><span class="badge status" :class="'status-' + check.status">{{ checkStatusLabels[check.status] }}</span></td>

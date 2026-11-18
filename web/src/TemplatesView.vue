@@ -57,7 +57,7 @@ onBeforeUnmount(() => active?.abort())
   <a v-if="revisionId" class="back-link" :href="pageUrl"><Icon name="back" />返回检查模板</a>
   <header class="page-header">
     <div>
-      <h1>{{ revision?.title || '先核对适用条件，再采用条目' }}</h1>
+      <h1>{{ revision?.title || '检查模板与采用版本' }}</h1>
       <p v-if="revision">{{ activityKindLabels[revision.kind] }} · 版本 {{ revision.version }} · {{ revision.builtIn ? '内置模板' : '工作区模板' }}</p>
       <p v-else>为对外共享、数据出境和 AI 使用定义可复用的检查项。</p>
     </div>

@@ -28,6 +28,26 @@ func sseCompletion(model string, parts []string, tail string) string {
 	out.WriteString(tail)
 	return out.String()
 }
+
+func TestStrictHoldStreamUsesActualWireByteBudget(t *testing.T) {
+	const limit = 1024
+	const wireBudget = limit*8 + 65536
+	model := Model{ID: "enterprise"}
+	completion := strings.ReplaceAll(sseCompletion(model.ID, []string{"ordinary reply"}, "data: [DONE]\n\n"), "\n", "\r\n")
+	padding := wireBudget - len(completion)
+	completion += strings.Repeat("\r\n", padding/2) + strings.Repeat("\n", padding%2)
+	for _, suffix := range []string{"", "\r\n"} {
+		raw, err := assembleModelStream(strings.NewReader(completion+suffix), model, limit, false, func() bool { return true })
+		if suffix == "" {
+			if err != nil || !bytes.Contains(raw, []byte("ordinary reply")) {
+				t.Fatalf("complete stream within the budget: %v", err)
+			}
+		} else if err == nil || len(raw) != 0 {
+			t.Fatal("stream exceeding the wire budget returned a completed response")
+		}
+	}
+}
+
 func TestStrictHoldSSEChecksCompleteDecodedTextAndFailsClosed(t *testing.T) {
 	cases := map[string]string{
 		"safe":            sseCompletion("enterprise", []string{"approved ", "answer"}, "data: [DONE]\n\n"),

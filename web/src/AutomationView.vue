@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
   <header class="page-header">
     <div>
       <p class="eyebrow">治理工作区 / 连接器</p>
-      <h1>配置完成之后，还要看到真实运行</h1>
+      <h1>自动采集与运行记录</h1>
       <p>定期读取已授权的数据来源，自动登记资产目录或检查证据，并保留每次运行结果。</p>
     </div>
     <div v-if="owner && !showForm && !issued && !managedDraft" class="automation-actions">

@@ -35,10 +35,13 @@ func assembleModelStream(reader io.Reader, model Model, limit int, bifrost bool,
 	if expected == "" {
 		expected = model.ID
 	}
-	scanner := bufio.NewScanner(io.LimitReader(reader, int64(limit)*8+65537))
+	// Reserve one sentinel byte to distinguish real EOF from a truncated read.
+	// Scanner strips line endings, so it cannot measure the provider's wire bytes.
+	wire := &io.LimitedReader{R: reader, N: int64(limit)*8 + 65537}
+	scanner := bufio.NewScanner(wire)
 	scanner.Buffer(make([]byte, 4096), limit+65536)
 	var text strings.Builder
-	total, frames := 0, 0
+	frames := 0
 	done, finished, hadChoice := false, false, false
 	id := ""
 	var usage *modelUsage
@@ -130,10 +133,6 @@ func assembleModelStream(reader io.Reader, model Model, limit int, bifrost bool,
 	}
 	for scanner.Scan() {
 		line := scanner.Text()
-		total += len(line) + 1
-		if total > limit*8+65536 {
-			return nil, bad
-		}
 		if line == "" {
 			if err := consume(); err != nil {
 				return nil, err
@@ -153,7 +152,7 @@ func assembleModelStream(reader io.Reader, model Model, limit int, bifrost bool,
 		value = strings.TrimPrefix(value, " ")
 		data = append(data, value)
 	}
-	if scanner.Err() != nil || len(data) != 0 || !done || usage == nil || usage.TotalTokens == nil || !fresh() {
+	if scanner.Err() != nil || wire.N == 0 || len(data) != 0 || !done || usage == nil || usage.TotalTokens == nil || !fresh() {
 		return nil, bad
 	}
 	return json.Marshal(map[string]any{"object": "chat.completion", "model": expected, "choices": []any{map[string]any{"index": 0, "message": map[string]string{"role": "assistant", "content": text.String()}, "finish_reason": finish}}, "usage": usage})

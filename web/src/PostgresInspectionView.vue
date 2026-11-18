@@ -40,7 +40,13 @@ async function load() {
   missing.value = false
   loadError.value = ''
   try {
-    record.value = await request<PostgresInspection>(apiUrl, { signal: active.signal })
+    const result = await request<PostgresInspection>(apiUrl, { signal: active.signal })
+    if (active.signal.aborted) return
+    if (!result?.table || !Array.isArray(result.table.columns) || !Array.isArray(result.table.grants)) {
+      throw new Error('采集结果缺少字段或权限记录，请重试读取。')
+    }
+    record.value = result
+    if (!tabs.value.some(tab => tab.id === selectedTab.value)) selectedTab.value = 'columns'
   } catch (error) {
     if (active.signal.aborted) return
     if (error instanceof ApiError && error.status === 401) emit('sessionExpired')
@@ -69,17 +75,17 @@ onBeforeUnmount(() => active.abort())
       </div>
       <div class="page-actions">
         <a class="button button-secondary" :href="home + '/classification/' + assetId">分类与自动判定</a>
-        <button type="button" class="button button-secondary" :disabled="loading" @click="load">刷新采集结果</button>
+        <button type="button" class="button button-secondary" :disabled="loading" @click="load">{{ loading ? '正在读取…' : '刷新采集结果' }}</button>
       </div>
     </header>
     <p v-if="loading && !record" class="message" role="status">正在读取 PostgreSQL 采集结果…</p>
-    <p v-else-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }}</p>
-    <section v-else-if="missing" class="panel empty-state">
+    <p v-if="loadError" class="message message-error page-feedback" role="alert">{{ loadError }} {{ record ? '下方保留上次成功读取的快照。' : '尚未取得采集结果。' }}</p>
+    <section v-if="missing" class="panel empty-state">
       <h2>暂无 PostgreSQL 采集结果</h2>
       <p>托管 PostgreSQL 任务成功采集此表后，字段和授权会在这里显示。</p>
       <a class="button button-secondary" :href="home + '/automation'">查看自动采集</a>
     </section>
-    <template v-else-if="record && table">
+    <template v-if="record && table">
       <dl class="scope-strip postgres-counts" aria-label="本次采集范围"><div><dt>字段</dt><dd>{{ table.columns.length }}</dd></div><div><dt>疑似敏感字段</dt><dd>{{ candidates.length }}</dd></div><div><dt>直接授权记录</dt><dd>{{ table.grants.length }}</dd></div><div><dt>采集时间</dt><dd class="postgres-count-date"><time :datetime="record.observedAt">{{ formatDate(record.observedAt) }}</time></dd></div></dl>
       <div class="postgres-workbench"><aside class="panel governance-pg-tree"><div class="panel-heading"><h2>当前资产目录</h2></div><p><Icon name="workspace"/>{{table.schema||'Schema 未记录'}}</p><strong><Icon name="assets"/>{{table.name}}</strong><p class="field-hint">{{table.sourceRef}}</p><a class="table-link" :href="home+'/assets'">返回完整资产台账 <Icon name="chevron"/></a><p class="governance-inline-note">仅展示当前明确对象，其他表与字段需从资产台账选择。</p></aside><div class="section-stack postgres-main"><nav class="postgres-tabs" aria-label="查看采集证据"><button v-for="tab in tabs" :key="tab.id" :class="{ active: selectedTab === tab.id }" :aria-pressed="selectedTab === tab.id" type="button" @click="selectedTab = tab.id">{{ tab.label }}<span v-if="tab.count !== undefined">{{ tab.count }}</span></button></nav>
 <section v-show="selectedTab === 'columns'" class="panel postgres-panel" aria-labelledby="postgres-columns-title">
@@ -89,7 +95,7 @@ onBeforeUnmount(() => active.abort())
                   :class="candidatesOnly ? 'button-primary' : 'button-secondary'" :aria-pressed="candidatesOnly"
                   @click="candidatesOnly = !candidatesOnly">仅看疑似敏感</button>
         </div>
-        <div v-if="visibleColumns.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-columns-title">
+        <div v-if="visibleColumns.length" class="table-scroll" role="region" tabindex="0" aria-label="字段识别表">
           <table class="data-table postgres-table">
             <thead>
               <tr><th scope="col">字段</th><th scope="col">数据类型</th><th scope="col">可为空</th><th scope="col">疑似敏感</th><th scope="col">采集角色读取权限</th></tr>
@@ -118,13 +124,13 @@ onBeforeUnmount(() => active.abort())
         </dl>
         <p class="postgres-profile-hint">计数来自有界前缀样本，规模和人数需另行核验。</p>
         <ul v-if="analysis.warnings?.length" class="postgres-profile-warnings"><li v-for="warning in analysis.warnings" :key="warning">{{ postgresProfileWarning(warning) }}</li></ul>
-        <div v-if="analysis.columns?.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-content-title">
+        <div v-if="analysis.columns?.length" class="table-scroll" role="region" tabindex="0" aria-label="源库格式聚合表">
           <table class="data-table postgres-table">
-            <thead><tr><th scope="col">字段</th><th scope="col">可见非空行数</th><th scope="col">格式命中行数</th></tr></thead>
+            <thead><tr><th scope="col">字段</th><th scope="col" class="postgres-count">可见非空行数</th><th scope="col">格式命中行数</th></tr></thead>
             <tbody>
               <tr v-for="column in analysis.columns" :key="column.column">
                 <th scope="row" class="mono">{{ column.column }}</th>
-                <td>{{ column.nonNullRows }}<span v-if="column.limitedRows" class="table-secondary">{{ column.limitedRows }} 行超出格式分析长度</span></td>
+                <td class="postgres-count">{{ column.nonNullRows }}<span v-if="column.limitedRows" class="table-secondary">{{ column.limitedRows }} 行超出格式分析长度</span></td>
                 <td>
                   <span v-for="match in column.matches" :key="match.category" class="table-secondary">{{ postgresSensitivityLabel(match.category) }} · {{ match.count }} 行</span>
                 </td>
@@ -138,7 +144,7 @@ onBeforeUnmount(() => active.abort())
         <div class="panel-heading">
           <div><h2 id="postgres-grants-title">直接授权</h2><p>{{ postgresPermissionScope }}</p></div>
         </div>
-        <div v-if="table.grants.length" class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-grants-title">
+        <div v-if="table.grants.length" class="table-scroll" role="region" tabindex="0" aria-label="直接授权记录表">
           <table class="data-table postgres-table postgres-grants">
             <thead>
               <tr>
@@ -166,7 +172,7 @@ onBeforeUnmount(() => active.abort())
       </section>
 <section v-if="table.constraints?.length" v-show="selectedTab === 'constraints'" class="panel postgres-panel" aria-labelledby="postgres-constraints-title">
         <div class="panel-heading"><h2 id="postgres-constraints-title">表约束</h2></div>
-        <div class="table-scroll" role="region" tabindex="0" aria-labelledby="postgres-constraints-title">
+        <div class="table-scroll" role="region" tabindex="0" aria-label="表约束记录表">
           <table class="data-table postgres-table">
             <thead><tr><th scope="col">约束</th><th scope="col">类型</th><th scope="col">字段</th><th scope="col">验证状态</th></tr></thead>
             <tbody><tr v-for="constraint in table.constraints" :key="constraint.name">
@@ -216,4 +222,7 @@ onBeforeUnmount(() => active.abort())
 .postgres-profile-hint { margin: 0 1.1rem .65rem; color: var(--secondary); font-size: .83rem; }
 .postgres-profile-warnings { margin: .45rem 1.1rem .8rem; padding-left: 1.1rem; color: var(--warning); font-size: .83rem; }
 .postgres-context{display:grid;gap:16px}.postgres-counts dd{color:var(--ink)}
+.postgres-record h1,.postgres-record .postgres-source-ref,.postgres-record .governance-pg-tree p,.postgres-record .governance-pg-tree strong,.postgres-record .governance-field-evidence,.postgres-table th,.postgres-table td{overflow-wrap:anywhere}
+.postgres-table :is(th,td){vertical-align:top}
+.postgres-table .postgres-count{text-align:right;font-variant-numeric:tabular-nums}
 </style>

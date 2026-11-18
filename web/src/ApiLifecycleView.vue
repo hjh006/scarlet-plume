@@ -23,6 +23,18 @@ const exporting = ref(false)
 const error = ref('')
 const exportError = ref('')
 const appliedQuery = ref('')
+const draftQuery = computed(() => {
+  const query = new URLSearchParams()
+  if (service.value.trim()) query.set('service', service.value.trim())
+  if (sourceId.value) query.set('sourceId', sourceId.value)
+  return query.toString()
+})
+const appliedScope = computed(() => {
+  const query = new URLSearchParams(appliedQuery.value)
+  const serviceName = query.get('service') || '全部服务'
+  const id = query.get('sourceId')
+  return `${serviceName} · ${id ? sources.value.find(source => String(source.id) === id)?.name || `来源 #${id}` : '全部来源'}`
+})
 const visibleCount = ref(50)
 const changed = computed(() => page.value?.comparisons.reduce((count, item) => count + item.changes.length, 0) ?? 0)
 const observed = computed(() => page.value?.items.filter(item => item.observed).length ?? 0)
@@ -46,20 +58,23 @@ async function load() {
   loading.value = true
   error.value = ''
   exportError.value = ''
-  const query = new URLSearchParams()
-  if (service.value.trim()) query.set('service', service.value.trim())
-  if (sourceId.value) query.set('sourceId', sourceId.value)
+  const query = draftQuery.value
   try {
-    page.value = await request<ApiLifecycle>(endpoint + (query.size ? '?' + query : ''), { signal: active.signal })
-    sources.value = page.value.sources
-    appliedQuery.value = query.toString()
+    const result = await request<ApiLifecycle>(endpoint + (query ? '?' + query : ''), { signal: active.signal })
+    if (active.signal.aborted) return
+    if (!Array.isArray(result?.items) || !Array.isArray(result.sources) || !Array.isArray(result.services) || !Array.isArray(result.comparisons) || !Number.isFinite(Date.parse(result.generatedAt))) {
+      error.value = '目录响应缺少有效的记录、来源或生成时间。请重新查询。'
+      return
+    }
+    page.value = result
+    sources.value = result.sources
+    appliedQuery.value = query
     visibleCount.value = 50
     if (!page.value.items.some(item => item.service + ':' + item.method + ':' + item.routeKey === selectedKey.value)) {
       const first = page.value.items[0]
       selectedKey.value = first ? first.service + ':' + first.method + ':' + first.routeKey : ''
     }
   } catch (failure) {
-    page.value = null
     error.value = errorText(failure)
   } finally {
     loading.value = false
@@ -88,7 +103,7 @@ onBeforeUnmount(() => active.abort())
     <header class="page-header">
       <div>
         <p class="eyebrow">API 安全</p>
-        <h1>接口变了，哪些依据需要重新核对？</h1>
+        <h1>接口生命周期与契约变更</h1>
         <p>对照已登记的契约与实际路由观测，追踪接口和敏感字段声明的版本变化。</p>
       </div>
       <div class="page-actions">
@@ -106,26 +121,27 @@ onBeforeUnmount(() => active.abort())
       <form class="lifecycle-filters" @submit.prevent="load">
         <div class="field">
           <label for="lifecycle-service">服务别名</label>
-          <input id="lifecycle-service" v-model="service" list="lifecycle-services" maxlength="80" placeholder="全部服务" @input="sourceId = ''">
+          <input id="lifecycle-service" v-model="service" list="lifecycle-services" maxlength="80" placeholder="全部服务" :disabled="loading" @input="sourceId = ''">
           <datalist id="lifecycle-services"><option v-for="alias in page?.services ?? []" :key="alias" :value="alias" /></datalist>
         </div>
         <div class="field">
           <label for="lifecycle-source">运行时来源</label>
-          <select id="lifecycle-source" v-model="sourceId" @change="chooseSource">
+          <select id="lifecycle-source" v-model="sourceId" :disabled="loading" @change="chooseSource">
             <option value="">全部来源</option>
             <option v-for="source in sources" :key="source.id" :value="String(source.id)">{{ source.name }} · {{ source.service }}{{ source.revokedAt ? '（已撤销）' : '' }}</option>
           </select>
         </div>
         <button type="submit" class="button button-secondary" :disabled="loading || exporting">{{ loading ? '正在查询…' : '查询目录' }}</button>
       </form>
-      <p v-if="error" class="message message-error lifecycle-feedback" role="alert">{{ error }}</p>
-      <p v-else-if="loading" class="empty-state" role="status">正在对照契约与运行时观测…</p>
-      <div v-else-if="page" class="lifecycle-summary">
+      <p v-if="error" class="message message-error lifecycle-feedback" role="alert">{{ error }}{{ page ? ' 已保留上次成功读取的目录。' : '' }}</p>
+      <p v-if="loading" class="empty-state" role="status">正在对照契约与运行时观测…</p>
+      <div v-if="page" class="lifecycle-summary">
         <p><strong>{{ page.items.length }}</strong> 项接口 · <strong>{{ observed }}</strong> 项有历史观测 · <strong>{{ changed }}</strong> 项版本变更</p>
-        <p class="muted">生成于 {{ formatDate(page.generatedAt) }}。未观测接口的实际使用情况待核实；下线待核实项需结合契约时间与最后观测时间复测。</p>
+        <p class="muted">已应用 {{ appliedScope }} · 生成于 {{ formatDate(page.generatedAt) }}。</p>
+        <p v-if="draftQuery !== appliedQuery" class="muted" role="status">筛选条件待应用。当前目录和导出仍使用上方已应用范围。</p>
       </div>
     </section>
-    <template v-if="page && !loading">
+    <template v-if="page">
       <section v-if="selectedRoute" class="rw-panel rw-lifecycle-primary" aria-labelledby="rw-lifecycle-title"><div class="rw-section-heading"><div><h2 id="rw-lifecycle-title">契约变更对比</h2><p>仅比较准确服务别名下最近前一版与当前契约。</p></div><div class="field rw-route-picker"><label for="rw-lifecycle-route">核对接口</label><select id="rw-lifecycle-route" v-model="selectedKey"><option v-for="item in page.items" :key="item.service + item.method + item.routeKey" :value="item.service + ':' + item.method + ':' + item.routeKey">{{ item.service }} · {{ item.method }} {{ item.route }}</option></select></div></div><div class="rw-scope-bar"><strong>{{ selectedRoute.service }} · {{ selectedRoute.method }} {{ selectedRoute.route }}</strong><span>{{ lifecycleStateLabels[selectedRoute.state] }}</span><span>采用生成时间 {{ formatDate(page.generatedAt) }}</span></div><div class="rw-version-layout"><div class="rw-version-pair"><article v-for="version in [{ label: '上一契约', id: selectedComparison?.previousScanId, at: selectedComparison?.previousCreatedAt, operation: selectedChange?.before }, { label: '当前契约', id: selectedComparison?.scanId, at: selectedComparison?.createdAt, operation: selectedChange?.after ?? (!selectedChange && selectedRoute.registered ? selectedRoute : undefined) }]" :key="version.label" class="rw-version-card"><header><h3>{{ version.label }} <a v-if="version.id" :href="home + '/api-security/' + version.id">#{{ version.id }}</a></h3><small>{{ version.at ? formatDate(version.at) : '尚无对应版本时间' }}</small></header><template v-if="version.operation"><dl><div><dt>接口</dt><dd>{{ selectedRoute.method }} {{ selectedRoute.route }}</dd></div><div><dt>鉴权声明</dt><dd>{{ version.operation.auth.map(value => lifecycleAuthLabels[value] || value).join(' / ') || '未提供' }}</dd></div><div><dt>弃用声明</dt><dd>{{ version.operation.deprecationMixed ? '部分参数变体弃用' : version.operation.deprecated ? '声明弃用' : '未声明弃用' }}</dd></div><div><dt>字段候选</dt><dd><ul v-if="version.operation.sensitiveFields.length" class="rw-compact-list"><li v-for="field in version.operation.sensitiveFields" :key="field.location + field.name + field.category">{{ field.name }} · {{ lifecycleCategoryLabels[field.category] || field.category }}</li></ul><span v-else>此版未识别到字段声明候选</span></dd></div></dl></template><p v-else class="rw-version-gap">{{ selectedChange ? '该版本无此接口。' : selectedComparison?.initial ? '首个契约，尚无前版可比较。' : selectedComparison ? '最近两版在所支持维度未发现该接口变更；下方目录保留当前声明。' : '暂无匹配契约版本。' }}</p></article></div><aside class="rw-version-review"><h3>这次需要核对什么？</h3><ul v-if="selectedChange" class="rw-change-list"><li v-for="kind in selectedChange.kinds" :key="kind"><Icon name="warning" />{{ lifecycleChangeLabels[kind] }}</li></ul><p v-else>{{ selectedComparison?.initial ? '先核对初始登记范围与实际使用。' : '暂无该接口的已记录版本变化。' }}</p><dl><div><dt>最后来源观察</dt><dd>{{ selectedRoute.lastSeen ? formatDate(selectedRoute.lastSeen) : '尚无匹配观测' }}</dd></div><div><dt>实际观察来源</dt><dd>{{ selectedRoute.sources.map(source => source.name + (source.revokedAt ? '（已撤销）' : '')).join('、') || '未取得' }}</dd></div><div><dt>实际鉴权与内容</dt><dd class="rw-unknown">契约变更本身不提供功能验证结论</dd></div></dl><a class="button button-secondary" :href="home + '/api-security/runtime'">核对运行时来源</a></aside></div><p class="rw-boundary"><Icon name="warning" />未再次观测不能判断接口已下线；契约字段候选不能替代实际数据内容。</p></section>
       <div class="lifecycle-workbench"><section class="panel" aria-labelledby="lifecycle-directory-title">
         <div class="panel-heading"><div><h2 id="lifecycle-directory-title">统一接口目录</h2><p>最新契约与运行时路由的并集。计数按来源分别保留，包含已撤销来源的历史观测。</p></div></div>

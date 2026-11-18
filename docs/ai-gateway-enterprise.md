@@ -57,6 +57,8 @@ RAG 与工具仍经现有 Runtime 执行。客户端不能指定上游 URL、供
 
 缓存密钥由控制面部署环境提供：`SCARLET_GATEWAY_CACHE_KEY` 为标准 Base64 编码的 32 个随机字节，对应应用策略 `keyRef=env:SCARLET_GATEWAY_CACHE_KEY`。不把实际密钥写入目录、数据库或审计。更换密钥时同时更新不可变 `keyVersion` 并失效旧缓存；数据库恢复仍需相应密钥。部署时需提供独立私有密钥，应用缓存默认关闭。
 
+TTL 到期时立即拒绝读取。控制面启动后及每分钟按数据库时间清理一批最多 1,000 条过期密文，包含空闲应用；并发实例跳过其他事务锁定的条目，下轮继续处理。升级包含 067 到期索引。备份和 WAL 的留存期限由数据库部署策略管理。
+
 ## 工作负载 JWT 与短期凭据
 
 在现有网关应用区管理工作负载绑定。Owner 选择已保存且启用的应用，导入签发者的公开 JWKS，填写精确 `issuer`、`audience`、`subject` 与 1—300 秒的 `maxTtlSeconds`。名称最多 128 字节，issuer/audience 最多 512 字节，subject 最多 255 字节。issuer 为不含用户凭证、查询或片段的 HTTPS URL；不会由此发起发现请求。audience 可使用专用 URL 或 URN，宜为工作区单独分配。

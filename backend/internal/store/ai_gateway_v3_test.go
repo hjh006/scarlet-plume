@@ -149,6 +149,23 @@ func TestGatewayV3CacheLRUTTLAndConcurrentLimits(t *testing.T) {
 	if out, e := f.repo.GetGatewayCache(t.Context(), third.CacheScope); e != nil || out.Hit {
 		t.Fatalf("expired cache accepted: %v", e)
 	}
+	// Maintenance must remove expired ciphertext even when the application
+	// makes no further requests, and must preserve a fresh entry.
+	if _, e := f.repo.PruneExpiredGatewayCache(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	if e := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM plume.ai_gateway_cache WHERE workspace_id=$1`, f.ws.ID).Scan(&count); e != nil || count != 0 {
+		t.Fatalf("expired ciphertext retained count=%d err=%v", count, e)
+	}
+	if e := f.repo.PutGatewayCache(t.Context(), third); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := f.repo.PruneExpiredGatewayCache(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	if out, e := f.repo.GetGatewayCache(t.Context(), third.CacheScope); e != nil || !out.Hit || out.Output != third.Output {
+		t.Fatalf("maintenance removed fresh cache entry: %v", e)
+	}
 }
 func TestGatewayV3FallbackUnknownBudgetParentRaceAndSharedCircuit(t *testing.T) {
 	f, in := gatewayTestSetup(t, 1_000_000, 10000, 1_000_000)

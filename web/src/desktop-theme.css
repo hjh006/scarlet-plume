@@ -276,7 +276,7 @@ button, a, input, select, textarea, summary { outline-offset: 4px; }
 .desktop-design :is(input,select,textarea) { max-width: 100%; }
 .app-shell.desktop-design .workspace-shell .main-content :is(input:not([type="checkbox"],[type="radio"],[type="range"],[type="color"]),select,textarea) { font-size:16px; min-height:42px; }
 .desktop-design .table-scroll { overflow-x: auto; }
-.desktop-design .table-scroll:focus-visible { outline-offset: -3px; }
+.desktop-design :is(.table-scroll,.api-table-frame):focus-visible { outline-offset: -3px; }
 @media (max-width: 1100px) {
   .workbench-grid, .form-workbench { grid-template-columns: minmax(0,1fr); }
   .desktop-design .workspace-crumb { max-width: 140px; }

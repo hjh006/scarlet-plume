@@ -235,6 +235,21 @@ func (s *Store) PutGatewayCache(ctx context.Context, in GatewayCachePut) error {
 	})
 }
 
+// PruneExpiredGatewayCache removes a bounded batch of expired ciphertext,
+// even for idle applications. The database clocks both expiry and reclamation.
+func (s *Store) PruneExpiredGatewayCache(ctx context.Context) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		WITH expired AS (
+			SELECT workspace_id,application_id,scope_hash FROM plume.ai_gateway_cache
+			WHERE expires_at<=statement_timestamp()
+			ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM plume.ai_gateway_cache AS cached USING expired
+		WHERE (cached.workspace_id,cached.application_id,cached.scope_hash)=
+		      (expired.workspace_id,expired.application_id,expired.scope_hash)`)
+	return result.RowsAffected(), err
+}
+
 func (s *Store) InvalidateGatewayCache(ctx context.Context, ws, actor int64, app string) (count int64, err error) {
 	if app != "" && !gatewayRuntimeID.MatchString(app) {
 		return 0, ErrInvalid

@@ -156,6 +156,7 @@ const scenarioReturn = ref<{ slug: string; path: string; label: string; sceneId:
 
 async function openNavigation() {
   if (navigationDialog.value?.open) { navigationInput.value?.focus({ preventScroll: true }); return }
+  if (document.querySelector('dialog:modal')) return
   navigationQuery.value = ''
   navigationDialog.value?.showModal()
   await nextTick()

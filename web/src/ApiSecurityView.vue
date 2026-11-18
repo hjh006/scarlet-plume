@@ -83,7 +83,14 @@ async function load() {
   try {
     const options = { signal: active.signal }
     if (detailPath) detail.value = await request<ScanDetail>(detailPath, options)
-    else scans.value = (await request<{ items: ScanSummary[] }>(apiPath, options)).items ?? []
+    else {
+      const result = await request<{ items: ScanSummary[] }>(apiPath, options)
+      if (!Array.isArray(result?.items)) {
+        loadError.value = '扫描列表响应缺少有效记录，请重新读取。'
+        return
+      }
+      scans.value = result.items
+    }
   } catch (error) {
     loadError.value = errorText(error)
   } finally {
@@ -151,7 +158,7 @@ onBeforeUnmount(() => active.abort())
     <header class="api-masthead" :class="{ 'api-masthead--detail': scanId }">
       <div class="api-masthead-copy">
         <p v-if="scanId" class="api-scan-index">API 安全 · 扫描 #{{ scanId }}</p>
-        <h1>{{ scanId ? (detail?.source ? detail.source + ' · 契约扫描详情' : 'API 契约扫描详情') : '接口说了什么，实际发生了什么？' }}</h1>
+        <h1>{{ scanId ? (detail?.source ? detail.source + ' · 契约扫描详情' : 'API 契约扫描详情') : 'OpenAPI 契约扫描' }}</h1>
         <p class="api-scan-context">
           {{ scanId ? '依据接口契约分析，运行时行为待验证。' : '盘点接口、鉴权声明与疑似敏感字段，将契约发现登记到监管检查。' }}
         </p>
@@ -172,9 +179,9 @@ onBeforeUnmount(() => active.abort())
         <div><h2 id="api-history-title">最近扫描</h2><p>展示最近 25 次扫描，可查看接口明细与关联检查。</p></div>
         <button type="button" class="button button-secondary" :disabled="loading" @click="load">刷新扫描</button>
       </div>
-      <p v-if="loadError" class="message message-error report-feedback" role="alert">{{ loadError }}</p>
-      <p v-else-if="loading && !scans.length" class="empty-state" role="status">正在读取扫描记录…</p>
-      <div v-else-if="scans.length" class="api-table-frame" role="region" tabindex="0" aria-labelledby="api-history-title">
+      <p v-if="loadError" class="message message-error report-feedback" role="alert">{{ loadError }}{{ scans.length ? ' 已保留上次读取的扫描记录。' : '' }}</p>
+      <p v-if="loading && !scans.length" class="empty-state" role="status">正在读取扫描记录…</p>
+      <div v-if="scans.length" class="api-table-frame" role="region" tabindex="0" aria-labelledby="api-history-title">
         <table class="api-table api-history-table" role="table">
           <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">来源</th><th scope="col" role="columnheader">接口</th><th scope="col" role="columnheader">疑似敏感字段</th><th scope="col" role="columnheader">契约发现</th><th scope="col" role="columnheader">扫描时间</th></tr></thead>
           <tbody role="rowgroup">
@@ -191,7 +198,7 @@ onBeforeUnmount(() => active.abort())
           </tbody>
         </table>
       </div>
-      <div v-else class="empty-state"><strong>暂无 API 扫描</strong><p>导入 OpenAPI 文档后，这里会显示扫描结果。</p></div>
+      <div v-else-if="!loading && !loadError" class="empty-state"><strong>暂无 API 扫描</strong><p>导入 OpenAPI 文档后，这里会显示扫描结果。</p></div>
     </section>
 
 <aside class="context-rail api-scan-rail">    <section v-if="canScan" class="panel api-panel api-import" aria-labelledby="api-scan-title">
